@@ -10,6 +10,10 @@ updates:
         patterns:
           - remotion
           - "@remotion/*"
+      vite-toolchain:
+        patterns:
+          - vite
+          - "@vitejs/plugin-react"
     labels:
       - dependencies
 
