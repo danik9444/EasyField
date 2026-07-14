@@ -25,17 +25,17 @@ import type { ReferenceImage } from '../data/referenceImage'
 import type { EnhanceReference } from '../services/chat'
 import { promptCharacterCount } from '../data/promptLimits'
 
-// Whole-image prompt edits — kie.ai's edit-capable generation models.
+// Whole-image prompt edits using cloud models that support image editing.
 const CUSTOM_MODELS = IMAGE_MODELS
-// Mask-based inpainting — the current verified Kie adapter with dedicated
+// Mask-based inpainting — the current verified cloud adapter with dedicated
 // image_url + mask_url fields.
 const INPAINT_MODELS = ['Ideogram V3 Edit']
 
-// Upscale models (kie.ai). Topaz exposes an upscale_factor; Recraft Crisp has
+// Cloud upscale models. Topaz exposes an upscale_factor; Recraft Crisp has
 // no settings beyond the source image.
 const UPSCALE_MODELS = ['Topaz Image Upscale', 'Recraft Crisp Upscale']
 const TOPAZ_FACTORS = ['1×', '2×', '4×', '8×'] // topaz/image-upscale upscale_factor
-// Remove-background: kie.ai recraft/remove-background — no settings.
+// Remove-background uses the verified Recraft endpoint with no settings.
 const REMOVE_BG_MODEL = 'Recraft Remove BG'
 const PREFS_KEY = 'edit-image'
 const BRUSH_MIN = 8
@@ -444,7 +444,7 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
         : maskMissing
           ? 'Paint the area you want Inpaint to replace.'
           : !connected
-            ? 'Connect Kie.ai to run this edit'
+            ? 'Connect EasyField Cloud to run this edit'
             : spendBlocked
               ? spendApproval.reason
               : utilityAction === 'upscale'

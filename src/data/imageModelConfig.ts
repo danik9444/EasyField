@@ -1,5 +1,5 @@
-// Per-model generation options, sourced from kie.ai's published API schemas
-// (docs.kie.ai/market/...) — the image-to-image/edit variant of each model,
+// Per-model generation options, sourced from published cloud API schemas —
+// the image-to-image/edit variant of each model,
 // since that's the variant that accepts reference images. Verified 2026-07-13.
 
 export interface ImageModelOption {
@@ -9,7 +9,7 @@ export interface ImageModelOption {
 }
 
 export interface ImageModelConfig {
-  /** Provider prompt ceiling published by the active Kie endpoint. */
+  /** Provider prompt ceiling published by the active cloud endpoint. */
   promptMax: number
   maxReferenceImages: number
   aspectRatios: string[]
@@ -18,7 +18,7 @@ export interface ImageModelConfig {
 }
 
 export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
-  // docs.kie.ai/market/gpt/gpt-image-2-image-to-image
+  // GPT Image 2 image-to-image schema.
   'GPT Image 2': {
     promptMax: 20_000,
     maxReferenceImages: 16,
@@ -26,7 +26,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: ['1K', '2K', '4K'],
     extraOptions: [],
   },
-  // docs.kie.ai/market/seedream/5-pro-text-to-image + 5-pro-image-to-image
+  // Seedream 5 Pro text-to-image and image-to-image schemas.
   // basic=1K, high=2K; edit accepts up to 10 JPEG/PNG/WebP references (10 MB each).
   'Seedream 5 Pro': {
     promptMax: 5_000,
@@ -35,7 +35,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: ['1K', '2K'],
     extraOptions: [{ key: 'format', label: 'FORMAT', values: ['PNG', 'JPEG'] }],
   },
-  // docs.kie.ai/market/google/pro-image-to-image
+  // Nano Banana Pro image-to-image schema.
   'Nano Banana Pro': {
     promptMax: 10_000,
     maxReferenceImages: 8,
@@ -43,7 +43,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: ['1K', '2K', '4K'],
     extraOptions: [{ key: 'format', label: 'FORMAT', values: ['PNG', 'JPG'] }],
   },
-  // docs.kie.ai/market/google/nanobanana2
+  // Nano Banana 2 schema.
   'Nano Banana 2': {
     promptMax: 20_000,
     maxReferenceImages: 14,
@@ -51,7 +51,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: ['1K', '2K', '4K'],
     extraOptions: [{ key: 'format', label: 'FORMAT', values: ['PNG', 'JPG'] }],
   },
-  // docs.kie.ai/market/google/nano-banana-2-lite — no resolution param documented
+  // Nano Banana 2 Lite schema — no resolution parameter documented.
   'Nano Banana 2 Lite': {
     promptMax: 20_000,
     maxReferenceImages: 10,
@@ -59,7 +59,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: [],
     extraOptions: [],
   },
-  // docs.kie.ai/market/seedream-5-lite-image-to-image — "quality" tier basic=2K, high=4K
+  // Seedream 5 Lite image-to-image schema — "quality" tier basic=2K, high=4K.
   'Seedream 5 Lite': {
     promptMax: 3_000,
     maxReferenceImages: 14,
@@ -67,7 +67,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: ['2K', '4K'],
     extraOptions: [],
   },
-  // docs.kie.ai/market/seedream/4-5-edit — "quality" tier basic=2K, high=4K
+  // Seedream 4.5 edit schema — "quality" tier basic=2K, high=4K.
   'Seedream 4.5': {
     promptMax: 3_000,
     maxReferenceImages: 14,
@@ -75,7 +75,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: ['2K', '4K'],
     extraOptions: [],
   },
-  // docs.kie.ai/market/wan/2-7-image (still-image variant of Wan 2.7)
+  // Wan 2.7 still-image schema.
   'Wan 2.7 Image': {
     promptMax: 5_000,
     maxReferenceImages: 9,
@@ -83,7 +83,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: ['1K', '2K', '4K'],
     extraOptions: [],
   },
-  // docs.kie.ai/market/qwen2/image-edit — fixed native 2K output, single
+  // Qwen2 image-edit schema — fixed native 2K output, single
   // reference image only. The published input has no quality/tier parameter;
   // exposing one would imply a paid option that never reaches the API.
   'Qwen2 Image': {
@@ -93,7 +93,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     resolutions: [],
     extraOptions: [{ key: 'format', label: 'FORMAT', values: ['PNG', 'JPEG'] }],
   },
-  // docs.kie.ai/market/flux2/pro-image-to-image + flex-image-to-image
+  // Flux 2 Pro and Flex image-to-image schemas.
   'Flux 2': {
     promptMax: 5_000,
     maxReferenceImages: 8,
@@ -103,7 +103,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
   },
 }
 
-// docs.kie.ai/market/ideogram/v3-edit
+// Ideogram V3 Edit schema.
 export const IDEOGRAM_V3_EDIT_PROMPT_MAX = 5_000
 
 function pickDefaultAspect(ratios: string[]): string {

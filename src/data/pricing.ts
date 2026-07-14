@@ -1,7 +1,7 @@
-// Cost estimation from Kie's public pricing feed (the same endpoint used by
-// https://kie.ai/pricing). Live rows are refreshed by App; the local tables are
+// Cost estimation from the cloud provider's public pricing feed. Live rows are
+// refreshed by App; the local tables are
 // dated fallbacks so pricing stays useful offline without blocking generation.
-import type { KieLivePriceRow } from '../services/kie'
+import type { ProviderLivePriceRow } from '../services/providerGateway'
 import { topazImageOutputTier, type UpscaleMediaKind } from './upscale.ts'
 
 export const CREDIT_USD = 0.005
@@ -18,7 +18,7 @@ export interface Estimate {
   minimum?: boolean
 }
 
-interface IndexedLivePrice extends KieLivePriceRow {
+interface IndexedLivePrice extends ProviderLivePriceRow {
   search: string
 }
 
@@ -26,8 +26,8 @@ let LIVE_ROWS: IndexedLivePrice[] = []
 
 const normalise = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim()
 
-/** Install a complete snapshot from Kie's public live pricing table. */
-export function applyLivePrices(rows: KieLivePriceRow[]): number {
+/** Install a complete snapshot from the provider's public live pricing table. */
+export function applyLivePrices(rows: ProviderLivePriceRow[]): number {
   LIVE_ROWS = rows
     .filter((row) => Number.isFinite(row.credits))
     .map((row) => ({ ...row, search: normalise(row.modelDescription) }))
@@ -79,7 +79,7 @@ const IMAGE_FALLBACK: Record<string, ResMap | number> = {
 
 const FLUX_FALLBACK: Record<string, ResMap> = {
   Pro: { '1K': 5, '2K': 7 },
-  // Kie's current public table omits Flex rows; retain the latest published
+  // The current public table omits Flex rows; retain the latest published
   // values previously captured from its official pricing UI.
   Flex: { '1K': 14, '2K': 24 },
 }
@@ -443,7 +443,7 @@ export function upscaleRunEstimate(
   if (kind === 'image') {
     const hasDimensions = Number(context.width) > 0 && Number(context.height) > 0
     const tier = topazImageOutputTier(context.width, context.height, factor)
-    // Kie's public table currently stops at 8K even though the provider accepts
+    // The public table currently stops at 8K even though the provider accepts
     // output sides up to 20,000 px. Never guess a price above the published tier.
     if (hasDimensions && tier == null) return unavailable({ perSecond: false, unit: 'img' })
     const resolvedTier = tier ?? '2K'
@@ -471,7 +471,7 @@ export function upscaleRunEstimate(
 
 /**
  * Sum a reviewed Topaz batch only when every child has an exact, comparable
- * estimate. Kie accepts one source per task, so unknown duration/tier on one
+ * estimate. The cloud endpoint accepts one source per task, so unknown duration/tier on one
  * child makes the aggregate unknown rather than turning a mixed rate into a
  * misleading total. Individual item estimates can still be shown in the UI.
  */
@@ -542,7 +542,7 @@ export interface AvatarPriceContext {
 function avatarRate(model: string, resolution: string): { live?: number; fallback: number } | null {
   switch (model) {
     case 'Kling Avatar Pro':
-      // Kie's live table currently contains the legacy spelling "Avtar".
+      // The live table currently contains the legacy spelling "Avtar".
       return { live: livePrice(['kling ai avtar', 'pro']), fallback: 16 }
     case 'Kling Avatar Standard':
       return { live: livePrice(['kling ai avtar', 'standard']), fallback: 8 }
@@ -631,7 +631,7 @@ export function resolveCharged(estimate: Estimate): number | null {
 }
 
 export function formatCharged(charged: number | null): string {
-  if (charged == null) return 'Billed to your kie.ai credits'
+  if (charged == null) return 'Billed to your EasyField Cloud credits'
   return `Charged ${fmtCredits(charged)} cr · ${fmtUsd(charged * CREDIT_USD)}`
 }
 

@@ -1,13 +1,12 @@
-// Per-model request builders: map the panel's UI state to each kie.ai model's
-// EXACT documented `input` (Market jobs API) or request body (Veo / Runway /
-// Aleph / Suno). Field names, enums and defaults are taken verbatim from the
-// model's kie.ai OpenAPI doc (docs.kie.ai/...). Verified 2026-07-11.
+// Per-model request builders map the panel's UI state to the exact documented
+// `input` (Market jobs API) or request body (Veo / Runway / Aleph / Suno).
+// Field names, enums, and defaults mirror the active cloud-generation schemas.
 //
 // A model runs in whichever mode the supplied inputs imply: reference images →
 // reference/edit variant, start/end frames → image-to-video, otherwise the
 // text-to-x variant. Media URLs here are ALREADY hosted (uploaded via
-// services/kie.uploadUrl) — builders never see local blobs.
-import type { KieRequest } from '../services/kie'
+// providerGateway.uploadUrl) — builders never see local blobs.
+import type { ProviderRequest } from '../services/providerGateway'
 import { IDEOGRAM_V3_EDIT_PROMPT_MAX, IMAGE_MODEL_CONFIG } from './imageModelConfig.ts'
 import { VIDEO_MODEL_CONFIG } from './videoModelConfig.ts'
 import { VIDEO_EDIT_CONFIG } from './videoEditConfig.ts'
@@ -39,11 +38,11 @@ import {
   type AvatarSubjectLayout,
 } from './avatar.ts'
 
-const job = (model: string, input: Record<string, unknown>): KieRequest => ({ family: 'jobs', model, input })
+const job = (model: string, input: Record<string, unknown>): ProviderRequest => ({ family: 'jobs', model, input })
 
 // ---- value mappers ---------------------------------------------------------
 const lc = (v?: string) => (v ? v.toLowerCase() : v)
-// kie.ai uses lowercase "4k" for Seedance / Veo / Omni resolution.
+// The cloud schemas use lowercase "4k" for Seedance / Veo / Omni resolution.
 const res4k = (r: string) => (r === '4K' ? '4k' : r)
 // Seedance / adaptive aspect is lowercase.
 const asp = (a: string) => (a === 'Adaptive' ? 'adaptive' : a)
@@ -59,6 +58,9 @@ const topazFactor = (factor: string, allowed: readonly string[], media: string) 
 const stripS = (d?: string) => (d ? d.replace(/s$/i, '') : d)
 const nanoFmt = (f?: string) => (f === 'JPG' ? 'jpg' : 'png')
 const qwenFmt = (f?: string) => (f === 'JPEG' ? 'jpeg' : 'png')
+// Completed tasks are collected by polling, but this schema still requires a
+// callback URL. Keep it on an EasyField-owned, provider-neutral route.
+const providerCallbackUrl = 'https://easyfield.app/provider/callback'
 
 // ===========================================================================
 // IMAGES  (Create Image + Edit Image · Custom)
@@ -71,7 +73,7 @@ export interface ImageCtx {
   imageUrls: string[] // hosted reference/source images
 }
 
-export function buildImageRequest(model: string, c: ImageCtx): KieRequest {
+export function buildImageRequest(model: string, c: ImageCtx): ProviderRequest {
   const refs = c.imageUrls
   const has = refs.length > 0
   const config = IMAGE_MODEL_CONFIG[model]
@@ -97,7 +99,7 @@ export function buildImageRequest(model: string, c: ImageCtx): KieRequest {
         aspect_ratio: c.aspect || '1:1',
         quality: c.resolution === '2K' ? 'high' : 'basic',
         output_format: qwenFmt(c.extras.format),
-        // Kie's schema defaults this to false (filter disabled). EasyField keeps
+        // The schema defaults this to false (filter disabled). EasyField keeps
         // provider filtering explicitly enabled instead of exposing an unsafe
         // opt-out in the creative controls.
         nsfw_checker: true,
@@ -157,7 +159,7 @@ const primaryEditPrompt = (prompt: string, hasSupportingReferences: boolean): st
 // Edit Image has a stricter contract than Create Image: the primary source and
 // supporting references cannot be collapsed into an untyped list at the call
 // site. Unknown models fail closed so a paid edit can never fall back to T2I.
-export function buildImageEditRequest(model: string, c: ImageEditCtx): KieRequest {
+export function buildImageEditRequest(model: string, c: ImageEditCtx): ProviderRequest {
   const config = IMAGE_MODEL_CONFIG[model]
   if (!config) throw new Error(`${model} is not a verified EasyField image-edit model.`)
   if (!c.primarySourceUrl.trim()) throw new Error('A primary image is required for editing.')
@@ -180,7 +182,7 @@ export interface ImageInpaintCtx {
   maskUrl: string
 }
 
-export function buildImageInpaintRequest(model: string, c: ImageInpaintCtx): KieRequest {
+export function buildImageInpaintRequest(model: string, c: ImageInpaintCtx): ProviderRequest {
   if (model !== 'Ideogram V3 Edit') throw new Error(`${model} is not a verified EasyField inpaint model.`)
   if (!c.primarySourceUrl.trim()) throw new Error('A primary image is required for inpainting.')
   if (!c.maskUrl.trim()) throw new Error('Paint a mask before running Inpaint.')
@@ -216,8 +218,8 @@ function requiredHostedAvatarUrl(value: string | undefined, label: string): stri
   return normalized
 }
 
-/** Exact Kie helper used to obtain source-bound OmniHuman speaker masks. */
-export function buildAvatarSubjectDetectionRequest(imageUrl: string): KieRequest {
+/** Exact cloud helper used to obtain source-bound OmniHuman speaker masks. */
+export function buildAvatarSubjectDetectionRequest(imageUrl: string): ProviderRequest {
   return job('omnihuman-1-5/subject-detection', {
     image_url: requiredHostedAvatarUrl(imageUrl, 'Portrait image'),
   })
@@ -241,12 +243,12 @@ function assertAvatarPrompt(
 }
 
 /**
- * Exact Kie Market request serialization for every selectable Avatar model.
+ * Exact cloud request serialization for every selectable Avatar model.
  * Unknown models and cross-mode sources fail closed; there is no fallback
  * request because silently routing paid work to a different avatar model would
  * be unsafe.
  */
-export function buildAvatarRequest(model: string, c: AvatarCtx): KieRequest {
+export function buildAvatarRequest(model: string, c: AvatarCtx): ProviderRequest {
   const config = requireAvatarModelConfig(model)
   const prompt = assertAvatarPrompt(model, c.prompt, config.prompt, config.promptMax, config.promptMayBeEmpty)
   const audioUrl = requiredHostedAvatarUrl(c.audioUrl, 'Voice audio')
@@ -275,7 +277,7 @@ export function buildAvatarRequest(model: string, c: AvatarCtx): KieRequest {
         return job(config.route, {
           image_url: imageUrl,
           audio_url: audioUrl,
-          // The field is required by Kie even though an empty value is valid.
+          // The field is required by the endpoint even though an empty value is valid.
           prompt,
         })
       case 'OmniHuman 1.5':
@@ -384,7 +386,7 @@ const VEO_MODEL: Record<string, string> = {
   'Veo 3.1 Lite': 'veo3_lite',
 }
 
-function seedance(kieModel: string, c: VideoCtx): KieRequest {
+function seedance(providerModel: string, c: VideoCtx): ProviderRequest {
   const common = {
     generate_audio: c.extras.audio !== 'Off',
     resolution: res4k(c.resolution || '720p'),
@@ -398,7 +400,7 @@ function seedance(kieModel: string, c: VideoCtx): KieRequest {
     throw new Error('Seedance endpoint frames and multimodal references are mutually exclusive.')
   }
   if (c.imageUrls.length || c.videoUrls.length || c.audioUrls.length) {
-    return job(kieModel, {
+    return job(providerModel, {
       prompt: c.prompt,
       ...(c.imageUrls.length ? { reference_image_urls: c.imageUrls } : {}),
       ...(c.videoUrls.length ? { reference_video_urls: c.videoUrls } : {}),
@@ -407,17 +409,17 @@ function seedance(kieModel: string, c: VideoCtx): KieRequest {
     })
   }
   if (c.firstFrameUrl || c.lastFrameUrl) {
-    return job(kieModel, {
+    return job(providerModel, {
       prompt: c.prompt,
       ...(c.firstFrameUrl ? { first_frame_url: c.firstFrameUrl } : {}),
       ...(c.lastFrameUrl ? { last_frame_url: c.lastFrameUrl } : {}),
       ...common,
     })
   }
-  return job(kieModel, { prompt: c.prompt, ...common, ...(c.webSearch ? { web_search: true } : {}) })
+  return job(providerModel, { prompt: c.prompt, ...common, ...(c.webSearch ? { web_search: true } : {}) })
 }
 
-function veo(modelId: string, c: VideoCtx): KieRequest {
+function veo(modelId: string, c: VideoCtx): ProviderRequest {
   const body: Record<string, unknown> = {
     prompt: c.prompt,
     model: modelId,
@@ -473,7 +475,7 @@ function klingPromptWeight(prompt: string, elements: readonly KlingProviderEleme
   return weight
 }
 
-function kling3(c: VideoCtx): KieRequest {
+function kling3(c: VideoCtx): ProviderRequest {
   const elements = klingElements(c)
   if (elements.length && !c.firstFrameUrl) {
     throw new Error('Kling 3 requires a first frame whenever an @element reference is used.')
@@ -533,7 +535,7 @@ function kling3(c: VideoCtx): KieRequest {
   })
 }
 
-export function buildVideoRequest(model: string, c: VideoCtx): KieRequest {
+export function buildVideoRequest(model: string, c: VideoCtx): ProviderRequest {
   const neg = c.negativePrompt ? { negative_prompt: c.negativePrompt } : {}
   if (c.multiShot && model !== 'Kling 3') {
     throw new Error('Multi-shot generation is currently supported only by Kling 3.')
@@ -642,7 +644,7 @@ export function buildVideoRequest(model: string, c: VideoCtx): KieRequest {
       if (c.grokTaskId && c.imageUrls.length) throw new Error('Use either a prior Grok task or external images, not both.')
       if (c.imageUrls.length && mode === 'spicy') throw new Error('Spicy mode is unavailable with external Grok reference images.')
 
-      // Kie's regular I2V schema and both official examples serialize duration
+      // The regular I2V schema and both official examples serialize duration
       // as a string; Preview 1.5 deliberately uses an integer instead.
       const common = { prompt: c.prompt, mode, duration: String(duration), resolution, aspect_ratio: aspect, nsfw_checker: true }
       if (c.grokTaskId) {
@@ -723,7 +725,7 @@ export interface VideoEditCtx {
   factor: string
 }
 
-export function buildVideoUpscaleRequest(sourceUrl: string, factor: string): KieRequest {
+export function buildVideoUpscaleRequest(sourceUrl: string, factor: string): ProviderRequest {
   return job('topaz/video-upscale', {
     video_url: sourceUrl,
     upscale_factor: topazFactor(factor, ['1', '2', '4'], 'video'),
@@ -731,7 +733,7 @@ export function buildVideoUpscaleRequest(sourceUrl: string, factor: string): Kie
   })
 }
 
-export function buildVideoEditRequest(model: string, c: VideoEditCtx): KieRequest {
+export function buildVideoEditRequest(model: string, c: VideoEditCtx): ProviderRequest {
   const p = c.params
   const hasSupportingReferences = c.refImageUrls.length > 0 || c.refVideoUrls.length > 0 || c.refAudioUrls.length > 0
   const prompt = hasSupportingReferences
@@ -750,7 +752,7 @@ export function buildVideoEditRequest(model: string, c: VideoEditCtx): KieReques
   }
   const acceptsReferenceAudio = model === 'Seedance 2' || model === 'Seedance 2 Fast' || model === 'Seedance 2 Mini'
   if (c.refAudioUrls.length && !acceptsReferenceAudio) {
-    throw new Error(`${model} does not accept uploaded reference audio in Kie.`)
+    throw new Error(`${model} does not accept uploaded reference audio through this cloud route.`)
   }
   if (c.refAudioUrls.length > 3) throw new Error('Seedance accepts at most 3 reference audio files.')
   if (c.refAudioUrls.some((url) => !url.trim())) throw new Error('Reference audio URLs cannot be empty.')
@@ -784,12 +786,12 @@ export function buildVideoEditRequest(model: string, c: VideoEditCtx): KieReques
     case 'Seedance 2':
     case 'Seedance 2 Fast':
     case 'Seedance 2 Mini': {
-      const kieModel = model === 'Seedance 2 Fast'
+      const providerModel = model === 'Seedance 2 Fast'
         ? 'bytedance/seedance-2-fast'
         : model === 'Seedance 2 Mini'
           ? 'bytedance/seedance-2-mini'
           : 'bytedance/seedance-2'
-      return job(kieModel, {
+      return job(providerModel, {
         prompt,
         reference_video_urls: [c.sourceUrl, ...c.refVideoUrls].slice(0, 3),
         ...(c.refImageUrls.length ? { reference_image_urls: c.refImageUrls } : {}),
@@ -819,7 +821,7 @@ export function buildVideoEditRequest(model: string, c: VideoEditCtx): KieReques
 // ===========================================================================
 // EDIT IMAGE  (Upscale · Remove BG)
 // ===========================================================================
-export function buildImageUpscaleRequest(model: string, sourceUrl: string, factor: string): KieRequest {
+export function buildImageUpscaleRequest(model: string, sourceUrl: string, factor: string): ProviderRequest {
   // Topaz exposes upscale_factor; Recraft Crisp Upscale takes only the image.
   if (model === 'Recraft Crisp Upscale') return job('recraft/crisp-upscale', { image_url: sourceUrl })
   return job('topaz/image-upscale', {
@@ -829,7 +831,7 @@ export function buildImageUpscaleRequest(model: string, sourceUrl: string, facto
   })
 }
 
-export function buildRemoveBgRequest(sourceUrl: string): KieRequest {
+export function buildRemoveBgRequest(sourceUrl: string): ProviderRequest {
   return job('recraft/remove-background', { image_url: sourceUrl })
 }
 
@@ -843,7 +845,7 @@ const assertRange = (value: number, min: number, max: number, label: string) => 
   if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${label} must be between ${min} and ${max}.`)
 }
 
-export function buildTtsRequest(modelId: string, voice: string, text: string, settings: TtsSettings): KieRequest {
+export function buildTtsRequest(modelId: string, voice: string, text: string, settings: TtsSettings): ProviderRequest {
   if (!text.trim()) throw new Error('Voice-over text is required.')
   assertLength(text, 5000, 'Voice-over text')
   assertLength(settings.previousText, 5000, 'Previous context')
@@ -867,13 +869,13 @@ export function buildTtsRequest(modelId: string, voice: string, text: string, se
     timestamps: settings.timestamps,
     previous_text: settings.previousText,
     next_text: settings.nextText,
-    // Kie's schema warns that language enforcement is supported by Turbo v2.5
+    // The schema warns that language enforcement is supported by Turbo v2.5
     // only. Never leak a saved Turbo language into Multilingual v2.
     ...(modelId === 'turbo-2-5' && languageCode ? { language_code: languageCode } : {}),
   })
 }
 
-export function buildDialogueRequest(lines: Array<{ voice: string; text: string }>, settings: DialogueSettings): KieRequest {
+export function buildDialogueRequest(lines: Array<{ voice: string; text: string }>, settings: DialogueSettings): ProviderRequest {
   const dialogue = lines.filter((line) => line.text.trim()).map((line) => ({ text: line.text, voice: line.voice }))
   const totalLength = dialogue.reduce((sum, line) => sum + promptCharacterCount(line.text), 0)
   if (!dialogue.length) throw new Error('Add at least one dialogue line.')
@@ -905,7 +907,7 @@ export interface SoundEffectCtx {
   grabLyrics: boolean
 }
 
-export function buildSoundEffectRequest(sound: SoundEffectCtx): KieRequest {
+export function buildSoundEffectRequest(sound: SoundEffectCtx): ProviderRequest {
   const prompt = sound.prompt.trim()
   if (!prompt) throw new Error('Describe the sound effect before generating.')
   assertPromptCharacterLimit(prompt, 500, 'Suno Sounds prompt')
@@ -940,7 +942,7 @@ export interface MusicCtx {
   sliders: Record<string, number>
 }
 
-export function buildMusicRequest(m: MusicCtx): KieRequest {
+export function buildMusicRequest(m: MusicCtx): ProviderRequest {
   const custom = m.mode === 'Custom'
   if (custom) {
     const legacyV4 = m.version === 'V4'
@@ -955,9 +957,9 @@ export function buildMusicRequest(m: MusicCtx): KieRequest {
     customMode: custom,
     instrumental: m.instrumental,
     model: m.version,
-    // kie.ai marks callBackUrl required; we poll for the result, so a placeholder
+    // The endpoint marks callBackUrl required; we poll for the result, so a placeholder
     // is fine (the failed callback POST is harmless and ignored).
-    callBackUrl: 'https://easyfield.app/kie/callback',
+    callBackUrl: providerCallbackUrl,
   }
   if (custom) {
     if (m.style) body.style = m.style

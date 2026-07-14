@@ -43,9 +43,9 @@ or redistributed by EasyField source archives, update archives, or PKGs.
 EasyField only loads and validates the user's installed copy. DaVinci Resolve,
 its SDK and trademarks remain subject to Blackmagic Design's terms.
 
-Kie.ai provider services, models and generated outputs are accessed over their
-API and are not third-party code redistributed in the EasyField installer.
-Their service and model/output terms still apply to use.
+External AI services, models and generated outputs are accessed through
+EasyField Cloud and are not third-party code redistributed in the EasyField
+installer. Applicable service and model/output terms still apply to use.
 
 ## MIT License (React and React DOM)
 

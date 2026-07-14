@@ -16,7 +16,7 @@ The renderer cannot be the source of truth for any of those responsibilities.
 - SQLite (`node:sqlite`, WAL mode) stores namespaced settings, drafts, jobs,
   artifacts, recipes, transcripts and project manifests. Media bytes live in a
   managed filesystem store.
-- Kie credentials use `safeStorage`. Renderer requests carry a non-secret proxy
+- Cloud credentials use `safeStorage`. Renderer requests carry a non-secret proxy
   token and Main injects the decrypted credential upstream.
 - Main injects the per-process Resolve bridge token through Electron's session
   request boundary; renderer JavaScript never receives the token.
@@ -31,7 +31,7 @@ The renderer cannot be the source of truth for any of those responsibilities.
 
 - Paid jobs and result metadata survive application restarts.
 - Provider URLs can be downloaded and checksummed without browser CORS limits.
-- The production renderer no longer receives the real Kie key.
+- The production renderer no longer receives the real cloud credential.
 - Browser-only development cannot exercise Keychain, SQLite, artifact ingestion
   or Electron window resizing; those require `npm run plugin:dev`.
 - The loopback HTTP bridge remains a compatibility surface until all Resolve

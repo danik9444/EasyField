@@ -64,7 +64,7 @@ export interface CharacterDraft {
   preserveIdentity: boolean
 }
 
-// Persist the largest currently published Kie image-prompt envelope. The
+// Persist the largest currently published cloud image-prompt envelope. The
 // active model's smaller, scaffold-aware budget is enforced in the workspace
 // without deleting a draft when the user changes models or traits.
 export const CHARACTER_CUSTOM_NOTES_STORAGE_MAX = 20_000

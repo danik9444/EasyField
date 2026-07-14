@@ -1380,8 +1380,8 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
               <button
                 type="button"
                 className={`ef-enhance-btn${briefRuntime.state === 'enhancing' ? ' loading' : ''}`}
-                aria-label={!connected ? 'Connect Kie.ai to improve the Story Brief' : `Improve the Story Brief using the current storyboard and references with ${enhancerModel}`}
-                title={!connected ? 'Connect Kie.ai to improve prompts' : `Uses the current scene plan and every attached reference · ${enhancerModel}`}
+                aria-label={!connected ? 'Connect EasyField Cloud to improve the Story Brief' : `Improve the Story Brief using the current storyboard and references with ${enhancerModel}`}
+                title={!connected ? 'Connect EasyField Cloud to improve prompts' : `Uses the current scene plan and every attached reference · ${enhancerModel}`}
                 disabled={!connected || draft.storyBrief.trim().length < SCENE_PROMPT_MIN_LENGTH || referenceInputsLocked}
                 onClick={() => void enhanceStoryBrief()}
               >
@@ -1609,7 +1609,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
                 : batchRunning
               ? `Generating ${batchProgress.complete}/${batchProgress.total} · completed frames are already safe`
               : !connected
-                ? 'Connect Kie.ai to improve prompts, plan the story and generate frames'
+                ? 'Connect EasyField Cloud to improve prompts, plan the story and generate frames'
                 : spendBlocked
                   ? `✕ ${spendApproval.reason}`
                   : overLimitSceneCount

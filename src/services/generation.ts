@@ -1,5 +1,5 @@
-// Local, non-kie helper data. Real media generation lives in services/run.ts and
-// prompt enhancement in services/chat.ts (both call kie.ai). What remains here is
+// Local helper data. Real media generation lives in services/run.ts and prompt
+// enhancement in services/chat.ts through the EasyField Cloud gateway. What remains here is
 // the SuperBrain demo plan.
 
 export interface PlanStep {

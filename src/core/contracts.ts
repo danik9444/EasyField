@@ -33,7 +33,7 @@ export interface ModelCapability {
 export interface ModelDefinition {
   id: string
   name: string
-  provider: 'kie' | 'local' | 'resolve'
+  provider: 'cloud' | 'local' | 'resolve'
   tools: ToolId[]
   inputKinds: MediaKind[]
   outputKinds: MediaKind[]
@@ -217,7 +217,7 @@ export interface TranscriptDocument {
   sourceArtifactId: string
   /** Canonical Whisper language code, or `mixed` when auto-detection is inconclusive. */
   language: string
-  engine: 'local' | 'kie'
+  engine: 'local' | 'cloud'
   words: TranscriptWord[]
   revision: number
   updatedAt: number

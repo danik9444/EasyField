@@ -14,7 +14,7 @@ export function supportsExtendVideoReference(model: string): boolean {
 }
 
 /**
- * Kie's full Kling 3 image-to-video endpoint accepts an ordered multi-shot
+ * The full Kling 3 image-to-video endpoint accepts an ordered multi-shot
  * plan anchored by one starting image. In Extend, that image is the captured
  * rendered end frame of the selected timeline shot. Turbo and every other
  * Extend adapter remain Standard-only because their contracts do not accept

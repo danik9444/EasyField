@@ -15,7 +15,7 @@ import { getSpendApproval } from '../services/spendGuard'
 import { loadSettings } from '../settings'
 import { promptCharacterCount } from '../data/promptLimits'
 
-// kie.ai Suno — docs.kie.ai/suno-api/generate-music. Verified 2026-07-06.
+// Suno cloud generation contract. Verified 2026-07-06.
 const SUNO_VERSIONS = [
   { id: 'V5_5', label: 'v5.5' },
   { id: 'V5', label: 'v5' },
@@ -359,7 +359,7 @@ export function CreateMusic({ onBack, toast, onSpend }: CreateMusicProps) {
               : fieldsOverLimit
                 ? `✕ Suno ${versionLabel(version)} field limit exceeded · shorten the highlighted text`
               : !connected
-                ? 'Connect Kie.ai to compose'
+                ? 'Connect EasyField Cloud to compose'
                 : spendBlocked
                   ? `✕ ${spendApproval.reason}`
                   : 'Creates two full-length takes · no automatic retiming'}

@@ -4,7 +4,7 @@
 [Releases](https://github.com/danik9444/EasyField/releases) · [Release process](docs/RELEASING.md)
 
 EasyField is a compact AI creation panel for DaVinci Resolve. It combines live
-Kie.ai generation with a local Resolve bridge that can grab timeline media and
+EasyField Cloud generation with a local Resolve bridge that can grab timeline media and
 place generated image, video, and audio results back on the current timeline.
 
 ## Current status
@@ -17,7 +17,7 @@ Animations, Create Music, Voice Over, and local librosa Beat Detection**.
 
 The remaining newer workflows currently stop at an honest preflight when their
 provider or Resolve execution adapter is not installed; they never simulate a
-successful paid run. **SuperBrain now calls a real Kie chat model and validates
+successful paid run. **SuperBrain now calls a real cloud chat model and validates
 its typed plan**, but applying a multi-tool plan remains blocked until every
 step exposes cost, privacy, provider, placement and rollback contracts.
 
@@ -38,7 +38,7 @@ soon as the host can download them.
 - Python 3 with the project-managed librosa environment for Beat Detection. See
   [`plugin/python/README.md`](plugin/python/README.md); packages are not installed
   globally.
-- A funded Kie.ai API key for live AI generation.
+- An active EasyField Cloud API key with sufficient credits for live AI generation.
 
 ## Development
 
@@ -47,7 +47,7 @@ npm ci
 npm run dev
 ```
 
-Open <http://localhost:5173>. This is enough for UI and Kie.ai development; the
+Open <http://localhost:5173>. This is enough for UI and EasyField Cloud development; the
 Resolve badge remains offline unless the plugin bridge is also running.
 
 Browser development exercises the UI and local development proxies. To exercise
@@ -72,7 +72,7 @@ npm run verify:source # plugin UI first, then all source/contract tests
 npm run verify        # clean-checkout tests + both builds + release-tree checks
 ```
 
-The standalone `dist/` build contains only the UI. Live Kie.ai and Resolve calls
+The standalone `dist/` build contains only the UI. Live EasyField Cloud and Resolve calls
 must be served through the Vite development proxies or the plugin's embedded
 server.
 
@@ -132,9 +132,9 @@ version is immutable and an update always requires a higher SemVer.
 
 ## API key and local security
 
-Enter the Kie.ai key from Settings or the credits badge on Home. In the Electron
+Enter the EasyField Cloud key from Settings or the credits badge on Home. In the Electron
 plugin it is encrypted with Electron `safeStorage` (macOS Keychain-backed). The
-renderer receives only an internal proxy token; the Kie proxy adds the real key
+renderer receives only an internal proxy token; the cloud gateway adds the real key
 inside the main process. Browser development keeps the key in `sessionStorage`
 only and must not be treated as a production credential store.
 
@@ -156,9 +156,9 @@ remove those checks: the bridge can read timeline media and mutate a project.
 - **Beat Detection reports that librosa is missing:** follow
   `plugin/python/README.md` to create `plugin/python/.venv`. The panel reports the
   missing pack safely and never modifies the timeline while it is unavailable.
-- **A recovered job says it needs attention:** reconnect Kie.ai, then reopen the
+- **A recovered job says it needs attention:** reconnect EasyField Cloud, then reopen the
   Activity panel. Accepted provider task IDs are retained in SQLite.
-- **Kie.ai returns an auth or credit error:** reconnect the key from Home and
+- **EasyField Cloud returns an authentication or credit error:** reconnect the key from Home and
   check its balance. Run the app through Vite or the embedded plugin server;
   opening `dist/index.html` directly bypasses the required proxies.
 - **Port 18832 is already in use:** close stale EasyField/Electron processes and

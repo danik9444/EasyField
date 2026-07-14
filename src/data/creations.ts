@@ -529,6 +529,14 @@ async function hydrateFromStorage(): Promise<void> {
       creations = [...creations, ...hydratedCreations].sort((a, b) => b.createdAt - a.createdAt)
       folders = [...folders, ...hydratedFolders].sort((a, b) => a.createdAt - b.createdAt)
       emit()
+      // Older versions could retain temporary remote links. Resolve them into
+      // Main-owned artifacts after hydration so successful migrations rewrite
+      // both the Library index and future preview traffic to local URLs.
+      if (host.isPlugin()) {
+        hydratedCreations
+          .filter((creation) => creation.durability === 'link-only' && /^https:\/\//i.test(creation.url))
+          .forEach((creation) => void materializeCreation(creation.id))
+      }
     }
   } finally {
     // `ready` means IndexedDB hydration is complete, not merely that the

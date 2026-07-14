@@ -485,7 +485,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
   const klingElementTags = klingElementsActive ? sharedElementOptions.map((option) => option.tag) : []
   const multiShotReferenceOptions = multiShotActive ? sharedElementOptions : []
   const modelPromptMax = model === 'Happy Horse 1.1' ? happyHorsePromptMax(prompt) : config.promptMax
-  // Kie counts every @element invocation as 37 characters; one separator is
+  // The cloud contract counts every @element invocation as 37 characters; one separator is
   // appended with each tag in Standard mode.
   const standardPromptMax = klingElementsActive && !multiShotActive
     ? Math.max(1, modelPromptMax - klingElements.length * 38)
@@ -957,7 +957,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
     }
     if (!multiShotActive && Array.from(prompt).length > standardPromptMax) {
       return klingElementsActive
-        ? `Shorten the prompt to ${standardPromptMax} characters so the selected Element tags fit Kie’s 2,500-character request limit.`
+        ? `Shorten the prompt to ${standardPromptMax} characters so the selected Element tags fit the 2,500-character cloud request limit.`
         : `${model} prompts are limited to ${standardPromptMax.toLocaleString()} characters.`
     }
     if (klingElementsActive) {
@@ -1010,7 +1010,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
   const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
   const spendBlocked = connected && !spendApproval.approved
   const footerMessage = !connected
-    ? 'Connect your kie.ai key from the credits badge on Home to generate.'
+    ? 'Connect EasyField Cloud from the credits badge on Home to generate.'
     : validationError ?? error ?? (spendBlocked ? spendApproval.reason : undefined) ?? (isTransition
       ? `Ready to generate ${count} transition${count === '1' ? '' : 's'}.`
       : multiShotActive
@@ -1529,7 +1529,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
 
               {omniIdInputsUnavailable && (
                 <div className="ef-anim-hint">
-                  Character and voice inputs are disabled for now: Kie requires saved character/audio IDs, not raw image uploads or preset names.
+                  Character and voice inputs are disabled for now: this cloud model requires saved character/audio IDs, not raw image uploads or preset names.
                 </div>
               )}
 

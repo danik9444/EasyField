@@ -1,11 +1,11 @@
-// ElevenLabs audio via kie.ai. Three models are exposed:
+// ElevenLabs audio through EasyField Cloud. Three models are exposed:
 //   elevenlabs/text-to-speech-multilingual-v2  — single-voice narration, $0.10 / 1k chars
 //   elevenlabs/text-to-speech-turbo-2-5         — single-voice narration, fast, $0.05 / 1k chars
 //   elevenlabs/text-to-dialogue-v3              — Eleven v3 multi-speaker dialogue + audio tags, $0.10 / 1k chars
 // All share the same 66-voice preset library. The two narration models use the
 // voice controls (stability, similarity, style, speed); the dialogue model takes
 // a list of {voice, text} lines plus stability and language controls. Verified 2026-07-11
-// against docs.kie.ai/market/elevenlabs/*.
+// against the active ElevenLabs-compatible cloud schemas.
 
 export interface TtsModel {
   id: string
@@ -50,7 +50,7 @@ export interface ElevenLanguage {
   label: string
 }
 
-// Eleven v3's complete language_code enum from Kie's current schema. The same
+// Eleven v3's complete language_code enum from the current cloud schema. The same
 // searchable list is used as a convenient ISO 639-1 picker for Turbo v2.5;
 // an empty code means automatic detection.
 export const ELEVEN_LANGUAGES: ElevenLanguage[] = [
@@ -137,7 +137,7 @@ export const languageLabel = (code: string): string =>
 export const languageCode = (label: string): string =>
   ELEVEN_LANGUAGES.find((language) => language.label === label)?.code ?? ''
 
-// Full kie.ai ElevenLabs preset voice library (id → display label).
+// Full cloud ElevenLabs preset voice library (id → display label).
 export const ELEVEN_VOICES: TtsVoice[] = [
   { id: 'EkK5I93UQWFDigLMpZcX', label: 'James — Husky, Engaging & Bold' },
   { id: 'Z3R5wn05IrDiVCyEkUrK', label: 'Arabella — Mysterious & Emotive' },

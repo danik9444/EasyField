@@ -30,7 +30,7 @@ beforeEach(async () => {
   })
   installWebStorageTripwire('sessionStorage')
   installWebStorageTripwire('localStorage')
-  await host.deleteCredential('kie-api-key')
+  await host.deleteCredential('cloud-generation-api-key')
   await host.deleteCredential('voice-provider-api-key')
 })
 
@@ -41,16 +41,16 @@ after(() => {
 })
 
 test('browser fallback keeps credentials in module memory without accessing Web Storage', async () => {
-  await host.setCredential('kie-api-key', 'kie-session-secret')
+  await host.setCredential('cloud-generation-api-key', 'provider-session-secret')
   await host.setCredential('voice-provider-api-key', 'voice-session-secret')
 
-  assert.equal(await host.getCredential('kie-api-key'), 'kie-session-secret')
+  assert.equal(await host.getCredential('cloud-generation-api-key'), 'provider-session-secret')
   assert.equal(await host.getCredential('voice-provider-api-key'), 'voice-session-secret')
 
-  await host.setCredential('kie-api-key', '')
+  await host.setCredential('cloud-generation-api-key', '')
   await host.deleteCredential('voice-provider-api-key')
 
-  assert.equal(await host.getCredential('kie-api-key'), '')
+  assert.equal(await host.getCredential('cloud-generation-api-key'), '')
   assert.equal(await host.getCredential('voice-provider-api-key'), '')
   assert.equal(webStorageReads, 0)
 })
@@ -78,14 +78,14 @@ test('plugin credentials continue to forward through the host IPC contract', asy
     },
   })
 
-  assert.equal(await host.getCredential('kie-api-key'), 'secure-host-value')
-  await host.setCredential('kie-api-key', 'new-secure-value')
-  await host.deleteCredential('kie-api-key')
+  assert.equal(await host.getCredential('cloud-generation-api-key'), 'secure-host-value')
+  await host.setCredential('cloud-generation-api-key', 'new-secure-value')
+  await host.deleteCredential('cloud-generation-api-key')
 
   assert.deepEqual(calls, [
-    ['get', 'kie-api-key'],
-    ['set', 'kie-api-key', 'new-secure-value'],
-    ['delete', 'kie-api-key'],
+    ['get', 'cloud-generation-api-key'],
+    ['set', 'cloud-generation-api-key', 'new-secure-value'],
+    ['delete', 'cloud-generation-api-key'],
   ])
   assert.equal(webStorageReads, 0)
 })

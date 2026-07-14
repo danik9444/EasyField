@@ -8,7 +8,7 @@ import { VideoSourcePanel } from '../components/VideoSourcePanel'
 import { FoleyEventList } from '../components/FoleyEventList'
 import { GenerationCancelControl, useGenerationJobControl } from '../components/GenerationCancelControl'
 import { addCreations } from '../data/creations'
-import { SOUND_EFFECT_KEYS, type SoundEffectCtx } from '../data/kieModels'
+import { SOUND_EFFECT_KEYS, type SoundEffectCtx } from '../data/providerModels'
 import { SOUND_EFFECT_MODEL_META } from '../data/modelPresentation'
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from '../data/models'
 import { loadValue, saveValue } from '../data/prefs'
@@ -729,7 +729,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
             {error
               ? `✕ ${error}`
               : !connected
-                ? 'Connect Kie.ai to analyze or generate sound'
+                ? 'Connect EasyField Cloud to analyze or generate sound'
                 : mode === 'foley'
                   ? !sourceReady
                     ? 'Upload a video or Grab a trimmed timeline clip'

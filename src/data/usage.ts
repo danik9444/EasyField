@@ -1,5 +1,5 @@
 // Credit balance shown in the panel header. In production this is read from
-// kie.ai (Get Remaining Credits — docs.kie.ai/common-api/get-account-credits)
+// the active cloud-generation account
 // and re-read after each job; here it persists locally and is decremented by
 // the actual `creditsConsumed` a job reports.
 import { loadValue, saveValue } from './prefs'

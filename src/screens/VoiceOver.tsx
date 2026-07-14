@@ -559,7 +559,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
             {error
               ? `✕ ${error}`
               : !connected
-                ? 'Connect Kie.ai to generate voice'
+                ? 'Connect EasyField Cloud to generate voice'
                 : inputInvalid
                   ? `✕ ${kind === 'dialogue' ? 'Add dialogue text (5,000 characters maximum)' : 'Add narration text (5,000 characters maximum)'}`
                 : spendBlocked

@@ -1,4 +1,4 @@
-import { SOUND_EFFECT_KEYS, type SoundEffectCtx } from './kieModels.ts'
+import { SOUND_EFFECT_KEYS, type SoundEffectCtx } from './providerModels.ts'
 import type { FoleyConfidence, FoleyPlanEvent } from '../services/chat.ts'
 
 export type SoundEffectsMode = 'single' | 'foley'

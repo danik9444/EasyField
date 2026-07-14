@@ -127,9 +127,9 @@ test('restart recovery resumes every persisted provider family without submittin
   await hydrateJobs()
 
   assert.deepEqual(calls.sort(), [
-    '/kie/api/v1/generate/record-info?taskId=music-task',
-    '/kie/api/v1/generate/record-info?taskId=sound-task',
-    '/kie/api/v1/jobs/recordInfo?taskId=market-task',
+    '/provider/api/v1/generate/record-info?taskId=music-task',
+    '/provider/api/v1/generate/record-info?taskId=sound-task',
+    '/provider/api/v1/jobs/recordInfo?taskId=market-task',
   ])
   const resubmittedPaidWork = calls.some((url) => url.includes('createTask') || url.endsWith('/generate'))
   assert.equal(resubmittedPaidWork, false, 'recovery must never submit paid work again')

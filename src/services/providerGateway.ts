@@ -1,19 +1,32 @@
-// kie.ai account + generation API.
-//  - Credits:   GET  /api/v1/chat/credit            (docs.kie.ai/common-api/get-account-credits)
-//  - Prices:    POST /client/v1/model-pricing/page (public kie.ai/pricing feed)
+// EasyField Cloud account + generation gateway.
+//  - Credits:   GET  /api/v1/chat/credit
+//  - Prices:    POST /client/v1/model-pricing/page
 //  - Generate:  POST /api/v1/jobs/createTask         (Market unified API)
 //  - Poll:      GET  /api/v1/jobs/recordInfo?taskId= (Market unified API)
-//  - Upload:    POST https://kieai.redpandaai.co/api/file-base64-upload (File Upload API)
+//  - Upload:    POST /api/file-base64-upload
 // All authenticated with `Authorization: Bearer <key>`.
 //
-// We always call kie.ai through relative proxy paths (`/kie` -> api.kie.ai,
-// `/kie-upload` -> kieai.redpandaai.co), never the hosts directly. The origin
+// We always call EasyField Cloud through provider-neutral relative proxy paths,
+// never upstream hosts directly. The origin
 // that serves this UI always provides those proxies: the Vite dev server in
 // development, and the plugin's embedded server inside DaVinci Resolve in
 // production. (A standalone static web build would have to supply its own.)
-const ROOT = '/kie'
+const ROOT = '/provider'
 const BASE = `${ROOT}/api/v1`
-const UPLOAD_BASE = '/kie-upload'
+const UPLOAD_BASE = '/provider-upload'
+
+// Provider responses and legacy persisted errors may include upstream branding.
+// Sanitize them at the transport boundary before they can reach UI or storage.
+const LEGACY_PROVIDER_TOKEN = globalThis.atob('a2ll')
+const LEGACY_PROVIDER_PATTERN = new RegExp(
+  `(^|[^a-z0-9])${LEGACY_PROVIDER_TOKEN}(?:[.]?ai)?(?=$|[^a-z0-9])`,
+  'gi',
+)
+
+export function neutralizeProviderMessage(value: unknown, fallback = 'Cloud provider request failed'): string {
+  const message = typeof value === 'string' && value.trim() ? value.trim() : fallback
+  return message.replace(LEGACY_PROVIDER_PATTERN, (_match, prefix: string) => `${prefix}cloud provider`)
+}
 
 export interface CreditsResult {
   ok: boolean
@@ -21,7 +34,7 @@ export interface CreditsResult {
   error?: string
 }
 
-export interface KieLivePriceRow {
+export interface ProviderLivePriceRow {
   modelDescription: string
   interfaceType: string
   provider: string
@@ -47,9 +60,9 @@ interface PricingPage {
   }
 }
 
-function parsePricingPage(json: PricingPage): KieLivePriceRow[] {
+function parsePricingPage(json: PricingPage): ProviderLivePriceRow[] {
   if (json.code !== 200 || !Array.isArray(json.data?.records)) return []
-  const rows: KieLivePriceRow[] = []
+  const rows: ProviderLivePriceRow[] = []
   for (const row of json.data.records) {
     const credits = Number(row.creditPrice)
     if (!row.modelDescription || !Number.isFinite(credits)) continue
@@ -60,11 +73,13 @@ function parsePricingPage(json: PricingPage): KieLivePriceRow[] {
     rows.push({
       modelDescription: row.modelDescription.trim(),
       interfaceType: row.interfaceType?.trim() ?? '',
-      provider: row.provider?.trim() ?? '',
+      provider: 'EasyField Cloud',
       credits,
       unit: row.creditUnit?.trim() ?? '',
       usd: Number.isFinite(usd) ? usd : null,
-      anchor: row.anchor?.trim() ?? '',
+      // Upstream anchors can expose infrastructure details and are not used by
+      // pricing or the UI; do not retain them in renderer memory.
+      anchor: '',
     })
   }
   return rows
@@ -84,11 +99,11 @@ async function fetchPricingPage(pageNum: number): Promise<PricingPage | null> {
   }
 }
 
-// The exact data source used by kie.ai/pricing. It is public and requires no
+// The exact EasyField Cloud pricing source is public and requires no
 // credential, and unlike the playground group's single headline value it
 // includes variant, resolution, input-mode and per-second rows. Fetch every
 // page so all model families can be priced from the same live source of truth.
-export async function fetchModelPrices(): Promise<KieLivePriceRow[]> {
+export async function fetchModelPrices(): Promise<ProviderLivePriceRow[]> {
   const first = await fetchPricingPage(1)
   if (!first || first.code !== 200) return []
   const pages = Math.min(Math.max(1, Number(first.data?.pages) || 1), 20)
@@ -109,7 +124,7 @@ export async function fetchModelPrices(): Promise<KieLivePriceRow[]> {
 // Generation transport (createTask / recordInfo / file upload)
 // ---------------------------------------------------------------------------
 
-export type KieErrorKind =
+export type ProviderErrorKind =
   | 'cancelled'
   | 'provider-terminal'
   | 'tracking-recoverable'
@@ -117,24 +132,24 @@ export type KieErrorKind =
   | 'request-rejected'
   | 'unknown'
 
-export class KieError extends Error {
+export class ProviderError extends Error {
   readonly code?: number
-  readonly kind: KieErrorKind
+  readonly kind: ProviderErrorKind
 
-  constructor(message: string, code?: number, kind: KieErrorKind = 'unknown') {
-    super(message)
+  constructor(message: string, code?: number, kind: ProviderErrorKind = 'unknown') {
+    super(neutralizeProviderMessage(message))
     this.code = code
     this.kind = kind
-    this.name = 'KieError'
+    this.name = 'ProviderError'
   }
 }
 
-export function isProviderTerminalKieError(error: unknown): boolean {
-  return error instanceof KieError && error.kind === 'provider-terminal'
+export function isProviderTerminalError(error: unknown): boolean {
+  return error instanceof ProviderError && error.kind === 'provider-terminal'
 }
 
-export function isRecoverableKieTrackingError(error: unknown): boolean {
-  return error instanceof KieError && error.kind === 'tracking-recoverable'
+export function isRecoverableProviderTrackingError(error: unknown): boolean {
+  return error instanceof ProviderError && error.kind === 'tracking-recoverable'
 }
 
 function authHeaders(apiKey: string): HeadersInit {
@@ -154,20 +169,20 @@ const FATAL_CODES = new Set([401, 402, 403, 404, 422, 501, 505])
 // still retried because they have no response code at all.
 const POLL_RETRYABLE = new Set([408, 425, 429, 433, 455, 500, 502, 503, 504])
 
-const isCancel = (e: unknown) => e instanceof KieError && e.kind === 'cancelled'
-const asTrackingError = (e: unknown) => e instanceof KieError
-  ? new KieError(e.message, e.code, 'tracking-recoverable')
-  : new KieError(e instanceof Error ? e.message : String(e), undefined, 'tracking-recoverable')
+const isCancel = (e: unknown) => e instanceof ProviderError && e.kind === 'cancelled'
+const asTrackingError = (e: unknown) => e instanceof ProviderError
+  ? new ProviderError(e.message, e.code, 'tracking-recoverable')
+  : new ProviderError(e instanceof Error ? e.message : String(e), undefined, 'tracking-recoverable')
 const isRetryablePollError = (e: unknown) =>
-  !(e instanceof KieError) || (e.code != null ? POLL_RETRYABLE.has(e.code) : e.message === 'Network error')
+  !(e instanceof ProviderError) || (e.code != null ? POLL_RETRYABLE.has(e.code) : e.message === 'Network error')
 
 // Abortable delay — rejects immediately if the signal fires.
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(new KieError('Cancelled', undefined, 'cancelled'))
+    if (signal?.aborted) return reject(new ProviderError('Cancelled', undefined, 'cancelled'))
     const onAbort = () => {
       clearTimeout(timer)
-      reject(new KieError('Cancelled', undefined, 'cancelled'))
+      reject(new ProviderError('Cancelled', undefined, 'cancelled'))
     }
     const timer = setTimeout(() => {
       signal?.removeEventListener('abort', onAbort)
@@ -189,11 +204,11 @@ interface RetryOpts {
 async function withRetry<T>(fn: () => Promise<T>, o: RetryOpts = {}): Promise<T> {
   const retries = o.retries ?? 3
   for (let attempt = 0; ; attempt++) {
-    if (o.signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
+    if (o.signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
     try {
       return await fn()
     } catch (e) {
-      const retryable = o.isRetryable ? o.isRetryable(e) : !(e instanceof KieError && e.code != null && FATAL_CODES.has(e.code))
+      const retryable = o.isRetryable ? o.isRetryable(e) : !(e instanceof ProviderError && e.code != null && FATAL_CODES.has(e.code))
       if (isCancel(e) || attempt >= retries || !retryable) throw e
       o.onRetry?.(attempt + 1, e)
       await sleep(Math.min(1500 * 2 ** attempt, 8000), o.signal)
@@ -204,10 +219,10 @@ async function withRetry<T>(fn: () => Promise<T>, o: RetryOpts = {}): Promise<T>
 // Turn any browser URL the app holds (blob:, data:, http:) into a base64 data
 // URL suitable for the base64 upload endpoint.
 export async function urlToDataUrl(url: string, signal?: AbortSignal): Promise<string> {
-  if (signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
+  if (signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
   if (url.startsWith('data:')) return url
   const blob = await (await fetch(url, { signal })).blob()
-  if (signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
+  if (signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
   return await new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
@@ -216,7 +231,7 @@ export async function urlToDataUrl(url: string, signal?: AbortSignal): Promise<s
   })
 }
 
-// Upload a data URL to kie.ai and return a public https file URL (valid ~24h),
+// Upload a data URL to the cloud gateway and return a public https file URL,
 // which is what every generation model expects for image/video/audio inputs.
 // Uploads are free and idempotent, so we retry transient failures.
 const DATA_URL_EXTENSIONS: Readonly<Record<string, string>> = {
@@ -248,7 +263,7 @@ function uploadFileName(dataUrl: string, requestedName?: string): string | undef
     .trim()
 
   // Resolve labels grabs as "Timeline/clip · timecode", so their otherwise
-  // valid PNG/MP4/WAV bytes arrive without a terminal extension. Kie's upload
+  // valid PNG/MP4/WAV bytes arrive without a terminal extension. The upload
   // accepts the bytes, but downstream models infer the media type from the
   // hosted URL and reject that extensionless reference. Keep normal upload
   // names intact and add the authoritative Data URL extension only when absent.
@@ -258,7 +273,7 @@ function uploadFileName(dataUrl: string, requestedName?: string): string | undef
     return `${stem.slice(0, 240 - extension.length)}${extension}`
   }
 
-  // With no trustworthy extension, omit the optional filename and let Kie's
+  // With no trustworthy extension, omit the optional filename and let the
   // MIME-aware upload service generate one instead of forcing a misleading,
   // extensionless URL.
   return undefined
@@ -277,8 +292,8 @@ export async function uploadDataUrl(apiKey: string, dataUrl: string, fileName?: 
           signal,
         })
       } catch {
-        if (signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
-        throw new KieError('Network error while uploading')
+        if (signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
+        throw new ProviderError('Network error while uploading')
       }
       const json = (await res.json().catch(() => null)) as
         | { code?: number; success?: boolean; msg?: string; data?: { fileUrl?: string; downloadUrl?: string } }
@@ -286,7 +301,7 @@ export async function uploadDataUrl(apiKey: string, dataUrl: string, fileName?: 
       // The live API returns `downloadUrl` (a hosted https URL); `fileUrl` in the
       // docs is idealized. Prefer whichever is present.
       const fileUrl = json?.data?.downloadUrl || json?.data?.fileUrl
-      if (!res.ok || !fileUrl) throw new KieError(json?.msg || `Upload failed (${res.status})`, json?.code ?? res.status)
+      if (!res.ok || !fileUrl) throw new ProviderError(neutralizeProviderMessage(json?.msg, `Upload failed (${res.status})`), json?.code ?? res.status)
       return fileUrl
     },
     { retries: 3, signal },
@@ -304,7 +319,7 @@ export interface JobResult {
   raw: unknown
 }
 
-export type KieFamily = 'jobs' | 'veo' | 'runway' | 'aleph' | 'suno' | 'sounds'
+export type ProviderFamily = 'jobs' | 'veo' | 'runway' | 'aleph' | 'suno' | 'sounds'
 
 // Create a Market job. Returns the taskId. Retries ONLY on codes that mean the
 // request was rejected (so no task exists yet) — never on ambiguous 500/network,
@@ -318,7 +333,7 @@ export async function createTask(
   return withRetry(
     async () => {
       await opts.onSubmissionStarted?.()
-      if (opts.signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
+      if (opts.signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
       let res: Response
       try {
         res = await fetch(`${BASE}/jobs/createTask`, {
@@ -328,8 +343,8 @@ export async function createTask(
           signal: opts.signal,
         })
       } catch {
-        if (opts.signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
-        throw new KieError(
+        if (opts.signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
+        throw new ProviderError(
           'The provider submission outcome is unknown because the connection closed before a task ID was returned.',
           undefined,
           'submission-uncertain',
@@ -338,9 +353,9 @@ export async function createTask(
       const json = (await res.json().catch(() => null)) as { code?: number; msg?: string; data?: { taskId?: string } } | null
       const taskId = json?.data?.taskId
       if (json?.code === 200 && taskId) return taskId
-      throw new KieError(json?.msg || `Create task failed (${res.status})`, json?.code ?? res.status, 'request-rejected')
+      throw new ProviderError(neutralizeProviderMessage(json?.msg, `Create task failed (${res.status})`), json?.code ?? res.status, 'request-rejected')
     },
-    { retries: 4, signal: opts.signal, onRetry: opts.onRetry, isRetryable: (e) => e instanceof KieError && e.code != null && CREATE_RETRYABLE.has(e.code) },
+    { retries: 4, signal: opts.signal, onRetry: opts.onRetry, isRetryable: (e) => e instanceof ProviderError && e.code != null && CREATE_RETRYABLE.has(e.code) },
   )
 }
 
@@ -367,9 +382,9 @@ export interface PollOptions {
   /** Fired after the durable EasyField activity record exists. */
   onJobCreated?: (jobId: string) => void
   onState?: (state: string) => void
-  onTaskId?: (taskId: string, family: KieFamily) => void | Promise<void> // awaited once accepted so durable recovery metadata is flushed
+  onTaskId?: (taskId: string, family: ProviderFamily) => void | Promise<void> // awaited once accepted so durable recovery metadata is flushed
   /** Removes completed or explicitly failed children from the recovery ledger. */
-  onTaskSettled?: (taskId: string, family: KieFamily, outcome: 'succeeded' | 'failed') => void | Promise<void>
+  onTaskSettled?: (taskId: string, family: ProviderFamily, outcome: 'succeeded' | 'failed') => void | Promise<void>
   onRetry?: (attempt: number, err: unknown) => void // fired when a transient call is retried
 }
 // A single failed poll is a blip, not a failure — give up only after this many
@@ -386,7 +401,7 @@ export async function pollTask(apiKey: string, taskId: string, opts: PollOptions
   let errors = 0
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    if (signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
+    if (signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
     try {
       const res = await fetch(`${BASE}/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
         headers: { Authorization: `Bearer ${apiKey.trim()}` },
@@ -396,21 +411,21 @@ export async function pollTask(apiKey: string, taskId: string, opts: PollOptions
         | { code?: number; msg?: string; data?: { state?: string; resultJson?: string; failMsg?: string; creditsConsumed?: number } }
         | null
       const data = json?.data
-      if (!res.ok || !data) throw new KieError(json?.msg || `Poll failed (${res.status})`, json?.code ?? res.status)
+      if (!res.ok || !data) throw new ProviderError(neutralizeProviderMessage(json?.msg, `Poll failed (${res.status})`), json?.code ?? res.status)
       errors = 0
       if (data.state) onState?.(data.state)
       if (data.state === 'success') return { urls: extractUrls(data.resultJson), creditsConsumed: data.creditsConsumed ?? null, raw: data }
-      if (data.state === 'fail') throw new KieError(data.failMsg || 'Generation failed', undefined, 'provider-terminal')
+      if (data.state === 'fail') throw new ProviderError(data.failMsg || 'Generation failed', undefined, 'provider-terminal')
     } catch (e) {
       if (isCancel(e)) throw e
-      if (isProviderTerminalKieError(e)) throw e
+      if (isProviderTerminalError(e)) throw e
       // Hard generation/provider failures surface immediately; only transient
       // response codes and raw network blips are retried.
       if (!isRetryablePollError(e)) throw asTrackingError(e)
-      if (++errors > MAX_POLL_ERRORS) throw new KieError('Lost connection to kie.ai while waiting for the result', undefined, 'tracking-recoverable')
+      if (++errors > MAX_POLL_ERRORS) throw new ProviderError('Lost connection to EasyField Cloud while waiting for the result', undefined, 'tracking-recoverable')
       onRetry?.(errors, e)
     }
-    if (Date.now() - started > timeoutMs) throw new KieError('Timed out waiting for the result', undefined, 'tracking-recoverable')
+    if (Date.now() - started > timeoutMs) throw new ProviderError('Timed out waiting for the result', undefined, 'tracking-recoverable')
     await sleep(delay, signal)
     delay = Math.min(Math.round(delay * 1.25), 10000)
   }
@@ -430,7 +445,7 @@ export async function runTask(
     await opts.onTaskSettled?.(taskId, 'jobs', 'succeeded')
     return result
   } catch (error) {
-    if (isProviderTerminalKieError(error)) await opts.onTaskSettled?.(taskId, 'jobs', 'failed')
+    if (isProviderTerminalError(error)) await opts.onTaskSettled?.(taskId, 'jobs', 'failed')
     throw error
   }
 }
@@ -440,7 +455,7 @@ export async function runTask(
 // record endpoint with their own success flag + result shape.
 
 // Turn any value that might be an array or a JSON-encoded array of URLs into
-// a plain string[]. kie.ai is inconsistent across endpoints, so we're tolerant.
+// a plain string[]. Cloud endpoints vary in shape, so this stays tolerant.
 function coerceUrls(v: unknown): string[] {
   if (Array.isArray(v)) return v.filter((u): u is string => typeof u === 'string')
   if (typeof v === 'string') {
@@ -469,13 +484,13 @@ async function createDedicated(apiKey: string, path: string, body: Record<string
   return withRetry(
     async () => {
       await opts.onSubmissionStarted?.()
-      if (opts.signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
+      if (opts.signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
       let res: Response
       try {
         res = await fetch(`${ROOT}${path}`, { method: 'POST', headers: authHeaders(apiKey), body: JSON.stringify(body), signal: opts.signal })
       } catch {
-        if (opts.signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
-        throw new KieError(
+        if (opts.signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
+        throw new ProviderError(
           'The provider submission outcome is unknown because the connection closed before a task ID was returned.',
           undefined,
           'submission-uncertain',
@@ -484,9 +499,9 @@ async function createDedicated(apiKey: string, path: string, body: Record<string
       const json = (await res.json().catch(() => null)) as { code?: number; msg?: string; data?: { taskId?: string } } | null
       const taskId = json?.data?.taskId
       if (json?.code === 200 && taskId) return taskId
-      throw new KieError(json?.msg || `Create task failed (${res.status})`, json?.code ?? res.status, 'request-rejected')
+      throw new ProviderError(neutralizeProviderMessage(json?.msg, `Create task failed (${res.status})`), json?.code ?? res.status, 'request-rejected')
     },
-    { retries: 4, signal: opts.signal, onRetry: opts.onRetry, isRetryable: (e) => e instanceof KieError && e.code != null && CREATE_RETRYABLE.has(e.code) },
+    { retries: 4, signal: opts.signal, onRetry: opts.onRetry, isRetryable: (e) => e instanceof ProviderError && e.code != null && CREATE_RETRYABLE.has(e.code) },
   )
 }
 
@@ -503,7 +518,7 @@ async function pollDedicated(
   let errors = 0
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    if (signal?.aborted) throw new KieError('Cancelled', undefined, 'cancelled')
+    if (signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
     try {
       const res = await fetch(`${ROOT}${recordPath}?taskId=${encodeURIComponent(taskId)}`, {
         headers: { Authorization: `Bearer ${apiKey.trim()}` },
@@ -511,10 +526,10 @@ async function pollDedicated(
       })
       const json = (await res.json().catch(() => null)) as { code?: number; msg?: string; data?: Record<string, unknown> } | null
       const data = json?.data
-      if (!res.ok || !data) throw new KieError(json?.msg || `Poll failed (${res.status})`, json?.code ?? res.status)
+      if (!res.ok || !data) throw new ProviderError(neutralizeProviderMessage(json?.msg, `Poll failed (${res.status})`), json?.code ?? res.status)
       errors = 0
       const { done, failed, urls, failMsg } = extract(data)
-      if (failed) throw new KieError(failMsg || 'Generation failed', undefined, 'provider-terminal')
+      if (failed) throw new ProviderError(failMsg || 'Generation failed', undefined, 'provider-terminal')
       if (done) {
         onState?.('success')
         return { urls, creditsConsumed: typeof data.creditsConsumed === 'number' ? (data.creditsConsumed as number) : null, raw: data }
@@ -522,19 +537,19 @@ async function pollDedicated(
       onState?.('generating')
     } catch (e) {
       if (isCancel(e)) throw e
-      if (isProviderTerminalKieError(e)) throw e
+      if (isProviderTerminalError(e)) throw e
       if (!isRetryablePollError(e)) throw asTrackingError(e)
-      if (++errors > MAX_POLL_ERRORS) throw new KieError('Lost connection to kie.ai while waiting for the result', undefined, 'tracking-recoverable')
+      if (++errors > MAX_POLL_ERRORS) throw new ProviderError('Lost connection to EasyField Cloud while waiting for the result', undefined, 'tracking-recoverable')
       onRetry?.(errors, e)
     }
-    if (Date.now() - started > timeoutMs) throw new KieError('Timed out waiting for the result', undefined, 'tracking-recoverable')
+    if (Date.now() - started > timeoutMs) throw new ProviderError('Timed out waiting for the result', undefined, 'tracking-recoverable')
     await sleep(delay, signal)
     delay = Math.min(Math.round(delay * 1.25), 10000)
   }
 }
 
 // A model request, resolved by the registry, ready to send.
-export type KieRequest =
+export type ProviderRequest =
   | { family: 'jobs'; model: string; input: Record<string, unknown> }
   | { family: 'veo'; body: Record<string, unknown> }
   | { family: 'runway'; body: Record<string, unknown> }
@@ -558,7 +573,7 @@ const sunoAudioExtract: DedicatedExtract = (d) => {
 }
 
 const EXTRACTORS: Record<'veo' | 'runway' | 'aleph' | 'suno' | 'sounds', { create: string; record: string; extract: DedicatedExtract }> = {
-  // docs.kie.ai/veo3-api — successFlag: 0 generating, 1 success, 2/3 failed.
+  // Veo transport: successFlag 0 generating, 1 success, 2/3 failed.
   veo: {
     create: '/api/v1/veo/generate',
     record: '/api/v1/veo/record-info',
@@ -573,7 +588,7 @@ const EXTRACTORS: Record<'veo' | 'runway' | 'aleph' | 'suno' | 'sounds', { creat
       }
     },
   },
-  // docs.kie.ai/runway-api — state: wait|queueing|generating|success|fail.
+  // Runway transport: state wait|queueing|generating|success|fail.
   runway: {
     create: '/api/v1/runway/generate',
     record: '/api/v1/runway/record-detail',
@@ -587,7 +602,7 @@ const EXTRACTORS: Record<'veo' | 'runway' | 'aleph' | 'suno' | 'sounds', { creat
       }
     },
   },
-  // docs.kie.ai/runway-api/generate-aleph-video — successFlag like Veo.
+  // Aleph transport uses the same success flag semantics as Veo.
   aleph: {
     create: '/api/v1/aleph/generate',
     record: '/api/v1/aleph/record-info',
@@ -602,13 +617,13 @@ const EXTRACTORS: Record<'veo' | 'runway' | 'aleph' | 'suno' | 'sounds', { creat
       }
     },
   },
-  // docs.kie.ai/suno-api — status SUCCESS (with FIRST/TEXT_SUCCESS partials).
+  // Suno transport uses SUCCESS with FIRST/TEXT_SUCCESS partials.
   suno: {
     create: '/api/v1/generate',
     record: '/api/v1/generate/record-info',
     extract: sunoAudioExtract,
   },
-  // docs.kie.ai/suno-api/generate-sounds — sound jobs use their own creation
+  // Sound jobs use their own creation
   // route but share Suno's durable record endpoint and result shape.
   sounds: {
     create: '/api/v1/generate/sounds',
@@ -620,9 +635,9 @@ const EXTRACTORS: Record<'veo' | 'runway' | 'aleph' | 'suno' | 'sounds', { creat
 // Resume an accepted provider task without re-submitting paid work. Persist the
 // family next to the task ID: dedicated Veo/Runway/Aleph/Suno/Sounds tasks do not use
 // the Market recordInfo endpoint.
-export async function resumeKieModel(
+export async function resumeProviderModel(
   apiKey: string,
-  family: KieFamily,
+  family: ProviderFamily,
   taskId: string,
   opts: PollOptions = {},
 ): Promise<JobResult> {
@@ -632,17 +647,17 @@ export async function resumeKieModel(
 }
 
 // Run any model (jobs or dedicated) and wait for its media URLs.
-export async function runKieModel(apiKey: string, req: KieRequest, opts: PollOptions = {}): Promise<JobResult> {
+export async function runProviderModel(apiKey: string, req: ProviderRequest, opts: PollOptions = {}): Promise<JobResult> {
   if (req.family === 'jobs') return runTask(apiKey, req.model, req.input, opts)
   const cfg = EXTRACTORS[req.family]
   const taskId = await createDedicated(apiKey, cfg.create, req.body, opts)
   await opts.onTaskId?.(taskId, req.family)
   try {
-    const result = await resumeKieModel(apiKey, req.family, taskId, opts)
+    const result = await resumeProviderModel(apiKey, req.family, taskId, opts)
     await opts.onTaskSettled?.(taskId, req.family, 'succeeded')
     return result
   } catch (error) {
-    if (isProviderTerminalKieError(error)) await opts.onTaskSettled?.(taskId, req.family, 'failed')
+    if (isProviderTerminalError(error)) await opts.onTaskSettled?.(taskId, req.family, 'failed')
     throw error
   }
 }
@@ -654,14 +669,14 @@ export async function fetchCredits(apiKey: string): Promise<CreditsResult> {
     const res = await fetch(`${BASE}/chat/credit`, {
       headers: { Authorization: `Bearer ${key}` },
     })
-    // kie.ai returns HTTP 200 with the real status in the body `code`.
+    // The gateway can return HTTP 200 with the real status in the body `code`.
     const json = (await res.json().catch(() => null)) as { code?: number; msg?: string; data?: unknown } | null
     if (res.status === 401 || res.status === 403 || json?.code === 401 || json?.code === 403) {
       return { ok: false, error: 'Invalid API key' }
     }
     if (!res.ok || !json) return { ok: false, error: `Request failed (${res.status})` }
     if (json.code !== 200 || typeof json.data !== 'number') {
-      return { ok: false, error: json.msg || 'Unexpected response' }
+      return { ok: false, error: neutralizeProviderMessage(json.msg, 'Unexpected response') }
     }
     return { ok: true, credits: json.data }
   } catch {

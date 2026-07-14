@@ -1,5 +1,5 @@
 // High-level generation entry points used by the screens. Each takes the raw
-// panel state, uploads any local media to kie.ai, builds the model's exact
+// panel state, uploads any local media to EasyField Cloud, builds the model's exact
 // request via the registry, runs it, and returns the resulting media URL(s)
 // plus the real credits charged.
 //
@@ -21,7 +21,7 @@ import {
   avatarRunEstimate,
 } from '../data/pricing'
 import { assertSpendApproved } from './spendGuard'
-import { isRecoverableKieTrackingError, runKieModel, uploadUrl, type PollOptions } from './kie'
+import { isRecoverableProviderTrackingError, runProviderModel, uploadUrl, type PollOptions } from './providerGateway'
 import { generationStartLimit, jobLimit, uploadLimit, mapLimit } from './taskQueue'
 import { createUploadReuseCache } from './uploadReuse'
 import { getJobs, hasAcceptedProviderWork, prepareJobLedger, startJob, type JobKind, type ProviderTaskRef } from './jobCenter'
@@ -83,11 +83,11 @@ import {
   type VideoCtx,
   type MusicCtx,
   type SoundEffectCtx,
-} from '../data/kieModels'
+} from '../data/providerModels'
 
 export class NotConnectedError extends Error {
   constructor() {
-    super('Connect your kie.ai API key first (tap the credits badge on Home).')
+    super('Connect your EasyField Cloud API key first (tap the credits badge on Home).')
     this.name = 'NotConnectedError'
   }
 }
@@ -194,16 +194,16 @@ function requireKey(): string {
 
 type AnyMedia = ReferenceImage | MediaFile
 const isUpload = (m: AnyMedia): m is Extract<AnyMedia, { kind: 'upload' }> => m.kind === 'upload'
-// An already-hosted https URL (e.g. a prior kie result reused from the Library)
-// is passed straight to the model — kie fetches it server-side, no re-upload and
+// An already-hosted https URL (for example, a prior cloud result reused from the Library)
+// is passed straight to the model — the provider fetches it server-side, with no re-upload and
 // no browser CORS. Only local blob:/data: URLs need uploading.
 const isHosted = (u: string) => /^https?:\/\//i.test(u)
 
 const SEEDANCE_MODELS = new Set(['Seedance 2', 'Seedance 2 Fast', 'Seedance 2 Mini'])
 
 // These two functions intentionally mirror the exact provider prompt wrappers
-// in `data/kieModels.ts`. They run on local draft metadata before any source or
-// reference is uploaded, so a wrapper that pushes the final prompt over Kie's
+// in `data/providerModels.ts`. They run on local draft metadata before any source or
+// reference is uploaded, so a wrapper that pushes the final prompt over the provider's
 // ceiling cannot create a paid job first and fail only afterwards.
 function imageEditProviderPrompt(prompt: string, hasSupportingReferences: boolean): string {
   return hasSupportingReferences
@@ -236,7 +236,7 @@ function hasHostedCandidate(items: readonly AnyMedia[]): boolean {
 // time and provider bandwidth. Blob URLs are immutable identities while alive,
 // so coalesce their uploads and briefly reuse the resulting public URL.
 //
-// The cache never stores the Kie key. While an upload is pending, the key exists
+// The cache never stores the cloud key. While an upload is pending, the key exists
 // only inside that request's closure; a success replaces the closure with the
 // hosted URL. A sliding 30-minute TTL covers long boards while keeping public
 // media URLs short-lived in renderer memory, and the LRU cap bounds retention.
@@ -337,27 +337,27 @@ async function hostKlingElements(
 }
 
 // Run a request N times through the global job limiter (image/clip fan-out).
-async function fanOut(key: string, req: Parameters<typeof runKieModel>[1], n: number, opts: PollOptions) {
+async function fanOut(key: string, req: Parameters<typeof runProviderModel>[1], n: number, opts: PollOptions) {
   const settled = await Promise.allSettled(
     Array.from({ length: Math.max(1, n) }, () => runOne(key, req, opts)),
   )
   if (opts.signal?.aborted) throw new Error('Cancelled')
   const results = settled
-    .filter((item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof runKieModel>>> => item.status === 'fulfilled')
+    .filter((item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof runProviderModel>>> => item.status === 'fulfilled')
     .map((item) => item.value)
   const rejected = settled.filter((item): item is PromiseRejectedResult => item.status === 'rejected')
-  const pending = rejected.filter((item) => isRecoverableKieTrackingError(item.reason)).length
+  const pending = rejected.filter((item) => isRecoverableProviderTrackingError(item.reason)).length
   const failures = rejected.length - pending
   if (!results.length) {
-    const firstFailure = rejected.find((item) => isRecoverableKieTrackingError(item.reason)) ?? rejected[0]
+    const firstFailure = rejected.find((item) => isRecoverableProviderTrackingError(item.reason)) ?? rejected[0]
     throw firstFailure?.reason ?? new Error('Generation failed')
   }
   return { results, failures, pending }
 }
 
 // Single job through the global limiter.
-const runOne = (key: string, req: Parameters<typeof runKieModel>[1], opts: PollOptions) => jobLimit(
-  () => generationStartLimit(() => runKieModel(key, req, opts), opts.signal),
+const runOne = (key: string, req: Parameters<typeof runProviderModel>[1], opts: PollOptions) => jobLimit(
+  () => generationStartLimit(() => runProviderModel(key, req, opts), opts.signal),
   opts.signal,
 )
 
@@ -380,7 +380,7 @@ function stateDetail(state: string): { status: 'queued' | 'running'; detail: str
   return { status: 'running', detail: 'Generating' }
 }
 
-// Mirror every long-running Kie request into the persistent, app-level activity
+// Mirror every long-running cloud request into the persistent, app-level activity
 // surface. Screen-level callbacks still receive the exact same events.
 async function withTrackedJob<T extends RunResult>(
   meta: TrackedRun,
@@ -524,7 +524,7 @@ async function withTrackedJob<T extends RunResult>(
       const backgroundWork = workPromise
       void backgroundWork.then((result) => finalizeResult(result, true)).catch((backgroundError) => {
         const record = getJobs().find((item) => item.id === job.id)
-        if ((isRecoverableKieTrackingError(backgroundError) || durabilityFailure) && record && hasAcceptedProviderWork(record)) {
+        if ((isRecoverableProviderTrackingError(backgroundError) || durabilityFailure) && record && hasAcceptedProviderWork(record)) {
           job.pause(backgroundError, durabilityFailure ? 'Saving results paused · retry from Activity' : undefined)
         } else {
           controller.abort()
@@ -534,7 +534,7 @@ async function withTrackedJob<T extends RunResult>(
       throw error
     }
     const record = getJobs().find((item) => item.id === job.id)
-    if ((isRecoverableKieTrackingError(error) || durabilityFailure) && record && hasAcceptedProviderWork(record)) {
+    if ((isRecoverableProviderTrackingError(error) || durabilityFailure) && record && hasAcceptedProviderWork(record)) {
       job.pause(error, durabilityFailure ? 'Saving results paused · retry from Activity' : undefined)
     } else {
       controller.abort()
@@ -626,7 +626,7 @@ export interface VideoRun {
   count: number
 }
 
-/** Pure prompt-only validation; Kie's final prompt budgets are checked pre-upload. */
+/** Pure prompt-only validation; final provider prompt budgets are checked pre-upload. */
 export function preflightVideoPrompt(r: Pick<VideoRun, 'model' | 'prompt' | 'negativePrompt' | 'multiShot' | 'shots' | 'klingElements'>): void {
   const config = VIDEO_MODEL_CONFIG[r.model]
 
@@ -738,12 +738,12 @@ export async function runVideo(r: VideoRun, opts: PollOptions = {}): Promise<Run
     loadSettings().spendLimit,
   )
   return withTrackedJob({ title: r.jobTitle ?? 'Create video', subtitle: r.model, kind: 'video' }, opts, async (trackedOpts) => {
-    // Omni video accepts IDs produced by separate Kie character/audio creation
+    // Omni video accepts IDs produced by separate cloud character/audio creation
     // endpoints. Treating uploaded images or preset labels as those IDs would make
     // a paid request with silently ignored inputs, so reject that legacy UI shape.
     if (r.model === 'Gemini Omni Video' && (r.characterRefs.length || r.voices.length)) {
       throw new UnsupportedInputError(
-        'Google Omni character and voice inputs require saved Kie character/audio IDs; raw references and preset names cannot be sent yet.',
+        'Google Omni character and voice inputs require saved cloud character/audio IDs; raw references and preset names cannot be sent yet.',
       )
     }
     const key = requireKey()
@@ -1073,8 +1073,8 @@ export async function runAnglesBatch(r: AnglesBatchRun, opts: PollOptions = {}):
     }))
     const settled = await Promise.allSettled(requests.map((request) => runOne(key, request, trackedOpts)))
     if (trackedOpts.signal?.aborted) throw new Error('Cancelled')
-    const pendingJobs = settled.filter((item) => item.status === 'rejected' && isRecoverableKieTrackingError(item.reason)).length
-    const failedJobs = settled.filter((item) => item.status === 'rejected' && !isRecoverableKieTrackingError(item.reason)).length
+    const pendingJobs = settled.filter((item) => item.status === 'rejected' && isRecoverableProviderTrackingError(item.reason)).length
+    const failedJobs = settled.filter((item) => item.status === 'rejected' && !isRecoverableProviderTrackingError(item.reason)).length
     const successful = settled.flatMap((item, index) => item.status === 'fulfilled' ? [{ entry: entries[index], result: item.value }] : [])
     if (!successful.length) {
       const firstRejected = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected')
@@ -1098,7 +1098,7 @@ export async function runAnglesBatch(r: AnglesBatchRun, opts: PollOptions = {}):
         urls: [],
         credits: null,
         error: rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason ?? 'Generation failed'),
-        pending: isRecoverableKieTrackingError(rejected.reason),
+        pending: isRecoverableProviderTrackingError(rejected.reason),
       }
     })
     return {
@@ -1148,7 +1148,7 @@ export function preflightVideoEditPrompt(
 function validateVideoEditAudio(model: string, refs: MediaFile[]): void {
   if (!refs.length) return
   if (model !== 'Seedance 2' && model !== 'Seedance 2 Fast' && model !== 'Seedance 2 Mini') {
-    throw new UnsupportedInputError(`${model} does not accept uploaded reference audio in Kie.`)
+    throw new UnsupportedInputError(`${model} does not accept uploaded reference audio through EasyField Cloud.`)
   }
   if (refs.length > 3) throw new UnsupportedInputError('Seedance accepts at most 3 reference audio files.')
   let totalDuration = 0
@@ -1278,7 +1278,7 @@ export interface UpscaleBatchOptions extends PollOptions {
 }
 
 /**
- * EasyField batch fan-out for Topaz. Kie documents one scalar source URL per
+ * EasyField batch fan-out for Topaz. The provider accepts one scalar source URL per
  * task, so every entry remains its own durable job and paid provider request.
  * This preserves the correct media kind during restart recovery and lets the
  * UI cancel unsubmitted siblings while accepted tasks continue in Activity.
@@ -1354,11 +1354,11 @@ export async function runUpscaleBatch(
       urls: [],
       credits: null,
       error: reason instanceof Error ? reason.message : String(reason ?? 'Upscale failed'),
-      pending: isRecoverableKieTrackingError(reason),
+      pending: isRecoverableProviderTrackingError(reason),
     }
   })
-  const countedFailures = rejected.filter((item) => !isRecoverableKieTrackingError(item.reason) && !isGenerationExit(item.reason)).length
-  const pendingJobs = rejected.filter((item) => isRecoverableKieTrackingError(item.reason)).length
+  const countedFailures = rejected.filter((item) => !isRecoverableProviderTrackingError(item.reason) && !isGenerationExit(item.reason)).length
+  const pendingJobs = rejected.filter((item) => isRecoverableProviderTrackingError(item.reason)).length
   return {
     items,
     urls: successful.flatMap((item) => item.urls),
@@ -1457,8 +1457,8 @@ export async function runSoundEffectBatch(entries: SoundEffectBatchEntry[], opts
     const key = requireKey()
     const settled = await Promise.allSettled(entries.map((entry) => runOne(key, buildSoundEffectRequest(entry.sound), trackedOpts)))
     if (trackedOpts.signal?.aborted) throw new Error('Cancelled')
-    const pendingJobs = settled.filter((item) => item.status === 'rejected' && isRecoverableKieTrackingError(item.reason)).length
-    const failedJobs = settled.filter((item) => item.status === 'rejected' && !isRecoverableKieTrackingError(item.reason)).length
+    const pendingJobs = settled.filter((item) => item.status === 'rejected' && isRecoverableProviderTrackingError(item.reason)).length
+    const failedJobs = settled.filter((item) => item.status === 'rejected' && !isRecoverableProviderTrackingError(item.reason)).length
     const successful = settled.flatMap((item, index) => item.status === 'fulfilled' ? [{ entry: entries[index], result: item.value }] : [])
     if (!successful.length) {
       const firstRejected = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected')
@@ -1483,7 +1483,7 @@ export async function runSoundEffectBatch(entries: SoundEffectBatchEntry[], opts
         urls: [],
         credits: null,
         error: rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason ?? 'Generation failed'),
-        pending: isRecoverableKieTrackingError(rejected.reason),
+        pending: isRecoverableProviderTrackingError(rejected.reason),
       }
     })
     return {

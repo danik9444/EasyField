@@ -1,31 +1,31 @@
 import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 
-// Electron's renderer receives this opaque value instead of the real Kie key.
+// Electron's renderer receives this opaque value instead of the real cloud key.
 // In packaged builds the embedded Main server consumes it directly. During
-// EF_DEV the renderer is served by Vite, so only sentinel-authenticated Kie
+// EF_DEV the renderer is served by Vite, so only sentinel-authenticated provider
 // requests take this extra loopback hop; browser-only development with a raw
 // session key keeps using Vite's normal provider proxies.
-export const SECURE_KIE_PROXY_TOKEN = '__easyfield_secure__'
+export const SECURE_PROVIDER_PROXY_TOKEN = '__easyfield_secure__'
 
 type Next = (error?: unknown) => void
-export type SecureKieDevMiddleware = (
+export type SecureProviderDevMiddleware = (
   req: IncomingMessage,
   res: ServerResponse,
   next: Next,
 ) => void
 
-function isKieProxyPath(url: string): boolean {
+function isProviderProxyPath(url: string): boolean {
   let pathname = ''
   try {
     pathname = new URL(url, 'http://127.0.0.1').pathname
   } catch {
     return false
   }
-  return pathname === '/kie'
-    || pathname.startsWith('/kie/')
-    || pathname === '/kie-upload'
-    || pathname.startsWith('/kie-upload/')
+  return pathname === '/provider'
+    || pathname.startsWith('/provider/')
+    || pathname === '/provider-upload'
+    || pathname.startsWith('/provider-upload/')
 }
 
 function proxyHeaders(headers: IncomingHttpHeaders, port: number): IncomingHttpHeaders {
@@ -38,13 +38,13 @@ function proxyHeaders(headers: IncomingHttpHeaders, port: number): IncomingHttpH
   return forwarded
 }
 
-export function createSecureKieDevMiddleware(port = 18832): SecureKieDevMiddleware {
+export function createSecureProviderDevMiddleware(port = 18832): SecureProviderDevMiddleware {
   return (req, res, next) => {
     const authorization = req.headers.authorization
     if (
-      authorization !== `Bearer ${SECURE_KIE_PROXY_TOKEN}`
+      authorization !== `Bearer ${SECURE_PROVIDER_PROXY_TOKEN}`
       || !req.url
-      || !isKieProxyPath(req.url)
+      || !isProviderProxyPath(req.url)
     ) {
       next()
       return
@@ -87,18 +87,18 @@ export function createSecureKieDevMiddleware(port = 18832): SecureKieDevMiddlewa
   }
 }
 
-export function secureKieDevProxyPlugin(): Plugin {
+export function secureProviderDevProxyPlugin(): Plugin {
   const configuredPort = Number(process.env.EF_PORT)
   const port = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65_535
     ? configuredPort
     : 18832
 
   return {
-    name: 'easyfield-secure-kie-dev-proxy',
+    name: 'easyfield-secure-provider-dev-proxy',
     configureServer(server) {
       // configureServer hooks run before Vite's internal proxy middleware. A
-      // non-sentinel request calls next() and reaches the existing /kie proxy.
-      server.middlewares.use(createSecureKieDevMiddleware(port))
+      // non-sentinel request calls next() and reaches the existing provider proxy.
+      server.middlewares.use(createSecureProviderDevMiddleware(port))
     },
   }
 }

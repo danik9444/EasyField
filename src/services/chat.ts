@@ -1,13 +1,13 @@
-// Chat models via kie.ai — used to turn a rough idea into a director-grade,
-// model-tailored generation prompt. kie proxies each provider's native API, so
+// Chat models via EasyField Cloud turn a rough idea into a director-grade,
+// model-tailored generation prompt. The gateway supports several native protocols,
 // there are three protocols (all verified live 2026-07-08):
 //   Anthropic (Claude)  POST /claude/v1/messages            → content[].text
 //   OpenAI chat (Gemini) POST /{slug}/v1/chat/completions   → choices[0].message.content
 //   Responses (GPT/Grok)   POST /codex|grok/v1/responses    → output[].content[].text
 // Cost isn't returned by the chat endpoints, so we measure the exact spend from
-// the live credit-balance delta around the call (verified: kie bills synchronously).
+// the live credit-balance delta around the call.
 import { currentApiKey } from '../settings.ts'
-import { fetchCredits } from './kie.ts'
+import { fetchCredits, neutralizeProviderMessage } from './providerGateway.ts'
 import type { PlacementMode, ToolId } from '../core/contracts.ts'
 import { CHAT_MODELS } from '../data/chatModels.ts'
 import type { StoryboardTimingMode } from '../data/storyboard.ts'
@@ -20,16 +20,16 @@ import {
 } from '../data/superBrainModes.ts'
 import { promptCharacterCount, truncatePrompt } from '../data/promptLimits.ts'
 
-// Always relative: the serving origin provides the `/kie` proxy — the Vite dev
+// Always relative: the serving origin provides the provider proxy — the Vite dev
 // server in development, the plugin's embedded server inside DaVinci Resolve in
 // production. (A standalone static web build would need to supply its own.)
-const ROOT = '/kie'
+const ROOT = '/provider'
 
 export class ChatError extends Error {
   credits: number | null = null
 
   constructor(message: string) {
-    super(message)
+    super(neutralizeProviderMessage(message))
     this.name = 'ChatError'
   }
 }
@@ -127,7 +127,7 @@ async function anthropic(key: string, model: string, system: string, user: strin
     method: 'POST',
     headers: { ...bearer(key), 'anthropic-version': '2023-06-01' },
     signal,
-    // Kie's Anthropic-compatible route requires max_tokens in the request.
+    // The Anthropic-compatible route requires max_tokens in the request.
     // This is a protocol bound, not a spend ceiling; use a generous value and
     // let the provider/model enforce its own actual context/output limits.
     body: JSON.stringify({ model, max_tokens: 16384, temperature: 1, system, messages: [{ role: 'user', content }] }),
@@ -361,7 +361,7 @@ export async function enhancePrompt(opts: {
   signal?: AbortSignal
 }): Promise<EnhanceResult> {
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your kie.ai API key first (tap the credits badge on Home).')
+  if (!key) throw new ChatError('Connect your EasyField Cloud API key first (tap the credits badge on Home).')
 
   // Resolve attachments: fetch+downscale image refs into inline vision images,
   // and describe every ref (image/video/audio) by role + label in a manifest.
@@ -493,7 +493,7 @@ export async function planStoryboard(opts: {
   signal?: AbortSignal
 }): Promise<StoryboardPlanResult> {
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your kie.ai API key before planning a storyboard.')
+  if (!key) throw new ChatError('Connect your EasyField Cloud API key before planning a storyboard.')
   const storyBrief = opts.storyBrief.trim().slice(0, 12000)
   const targetModel = opts.targetModel.trim().slice(0, 240)
   const requestedDuration = Number.isFinite(opts.totalDurationSeconds)
@@ -656,7 +656,7 @@ export async function planFoleyEvents(opts: {
   signal?: AbortSignal
 }): Promise<FoleyPlanResult> {
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your kie.ai API key before analyzing Foley events.')
+  if (!key) throw new ChatError('Connect your EasyField Cloud API key before analyzing Foley events.')
   const direction = opts.direction.trim().slice(0, 1200)
   const durationSeconds = Math.round(opts.durationSeconds * 1000) / 1000
   const maximumEvents = Math.max(1, Math.min(32, Math.floor(opts.maximumEvents ?? 24)))
@@ -821,7 +821,7 @@ export async function planTimelineWorkflow(opts: {
   signal?: AbortSignal
 }): Promise<BrainPlanResult> {
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your Kie.ai API key before asking SuperBrain to plan.')
+  if (!key) throw new ChatError('Connect your EasyField Cloud API key before asking SuperBrain to plan.')
   const allowedTools = [...TOOL_IDS].join(', ')
   const mode = opts.mode ?? DEFAULT_BRAIN_MODE
   const questionsAsked = Math.max(0, Math.floor(opts.questionsAsked ?? 0))

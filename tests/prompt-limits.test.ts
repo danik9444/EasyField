@@ -9,11 +9,11 @@ import {
   buildVideoEditRequest,
   buildVideoRequest,
   type VideoCtx,
-} from '../src/data/kieModels.ts'
+} from '../src/data/providerModels.ts'
 import {
   HAPPY_HORSE_CJK_PROMPT_MAX,
   HAPPY_HORSE_PROMPT_MAX,
-  KIE_UNPUBLISHED_PROMPT_MAX,
+  PROVIDER_UNPUBLISHED_PROMPT_MAX,
   happyHorsePromptMax,
   promptCharacterCount,
   truncatePrompt,
@@ -35,7 +35,7 @@ const videoCtx = (overrides: Partial<VideoCtx> = {}): VideoCtx => ({
   ...overrides,
 })
 
-test('published Kie prompt ceilings are present on every image, video and edit adapter', () => {
+test('published endpoint prompt ceilings are present on every image, video and edit adapter', () => {
   assert.deepEqual(
     Object.fromEntries(Object.entries(IMAGE_MODEL_CONFIG).map(([name, config]) => [name, config.promptMax])),
     {
@@ -63,9 +63,9 @@ test('published Kie prompt ceilings are present on every image, video and edit a
       'Kling 3 Motion Control': 2_500,
       'Hailuo 2.3 Pro': 5_000,
       'Runway AI Video': 1_800,
-      'Veo 3.1 Quality': KIE_UNPUBLISHED_PROMPT_MAX,
-      'Veo 3.1 Fast': KIE_UNPUBLISHED_PROMPT_MAX,
-      'Veo 3.1 Lite': KIE_UNPUBLISHED_PROMPT_MAX,
+      'Veo 3.1 Quality': PROVIDER_UNPUBLISHED_PROMPT_MAX,
+      'Veo 3.1 Fast': PROVIDER_UNPUBLISHED_PROMPT_MAX,
+      'Veo 3.1 Lite': PROVIDER_UNPUBLISHED_PROMPT_MAX,
       'Gemini Omni Video': 20_000,
       'Wan 2.7 Video': 5_000,
       'Happy Horse 1.1': HAPPY_HORSE_PROMPT_MAX,

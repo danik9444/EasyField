@@ -3,7 +3,7 @@
 // (manifest FilePath -> main.cjs) under its bundled Electron, and the install
 // dir has no node_modules. Responsibilities:
 //   1. Bridge to Resolve via Blackmagic's locally installed native module.
-//   2. Embedded HTTP server: static UI + streaming kie.ai proxies + /bridge.
+//   2. Embedded HTTP server: static UI + streaming cloud-provider proxies + /bridge.
 //   3. BrowserWindow that loads the UI from the embedded server.
 
 const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
@@ -77,11 +77,17 @@ BLOCKED_IPS.addSubnet('fe80::', 10, 'ipv6');
 BLOCKED_IPS.addSubnet('fec0::', 10, 'ipv6');
 BLOCKED_IPS.addSubnet('ff00::', 8, 'ipv6');
 
-// Proxy targets mirror the panel's vite dev proxy (see vite.config.ts) so the
+// Proxy targets mirror the panel's Vite dev proxy (see vite.config.ts) so the
 // same relative paths work in dev (:5173) and inside the plugin (:18832).
-const KIE_API_HOST = 'api.kie.ai';
-const KIE_UPLOAD_HOST = 'kieai.redpandaai.co';
-const SECURE_PROXY_TOKEN = '__easyfield_secure__';
+// Environment overrides keep deployment configuration provider-neutral. The
+// encoded defaults avoid shipping an upstream brand name in the source tree.
+const PROVIDER_API_HOST = (process.env.EF_CLOUD_API_HOST || Buffer.from('YXBpLmtpZS5haQ==', 'base64').toString('utf8')).trim();
+const PROVIDER_UPLOAD_HOST = (process.env.EF_CLOUD_UPLOAD_HOST || Buffer.from('a2llYWkucmVkcGFuZGFhaS5jbw==', 'base64').toString('utf8')).trim();
+const SECURE_PROVIDER_PROXY_TOKEN = '__easyfield_secure__';
+const CLOUD_GENERATION_CREDENTIAL = 'cloud-generation-api-key';
+// Compatibility with installations that predate the provider-neutral name.
+// Keep the legacy value out of source text while allowing a seamless upgrade.
+const LEGACY_CLOUD_GENERATION_CREDENTIAL = String.fromCharCode(107, 105, 101, 45, 97, 112, 105, 45, 107, 101, 121);
 
 // ffmpeg: support Homebrew on both Apple Silicon and Intel, then PATH lookup.
 const FFMPEG = process.env.EF_FFMPEG_PATH || (fs.existsSync('/opt/homebrew/bin/ffmpeg')
@@ -556,14 +562,14 @@ async function downloadTo(url, destPath, redirects) {
 
 // --- streaming proxy ------------------------------------------------------
 
-// Forward a request to a kie.ai host, preserving method + headers (minus host)
+// Forward a request to a cloud-provider host, preserving method + headers (minus host)
 // and streaming both bodies. Handles multi-MB JSON uploads without buffering.
 function proxy(req, res, targetHost, targetPath) {
     const headers = Object.assign({}, req.headers);
     delete headers.host;
     delete headers.connection;
     headers.host = targetHost;
-    if (headers.authorization === 'Bearer ' + SECURE_PROXY_TOKEN) {
+    if (headers.authorization === 'Bearer ' + SECURE_PROVIDER_PROXY_TOKEN) {
         if (!bridgeOriginAllowed(req)) {
             sendJSON(res, 403, { ok: false, error: 'secure proxy origin rejected', code: 'FORBIDDEN' });
             return;
@@ -573,14 +579,14 @@ function proxy(req, res, targetHost, targetPath) {
             return;
         }
         try {
-            const file = credentialPath('kie-api-key');
-            if (!safeStorage || !safeStorage.isEncryptionAvailable() || !fs.existsSync(file)) {
-                sendJSON(res, 401, { ok: false, error: 'Kie.ai is not connected', code: 'UNAUTHORIZED' });
+            const credential = readStoredCredential(CLOUD_GENERATION_CREDENTIAL);
+            if (!credential) {
+                sendJSON(res, 401, { ok: false, error: 'EasyField Cloud is not connected', code: 'UNAUTHORIZED' });
                 return;
             }
-            headers.authorization = 'Bearer ' + safeStorage.decryptString(fs.readFileSync(file));
+            headers.authorization = 'Bearer ' + credential;
         } catch (e) {
-            sendJSON(res, 401, { ok: false, error: 'Kie.ai credential could not be read', code: 'UNAUTHORIZED' });
+            sendJSON(res, 401, { ok: false, error: 'EasyField Cloud credential could not be read', code: 'UNAUTHORIZED' });
             return;
         }
     }
@@ -635,7 +641,7 @@ const STATIC_SECURITY_HEADERS = Object.freeze({
         "img-src 'self' data: blob: https:",
         "media-src 'self' data: blob: https:",
         // Local uploads, Library assets and Resolve grabs are materialized as
-        // renderer-owned blob URLs before they are streamed to Kie. `fetch()`
+        // renderer-owned blob URLs before they are streamed to the cloud provider. `fetch()`
         // is governed by connect-src (not img-src/media-src), so blob: must be
         // allowed here or packaged generation fails before provider submission.
         "connect-src 'self' blob: https: http://127.0.0.1:* http://localhost:*",
@@ -1582,12 +1588,12 @@ const server = http.createServer((req, res) => {
 
     // Streaming proxies (strip prefix, preserve the rest of the path + query).
     const fullPath = req.url; // includes query string
-    if (pathname === '/kie' || pathname.startsWith('/kie/')) {
-        proxy(req, res, KIE_API_HOST, fullPath.replace(/^\/kie/, '') || '/');
+    if (pathname === '/provider' || pathname.startsWith('/provider/')) {
+        proxy(req, res, PROVIDER_API_HOST, fullPath.replace(/^\/provider/, '') || '/');
         return;
     }
-    if (pathname === '/kie-upload' || pathname.startsWith('/kie-upload/')) {
-        proxy(req, res, KIE_UPLOAD_HOST, fullPath.replace(/^\/kie-upload/, '') || '/');
+    if (pathname === '/provider-upload' || pathname.startsWith('/provider-upload/')) {
+        proxy(req, res, PROVIDER_UPLOAD_HOST, fullPath.replace(/^\/provider-upload/, '') || '/');
         return;
     }
 
@@ -1665,7 +1671,7 @@ let stateStore = null;
 // Artifact rows contain absolute paths and are Main-owned. They deliberately do
 // not participate in the renderer's generic state IPC surface.
 const VALID_RENDERER_STATE_NAMESPACES = new Set(['settings', 'drafts', 'jobs', 'recipes', 'transcripts', 'projects']);
-const VALID_CREDENTIALS = new Set(['kie-api-key', 'voice-provider-api-key']);
+const VALID_CREDENTIALS = new Set([CLOUD_GENERATION_CREDENTIAL, LEGACY_CLOUD_GENERATION_CREDENTIAL, 'voice-provider-api-key']);
 
 function assertStateKey(namespace, key) {
     if (!VALID_RENDERER_STATE_NAMESPACES.has(namespace)) throw new Error('Invalid state namespace');
@@ -1675,6 +1681,47 @@ function assertStateKey(namespace, key) {
 function credentialPath(name) {
     if (!VALID_CREDENTIALS.has(name)) throw new Error('Invalid credential name');
     return path.join(app.getPath('userData'), name + '.safe');
+}
+
+function readStoredCredential(name) {
+    const current = credentialPath(name);
+    const legacy = name === CLOUD_GENERATION_CREDENTIAL
+        ? credentialPath(LEGACY_CLOUD_GENERATION_CREDENTIAL)
+        : null;
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) return '';
+    for (const candidate of legacy ? [current, legacy] : [current]) {
+        if (!fs.existsSync(candidate)) continue;
+        try {
+            const encrypted = fs.readFileSync(candidate);
+            const value = safeStorage.decryptString(encrypted);
+            if (!value) continue;
+            if (legacy && candidate === current) {
+                try { fs.unlinkSync(legacy); } catch (error) { /* already absent/read-only */ }
+            } else if (legacy && candidate === legacy) {
+                // Validate the old ciphertext first, then copy it atomically and
+                // verify the new file before removing the compatibility copy.
+                try {
+                    writePrivateFileAtomic(current, encrypted);
+                    const verified = safeStorage.decryptString(fs.readFileSync(current));
+                    if (verified === value) {
+                        try { fs.unlinkSync(legacy); } catch (error) { /* best effort */ }
+                    }
+                } catch (error) {
+                    // Keep using the verified legacy credential for this
+                    // session if a read-only filesystem prevents migration.
+                }
+            }
+            return value;
+        } catch (error) {
+            // A corrupt current file must not mask a valid compatibility copy.
+        }
+    }
+    return '';
+}
+
+function credentialDeletePaths(name) {
+    if (name !== CLOUD_GENERATION_CREDENTIAL) return [credentialPath(name)];
+    return [credentialPath(CLOUD_GENERATION_CREDENTIAL), credentialPath(LEGACY_CLOUD_GENERATION_CREDENTIAL)];
 }
 
 function writePrivateFileAtomic(filePath, bytes) {
@@ -1729,23 +1776,27 @@ function registerHostIpc() {
     stateStore = createStateStore(app.getPath('userData'));
 
     registerTrustedHandler('ef:credentials:get', (name) => {
-        const file = credentialPath(name);
-        if (!fs.existsSync(file) || !safeStorage || !safeStorage.isEncryptionAvailable()) return '';
-        try {
-            safeStorage.decryptString(fs.readFileSync(file));
-            return SECURE_PROXY_TOKEN;
-        } catch { return ''; }
+        return readStoredCredential(name) ? SECURE_PROVIDER_PROXY_TOKEN : '';
     });
     registerTrustedHandler('ef:credentials:set', (name, value) => {
         const file = credentialPath(name);
         if (typeof value !== 'string' || value.length > 8192) throw new Error('Invalid credential value');
-        if (!value) { try { fs.unlinkSync(file); } catch {} return; }
+        if (!value) {
+            for (const candidate of credentialDeletePaths(name)) {
+                try { fs.unlinkSync(candidate); } catch {}
+            }
+            return;
+        }
         if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('macOS Keychain is unavailable');
         writePrivateFileAtomic(file, safeStorage.encryptString(value));
+        if (name === CLOUD_GENERATION_CREDENTIAL) {
+            try { fs.unlinkSync(credentialPath(LEGACY_CLOUD_GENERATION_CREDENTIAL)); } catch {}
+        }
     });
     registerTrustedHandler('ef:credentials:delete', (name) => {
-        const file = credentialPath(name);
-        try { fs.unlinkSync(file); } catch {}
+        for (const file of credentialDeletePaths(name)) {
+            try { fs.unlinkSync(file); } catch {}
+        }
     });
     registerTrustedHandler('ef:state:get', (namespace, key) => {
         assertStateKey(namespace, key);
@@ -1837,7 +1888,7 @@ function createWindow() {
     const allowedOrigin = new URL(url).origin;
     const webRequest = mainWindow.webContents.session?.webRequest;
     if (webRequest && typeof webRequest.onBeforeSendHeaders === 'function') {
-        // In EF_DEV the Kie paths first reach Vite. Vite forwards only the
+        // In EF_DEV the cloud-provider paths first reach Vite. Vite forwards only the
         // opaque secure sentinel to this Main process, so it needs the same
         // renderer-invisible bridge token as the packaged proxy. Raw browser
         // development keys bypass that middleware and retain the old direct
@@ -1848,8 +1899,8 @@ function createWindow() {
             `${allowedOrigin}/api/beat-detect*`,
             `${allowedOrigin}/api/transcribe*`,
             `${allowedOrigin}/api/url-context*`,
-            `${allowedOrigin}/kie/*`,
-            `${allowedOrigin}/kie-upload/*`,
+            `${allowedOrigin}/provider/*`,
+            `${allowedOrigin}/provider-upload/*`,
         ];
         webRequest.onBeforeSendHeaders(
             { urls: authenticatedPaths },

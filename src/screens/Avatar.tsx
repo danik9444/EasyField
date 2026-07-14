@@ -111,7 +111,7 @@ function canvasJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob | 
 }
 
 /**
- * Kie's Subject Detection helper accepts JPG/PNG up to 5 MB. Timeline grabs
+ * Cloud Subject Detection accepts JPG/PNG up to 5 MB. Timeline grabs
  * are lossless PNGs and can exceed that ceiling, so make a same-dimension JPEG
  * only for detection. The original image remains the Avatar generation source.
  */
@@ -146,7 +146,7 @@ async function subjectDetectionSource(source: ReferenceImage): Promise<Reference
     if (normalized && normalized.size <= SUBJECT_DETECTION_MAX_BYTES) break
   }
   if (!normalized || normalized.size > SUBJECT_DETECTION_MAX_BYTES) {
-    throw new Error('This image is too complex for Kie Subject Detection. Export a JPG below 5 MB and try again.')
+    throw new Error('This image is too complex for Cloud Subject Detection. Export a JPG below 5 MB and try again.')
   }
   return {
     ...source,
@@ -485,7 +485,7 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
         options: providerOptions,
       }, { signal: controller.signal, onJobCreated: generation.attachJob })
       if (controller.signal.aborted) return
-      if (!result.urls.length) throw new Error('Kie completed the task without returning a video.')
+      if (!result.urls.length) throw new Error('The cloud service completed the task without returning a video.')
       const actual = result.credits ?? resolveCharged(estimate)
       setCharged(actual)
       onSpend(actual ?? 0)
@@ -553,7 +553,7 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
             : !draftValidation.valid
               ? draftValidation.issues[0]?.message ?? 'Review the Avatar inputs.'
             : !connected
-              ? 'Connect Kie.ai to generate the avatar.'
+              ? 'Connect EasyField Cloud to generate the avatar.'
               : 'Ready · source media stays unchanged and every result is saved to Library.'
 
   return (
@@ -621,7 +621,7 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
             {audio?.kind === 'upload' ? (
               <div className="ef-avatar-audio-ready">
                 <span className="ef-avatar-audio-mark"><Icon glyph="vo" size={18} /></span>
-                <div><strong>{audio.name}</strong><small>{audio.durationSeconds ? `${audio.durationSeconds.toFixed(1)} seconds` : 'Duration read by Kie'}</small></div>
+                <div><strong>{audio.name}</strong><small>{audio.durationSeconds ? `${audio.durationSeconds.toFixed(1)} seconds` : 'Duration read by the cloud service'}</small></div>
                 <audio src={audio.url} controls preload="metadata" aria-label={`Preview ${audio.name}`} />
               </div>
             ) : (
@@ -686,7 +686,7 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
                     {subjectDetecting ? 'Finding people…' : masks.length ? 'Scan again' : 'Find people'}
                   </button>
                 </div>
-                <p className="ef-avatar-detection-copy">Runs one Kie detection task. If Kie charges it, the exact credits are reported after the scan.</p>
+                <p className="ef-avatar-detection-copy">Runs one cloud detection task. If the service charges it, the exact credits are reported after the scan.</p>
                 {subjectDetecting && <div className="ef-avatar-detection-progress" role="status"><span /><span>Analyzing faces and subjects…</span></div>}
                 {masks.length > 0 && (
                   <div className="ef-avatar-subject-grid" role="radiogroup" aria-label="Choose the person who should speak">

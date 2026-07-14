@@ -580,7 +580,7 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
         : promptOverLimit
           ? `${activeModel} allows ${promptProviderMax.toLocaleString()} prompt characters including EasyField's source/reference instructions · shorten by ${(promptCharacterCount(prompt) - activePromptMax).toLocaleString()}.`
         : !connected
-          ? 'Connect Kie.ai to run this edit'
+          ? 'Connect EasyField Cloud to run this edit'
           : spendBlocked
             ? spendApproval.reason
             : utilityAction === 'upscale'

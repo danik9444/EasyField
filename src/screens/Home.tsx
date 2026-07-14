@@ -195,8 +195,8 @@ export function Home({
     })).filter((group) => group.tools.length > 0)
   }, [activeCategory, query])
   const visibleToolCount = visibleGroups.reduce((count, group) => count + group.tools.length, 0)
-  const kieReady = creditsLive && apiStatus === 'connected'
-  const setupNeeded = !kieReady || !bridge.connected
+  const cloudReady = creditsLive && apiStatus === 'connected'
+  const setupNeeded = !cloudReady || !bridge.connected
   const storedSecureKey = settings.apiKey === SECURE_API_KEY_TOKEN
   const keyToValidate = keyDraft.trim() || (storedSecureKey ? SECURE_API_KEY_TOKEN : '')
   const canValidateKey = Boolean(keyToValidate) && apiStatus !== 'connecting'
@@ -292,10 +292,10 @@ export function Home({
           <button
             type="button"
             className={'ef-token-badge' + (creditsLive ? ' live' : '')}
-            aria-label={creditsLive ? `${formatTokens(credits)} live credits. Open Kie.ai settings` : 'Kie.ai is not connected. Open settings'}
+            aria-label={creditsLive ? `${formatTokens(credits)} live credits. Open EasyField Cloud settings` : 'EasyField Cloud is not connected. Open settings'}
             aria-expanded={settingsOpen}
             aria-controls="ef-api-settings"
-            title={creditsLive ? 'Live balance from your kie.ai account' : 'Connect Kie.ai to see your live balance'}
+            title={creditsLive ? 'Live balance from your EasyField Cloud account' : 'Connect EasyField Cloud to see your live balance'}
             onClick={toggleApiSettings}
           >
             <span className="ef-token-badge-spark" aria-hidden="true">
@@ -318,8 +318,8 @@ export function Home({
             aria-labelledby="ef-api-settings-title"
           >
             <div className="ef-settings-heading">
-              <span className="ef-settings-label" id="ef-api-settings-title">CONNECT KIE.AI</span>
-              <button type="button" className="ef-settings-close" aria-label="Close Kie.ai settings" onClick={closeApiSettings}>×</button>
+              <span className="ef-settings-label" id="ef-api-settings-title">CONNECT EASYFIELD CLOUD</span>
+              <button type="button" className="ef-settings-close" aria-label="Close EasyField Cloud settings" onClick={closeApiSettings}>×</button>
             </div>
             <form
               className="ef-apikey-row"
@@ -332,7 +332,7 @@ export function Home({
                 ref={keyInputRef}
                 className="ef-apikey-input"
                 type="password"
-                aria-label="Kie.ai API key"
+                aria-label="EasyField Cloud API key"
                 placeholder={storedSecureKey ? 'Stored securely in Keychain' : 'Paste your API key…'}
                 value={keyDraft}
                 autoComplete="off"
@@ -450,11 +450,11 @@ export function Home({
             </div>
           </div>
           <div className="ef-setup-list">
-            {!kieReady && (
+            {!cloudReady && (
               <div className="ef-setup-step">
                 <span className="ef-setup-step-icon" aria-hidden="true">!</span>
                 <span className="ef-setup-step-content">
-                  <span className="ef-setup-step-title">Kie.ai</span>
+                  <span className="ef-setup-step-title">EasyField Cloud</span>
                   <span className="ef-setup-step-desc">
                     {apiStatus === 'connecting'
                       ? 'Checking your saved API key…'

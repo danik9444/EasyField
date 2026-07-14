@@ -13,7 +13,7 @@ export const STORYBOARD_MIN_SCENE_DURATION_SECONDS = 1
 export const STORYBOARD_DEFAULT_MODEL = 'Seedream 5 Pro'
 export const STORYBOARD_DEFAULT_ASPECT = '16:9'
 export const STORYBOARD_DEFAULT_RESOLUTION = '1K'
-// Persistence envelope only. Each selected Kie image model applies its own
+// Persistence envelope only. Each selected cloud image model applies its own
 // (often smaller) prompt budget in the Storyboard workspace.
 export const STORYBOARD_MAX_PROMPT_LENGTH = 20_000
 export const STORYBOARD_MAX_TITLE_LENGTH = 160

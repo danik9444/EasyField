@@ -497,7 +497,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
               : promptOverLimit
                 ? `✕ ${model} allows ${providerPromptMax.toLocaleString()} prompt characters · shorten the current brief`
               : !connected
-                ? 'Connect Kie.ai to generate'
+                ? 'Connect EasyField Cloud to generate'
                 : !characterDraftReady
                   ? 'Loading character design…'
                   : !characterReferenceReady

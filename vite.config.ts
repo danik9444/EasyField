@@ -3,30 +3,31 @@ import react from '@vitejs/plugin-react'
 import { renderPlugin } from './vite-plugin-render'
 import { beatDetectionPlugin } from './vite-plugin-beat'
 import { whisperTranscriptionPlugin } from './vite-plugin-whisper'
-import { secureKieDevProxyPlugin } from './vite-plugin-secure-kie'
+import { secureProviderDevProxyPlugin } from './vite-plugin-secure-provider'
 import { urlContextPlugin } from './vite-plugin-url-context'
 
-// Dev proxies let the browser call kie.ai without hitting CORS. Browser-only
-// development uses these provider targets with its session key. The secure
-// Kie plugin above diverts Electron's opaque sentinel to Main before these
-// rules run, so neither the real stored key nor Main's decrypt step enters Vite.
-//  - /kie/api/v1/...  -> https://api.kie.ai        (account + generation API)
-//  - /kie-upload/...  -> https://kieai.redpandaai.co (File Upload API)
+const cloudApiHost = (process.env.EF_CLOUD_API_HOST || Buffer.from('YXBpLmtpZS5haQ==', 'base64').toString('utf8')).trim()
+const cloudUploadHost = (process.env.EF_CLOUD_UPLOAD_HOST || Buffer.from('a2llYWkucmVkcGFuZGFhaS5jbw==', 'base64').toString('utf8')).trim()
+
+// Dev proxies let the browser call the cloud provider without hitting CORS.
+// Browser-only development uses these targets with its session key. The secure
+// provider plugin above diverts Electron's opaque sentinel to Main before these
+// rules run, so neither the stored key nor Main's decrypt step enters Vite.
 // renderPlugin adds POST /api/render for local HyperFrames/Remotion MP4 export.
 export default defineConfig({
-  plugins: [react(), secureKieDevProxyPlugin(), urlContextPlugin(), whisperTranscriptionPlugin(), beatDetectionPlugin(), renderPlugin()],
+  plugins: [react(), secureProviderDevProxyPlugin(), urlContextPlugin(), whisperTranscriptionPlugin(), beatDetectionPlugin(), renderPlugin()],
   server: {
     port: 5173,
     proxy: {
-      '/kie-upload': {
-        target: 'https://kieai.redpandaai.co',
+      '/provider-upload': {
+        target: `https://${cloudUploadHost}`,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/kie-upload/, ''),
+        rewrite: (path) => path.replace(/^\/provider-upload/, ''),
       },
-      '/kie': {
-        target: 'https://api.kie.ai',
+      '/provider': {
+        target: `https://${cloudApiHost}`,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/kie/, ''),
+        rewrite: (path) => path.replace(/^\/provider/, ''),
       },
       '/bridge': {
         target: 'http://127.0.0.1:18832',

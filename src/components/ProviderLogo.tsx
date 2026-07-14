@@ -67,7 +67,7 @@ function LocalProviderGlyph({ brand }: { brand: ProviderBrandId }) {
       </svg>
     )
   }
-  if (brand === 'kie') {
+  if (brand === 'cloud') {
     return (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M7.4 18.5h9.2a4.1 4.1 0 0 0 .5-8.17A5.7 5.7 0 0 0 6.23 8.9 4.85 4.85 0 0 0 7.4 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />

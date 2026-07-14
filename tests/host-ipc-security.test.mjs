@@ -139,13 +139,19 @@ void (async () => {
   const trusted = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
   const secret = 'synthetic-ipc-test-secret'
 
-  await handlers.get('ef:credentials:set')(trusted, 'kie-api-key', secret)
-  const rendererCredential = await handlers.get('ef:credentials:get')(trusted, 'kie-api-key')
-  const credentialPath = path.join(process.env.EF_TEST_USER_DATA, 'kie-api-key.safe')
+  const legacyCredentialName = Buffer.from('a2llLWFwaS1rZXk=', 'base64').toString()
+  const legacyCredentialPath = path.join(process.env.EF_TEST_USER_DATA, legacyCredentialName + '.safe')
+  const credentialPath = path.join(process.env.EF_TEST_USER_DATA, 'cloud-generation-api-key.safe')
+  fs.mkdirSync(process.env.EF_TEST_USER_DATA, { recursive: true })
+  fs.writeFileSync(credentialPath, Buffer.from('encrypted:'), { mode: 0o600 })
+  fs.writeFileSync(legacyCredentialPath, safeStorage.encryptString(secret), { mode: 0o600 })
+  const rendererCredential = await handlers.get('ef:credentials:get')(trusted, 'cloud-generation-api-key')
+  const legacyCredentialMigrated = fs.existsSync(credentialPath) && !fs.existsSync(legacyCredentialPath)
+  await handlers.get('ef:credentials:set')(trusted, 'cloud-generation-api-key', secret)
   const stored = fs.readFileSync(credentialPath)
   const credentialMode = fs.statSync(credentialPath).mode & 0o777
 
-  const proxyResponse = await fetch('http://127.0.0.1:' + process.env.EF_PORT + '/kie/api/v1/chat/credit', {
+  const proxyResponse = await fetch('http://127.0.0.1:' + process.env.EF_PORT + '/provider/api/v1/chat/credit', {
     headers: {
       Authorization: 'Bearer __easyfield_secure__',
       Origin: 'http://localhost:5173',
@@ -153,9 +159,11 @@ void (async () => {
     },
   })
   await proxyResponse.arrayBuffer()
+  await handlers.get('ef:credentials:set')(trusted, 'cloud-generation-api-key', '')
+  const emptyCredentialClearedAllCopies = !fs.existsSync(credentialPath) && !fs.existsSync(legacyCredentialPath)
 
   let untrustedRejected = false
-  try { await handlers.get('ef:credentials:get')({ sender: {}, senderFrame: { url: 'https://attacker.invalid' } }, 'kie-api-key') }
+  try { await handlers.get('ef:credentials:get')({ sender: {}, senderFrame: { url: 'https://attacker.invalid' } }, 'cloud-generation-api-key') }
   catch { untrustedRejected = true }
 
   let artifactNamespaceRejected = false
@@ -186,6 +194,8 @@ void (async () => {
   console.log(JSON.stringify({
     rendererGotSentinel: rendererCredential === '__easyfield_secure__',
     rendererGotSecret: rendererCredential === secret,
+    legacyCredentialMigrated,
+    emptyCredentialClearedAllCopies,
     plaintextOnDisk: stored.includes(Buffer.from(secret)),
     credentialMode,
     untrustedRejected,
@@ -197,8 +207,8 @@ void (async () => {
     contextIsolation: win.options.webPreferences.contextIsolation,
     nodeIntegration: win.options.webPreferences.nodeIntegration,
     bridgeTokenInjectedByMain: injectedHeaders['X-EF-Bridge-Token'] === process.env.EF_BRIDGE_TOKEN,
-    devKieAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/kie/*'),
-    devUploadAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/kie-upload/*'),
+    devProviderAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/provider/*'),
+    devUploadAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/provider-upload/*'),
     loadedDevOrigin: win.webContents.getURL() === 'http://localhost:5173',
     secureProxyStatus: proxyResponse.status,
     secureProxyUsedStoredCredential: capturedProxyAuthorization === 'Bearer ' + secret,
@@ -250,6 +260,8 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
   assert.deepEqual(result, {
     rendererGotSentinel: true,
     rendererGotSecret: false,
+    legacyCredentialMigrated: true,
+    emptyCredentialClearedAllCopies: true,
     plaintextOnDisk: false,
     credentialMode: 0o600,
     untrustedRejected: true,
@@ -261,7 +273,7 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     contextIsolation: true,
     nodeIntegration: false,
     bridgeTokenInjectedByMain: true,
-    devKieAuthenticatedByMain: true,
+    devProviderAuthenticatedByMain: true,
     devUploadAuthenticatedByMain: true,
     loadedDevOrigin: true,
     secureProxyStatus: 200,

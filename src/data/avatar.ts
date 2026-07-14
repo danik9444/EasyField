@@ -1,4 +1,4 @@
-// Dedicated avatar / lip-sync model contracts from Kie's published Market API
+// Dedicated avatar / lip-sync model contracts from the published cloud API
 // schemas. Verified 2026-07-13.
 //
 // This file deliberately separates provider capability from UI state. The
@@ -106,7 +106,7 @@ export interface AvatarMediaRules {
 export interface AvatarModelConfig {
   route: string
   workflow: AvatarWorkflow
-  /** Whether Kie exposes a deterministic speaker selector for this endpoint. */
+  /** Whether the endpoint exposes a deterministic speaker selector. */
   speakerTargeting: 'single-subject-only' | 'subject-mask'
   prompt: 'required' | 'optional' | 'unsupported'
   /** Kling requires the prompt field but explicitly permits an empty string. */
@@ -201,7 +201,7 @@ export const AVATAR_MODEL_CONFIG: Readonly<Record<AvatarModelName, AvatarModelCo
     workflow: 'portrait',
     speakerTargeting: 'subject-mask',
     prompt: 'optional',
-    // Kie currently rejects OmniHuman submissions above 300 characters.
+    // The OmniHuman endpoint currently rejects submissions above 300 characters.
     // Keep this in the shared contract so both UI and preflight fail before a
     // paid request is accepted by the provider.
     promptMax: 300,
