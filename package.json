@@ -51,7 +51,7 @@
   },
   "devDependencies": {
     "@remotion/bundler": "^4.0.485",
-    "@remotion/cli": "^4.0.485",
+    "@remotion/cli": "^4.0.489",
     "@remotion/renderer": "^4.0.485",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
