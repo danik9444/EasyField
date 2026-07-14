@@ -9,8 +9,8 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.2.0",
-  "createdAt": "2026-07-14T12:48:52.000Z",
-  "buildId": "0d0f72a64a6696d488aac24702993f43e200ef505a4176320d673b0497b0a3f0",
+  "createdAt": "2026-07-14T13:30:51.000Z",
+  "buildId": "19d5c920aa1c69f1a632bdb8598d53dd20c26e905a0d5d88bc7a4de3f396407f",
   "files": [
     {
       "path": "animation-render.cjs",
@@ -59,8 +59,8 @@
     },
     {
       "path": "plugin-updater.cjs",
-      "size": 43094,
-      "sha256": "1f0916d4fc518b08e2ab1140d61d7f4845a3ba093b271cfc6a2a44b04e6d8996"
+      "size": 43340,
+      "sha256": "783442355f016519db36d01de14fae9ac702e52918ccc1075b091409acc60cc0"
     },
     {
       "path": "preload.cjs",
