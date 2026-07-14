@@ -1,0 +1,678 @@
+.ef-account-screen {
+  --account-accent: var(--ef-accent, #e26bd2);
+  --account-blue: #7b9dff;
+  --account-green: #50ddb0;
+  --account-surface: rgba(23, 23, 30, .92);
+  --account-surface-raised: rgba(31, 31, 41, .92);
+  --account-line: rgba(255, 255, 255, .105);
+  --account-muted: #c0c0cc;
+  --account-subtle: #a6a6b3;
+  isolation: isolate;
+  color: var(--ef-text, #f5f5fa);
+  background:
+    radial-gradient(circle at 82% -12%, color-mix(in srgb, var(--account-accent) 19%, transparent), transparent 37%),
+    radial-gradient(circle at -8% 32%, rgba(91, 140, 255, .1), transparent 32%),
+    var(--ef-bg, #101015);
+  overflow: hidden;
+}
+
+.ef-account-screen button,
+.ef-account-screen input {
+  font: inherit;
+}
+
+.ef-account-screen button:focus-visible,
+.ef-account-screen input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--account-accent) 82%, white);
+  outline-offset: 2px;
+}
+
+.ef-account-header {
+  min-height: 64px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex: none;
+  position: relative;
+  z-index: 4;
+  border-bottom: 1px solid var(--account-line);
+  background: rgba(16, 16, 21, .78);
+  backdrop-filter: blur(20px);
+}
+
+.ef-account-back {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--account-line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .04);
+  color: var(--account-muted);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.ef-account-back:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, .2);
+  background: rgba(255, 255, 255, .085);
+}
+
+.ef-account-heading {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.ef-account-heading > span,
+.ef-account-section-title > div > span,
+.ef-account-autoreload-head > div > span,
+.ef-account-current > div > span,
+.ef-account-admin-head small,
+.ef-account-checkout-row small {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.25;
+  letter-spacing: .17em;
+  color: color-mix(in srgb, var(--account-accent) 82%, white);
+}
+
+.ef-account-heading strong,
+.ef-account-heading h1 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.ef-account-identity {
+  margin-left: auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ef-account-identity > span {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--account-accent) 38%, transparent);
+  background: color-mix(in srgb, var(--account-accent) 14%, transparent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ef-account-identity > div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.ef-account-identity > div strong,
+.ef-account-identity > div small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ef-account-identity > div strong { font-size: 11.5px; }
+.ef-account-identity > div small { color: var(--account-muted); font-size: 11px; }
+
+.ef-account-identity > button,
+.ef-account-current > button,
+.ef-account-verify > button,
+.ef-account-autoreload-controls > button {
+  min-height: 34px;
+  padding: 0 12px;
+  flex: none;
+  border: 1px solid var(--account-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .045);
+  color: var(--account-muted);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ef-account-identity > button:hover,
+.ef-account-current > button:hover,
+.ef-account-verify > button:hover,
+.ef-account-autoreload-controls > button:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, .2);
+  background: rgba(255, 255, 255, .08);
+}
+
+.ef-account-content,
+.ef-account-auth {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ef-account-content {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: 18px 18px 80px;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.ef-account-section,
+.ef-account-verify {
+  border: 1px solid var(--account-line);
+  border-radius: 19px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .025), transparent 34%),
+    var(--account-surface);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .14);
+}
+
+.ef-account-section {
+  padding: 20px;
+}
+
+.ef-account-section-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ef-account-section-title > div:first-child {
+  min-width: 0;
+}
+
+.ef-account-section-title h2,
+.ef-account-autoreload-head h2,
+.ef-account-admin-head h2 {
+  margin: 4px 0 0;
+  font-size: clamp(17px, 3.1vw, 22px);
+  line-height: 1.12;
+  letter-spacing: -.025em;
+}
+
+.ef-account-section-title p,
+.ef-account-autoreload-head p,
+.ef-account-admin-head p {
+  margin: 6px 0 0;
+  max-width: 610px;
+  color: var(--account-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ef-account-primary {
+  min-height: 42px;
+  padding: 0 17px;
+  border: 1px solid color-mix(in srgb, var(--account-accent) 55%, transparent);
+  border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--account-accent) 75%, #6947ff), var(--account-accent));
+  color: #130f16;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--account-accent) 15%, transparent);
+  transition: filter 150ms ease, transform 150ms ease;
+}
+
+.ef-account-primary:hover:not(:disabled) {
+  filter: brightness(1.09);
+  transform: translateY(-1px);
+}
+
+.ef-account-screen button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.ef-account-feedback {
+  min-height: 0;
+  margin-top: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ef-account-feedback:not(:empty) {
+  min-height: 20px;
+  margin-top: 9px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--account-line);
+  color: var(--account-muted);
+  background: rgba(255, 255, 255, .025);
+}
+
+.ef-account-feedback.is-success { color: var(--account-green); border-color: rgba(80, 221, 176, .22); background: rgba(80, 221, 176, .055); }
+.ef-account-feedback.is-error { color: #ff8a9d; border-color: rgba(255, 102, 125, .24); background: rgba(255, 102, 125, .055); }
+
+/* Signed-out access */
+
+.ef-account-auth {
+  padding: 28px 16px 70px;
+  display: grid;
+  place-items: start center;
+}
+
+.ef-account-auth-card {
+  width: min(100%, 430px);
+  padding: 27px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--account-line);
+  border-radius: 23px;
+  background:
+    radial-gradient(circle at 90% 0, color-mix(in srgb, var(--account-accent) 17%, transparent), transparent 36%),
+    rgba(22, 22, 29, .96);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, .28);
+}
+
+.ef-account-auth-mark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--account-accent) 43%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--account-accent) 13%, transparent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: .08em;
+}
+
+.ef-account-auth-intro { margin-top: 18px; }
+.ef-account-auth-intro > span {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: color-mix(in srgb, var(--account-accent) 80%, white);
+  font-size: 11px;
+  letter-spacing: .18em;
+}
+.ef-account-auth-intro h1 { margin: 7px 0 0; font-size: clamp(24px, 7vw, 33px); line-height: 1.03; letter-spacing: -.04em; }
+.ef-account-auth-intro p { margin: 9px 0 0; color: var(--account-muted); font-size: 12px; line-height: 1.5; }
+
+.ef-account-auth-tabs {
+  margin-top: 22px;
+  padding: 3px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--account-line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .2);
+}
+
+.ef-account-auth-tabs button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--account-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ef-account-auth-tabs button[aria-pressed='true'] {
+  background: var(--account-surface-raised);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 5px 14px rgba(0, 0, 0, .18);
+}
+
+.ef-account-auth-form {
+  margin-top: 18px;
+  display: grid;
+  gap: 7px;
+}
+
+.ef-account-auth-form label,
+.ef-account-topup-row label > span,
+.ef-account-autoreload-controls label > span {
+  color: var(--account-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ef-account-auth-form input,
+.ef-account-topup-row input,
+.ef-account-autoreload-controls input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--account-line);
+  border-radius: 11px;
+  background: rgba(5, 5, 9, .38);
+  color: #fff;
+  font-size: 13px;
+}
+
+.ef-account-auth-form input { padding: 0 13px; margin-bottom: 6px; }
+.ef-account-auth-form input::placeholder,
+.ef-account-topup-row input::placeholder { color: var(--account-subtle); }
+.ef-account-auth-form input:focus,
+.ef-account-topup-row input:focus,
+.ef-account-autoreload-controls input:focus { border-color: color-mix(in srgb, var(--account-accent) 58%, transparent); background: rgba(8, 8, 12, .64); }
+
+.ef-account-auth-form .ef-account-primary { width: 100%; margin-top: 5px; }
+.ef-account-reset { justify-self: end; margin: -2px 0 3px; padding: 2px 0; border: 0; background: transparent; color: color-mix(in srgb, var(--account-accent) 72%, white); font-size: 11px; cursor: pointer; }
+.ef-account-reset:hover:not(:disabled) { text-decoration: underline; }
+.ef-account-verification-note { margin: 1px 0 4px; display: flex; align-items: flex-start; gap: 7px; color: var(--account-muted); font-size: 11px; line-height: 1.45; }
+.ef-account-verification-note span { color: var(--account-accent); }
+
+.ef-account-divider { margin: 17px 0 12px; display: flex; align-items: center; gap: 10px; color: var(--account-subtle); font-size: 11px; }
+.ef-account-divider::before,
+.ef-account-divider::after { content: ''; height: 1px; flex: 1; background: var(--account-line); }
+.ef-account-divider span { white-space: nowrap; }
+
+.ef-account-socials { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.ef-account-socials button {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid var(--account-line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .045);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ef-account-socials button:hover { border-color: rgba(255, 255, 255, .2); background: rgba(255, 255, 255, .08); }
+.ef-account-socials b { width: 18px; color: color-mix(in srgb, var(--account-accent) 70%, white); font-size: 13px; }
+.ef-account-auth-footnote { margin: 14px 0 0; color: var(--account-subtle); font-size: 11px; line-height: 1.45; text-align: center; }
+
+/* Signed-in summary */
+
+.ef-account-verify {
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  border-color: rgba(255, 180, 84, .24);
+  background: rgba(255, 180, 84, .055);
+}
+.ef-account-verify > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; color: #ffca7a; background: rgba(255, 180, 84, .12); }
+.ef-account-verify strong { font-size: 11.5px; }
+.ef-account-verify p { margin: 2px 0 0; color: var(--account-muted); font-size: 11px; line-height: 1.4; }
+
+.ef-account-total {
+  min-width: 112px;
+  padding: 9px 12px;
+  display: grid;
+  gap: 1px;
+  border: 1px solid color-mix(in srgb, var(--account-accent) 27%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--account-accent) 7%, transparent);
+  text-align: right;
+}
+.ef-account-total small { color: var(--account-muted); font-size: 11px; }
+.ef-account-total strong { font-size: 18px; }
+
+.ef-account-balance-grid {
+  margin-top: 15px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.ef-account-balance-card {
+  min-width: 0;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px 11px;
+  border: 1px solid var(--account-line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .025);
+}
+.ef-account-balance-card.is-subscription { border-color: rgba(123, 157, 255, .21); background: linear-gradient(135deg, rgba(123, 157, 255, .075), rgba(255, 255, 255, .02)); }
+.ef-account-balance-card.is-purchased { border-color: rgba(80, 221, 176, .19); background: linear-gradient(135deg, rgba(80, 221, 176, .06), rgba(255, 255, 255, .02)); }
+.ef-account-balance-card.is-other { border-color: rgba(226, 107, 210, .22); background: linear-gradient(135deg, rgba(226, 107, 210, .07), rgba(255, 255, 255, .02)); }
+.ef-account-balance-icon { width: 34px; height: 34px; display: grid; place-items: center; grid-row: 1 / 3; border: 1px solid currentColor; border-radius: 11px; color: var(--account-blue); background: rgba(123, 157, 255, .08); }
+.is-purchased .ef-account-balance-icon { color: var(--account-green); background: rgba(80, 221, 176, .07); }
+.is-other .ef-account-balance-icon { color: var(--account-accent); background: color-mix(in srgb, var(--account-accent) 8%, transparent); }
+.ef-account-balance-card > div { display: grid; gap: 2px; }
+.ef-account-balance-card small { color: var(--account-muted); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .1em; }
+.ef-account-balance-card strong { font-size: 20px; line-height: 1; }
+.ef-account-balance-card p { margin: 0; grid-column: 2; color: var(--account-muted); font-size: 11px; line-height: 1.4; }
+.ef-account-measured { display: block; margin-top: 9px; color: var(--account-subtle); font-size: 11px; text-align: right; }
+
+/* Plans */
+
+.ef-account-plans-head { align-items: center; }
+.ef-account-interval {
+  padding: 3px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: none;
+  border: 1px solid var(--account-line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .18);
+}
+.ef-account-interval button { min-width: 74px; min-height: 34px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: var(--account-muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.ef-account-interval button[aria-pressed='true'] { color: #fff; background: color-mix(in srgb, var(--account-accent) 15%, var(--account-surface-raised)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--account-accent) 25%, transparent); }
+
+.ef-account-current {
+  margin-top: 14px;
+  padding: 10px 11px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(80, 221, 176, .2);
+  border-radius: 12px;
+  background: rgba(80, 221, 176, .045);
+}
+.ef-account-current > div { display: grid; gap: 2px; }
+.ef-account-current strong { font-size: 12px; }
+.ef-account-current p { margin: 0; color: var(--account-muted); font-size: 11px; }
+.ef-account-current.is-past-due,
+.ef-account-current.is-incomplete { border-color: rgba(255, 180, 84, .24); background: rgba(255, 180, 84, .045); }
+
+.ef-account-plan-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(188px, 1fr));
+  gap: 9px;
+}
+
+.ef-account-plan {
+  min-width: 0;
+  min-height: 235px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border: 1px solid var(--account-line);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, .021);
+  color: var(--account-muted);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.ef-account-plan:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, .2); background: rgba(255, 255, 255, .04); }
+.ef-account-plan.is-selected { border-color: color-mix(in srgb, var(--account-accent) 56%, transparent); background: linear-gradient(145deg, color-mix(in srgb, var(--account-accent) 10%, transparent), rgba(255, 255, 255, .022)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--account-accent) 12%, transparent); }
+.ef-account-plan-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ef-account-plan-top b { color: #fff; font-size: 14px; }
+.ef-account-plan-top i { padding: 3px 6px; border-radius: 5px; background: rgba(80, 221, 176, .1); color: var(--account-green); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; font-style: normal; letter-spacing: .1em; }
+.ef-account-plan-price { margin-top: 17px; display: flex; align-items: baseline; gap: 4px; }
+.ef-account-plan-price strong { color: #fff; font-size: 25px; line-height: 1; letter-spacing: -.04em; }
+.ef-account-plan-price small { font-size: 11px; }
+.ef-account-plan-billing { min-height: 30px; margin-top: 5px; font-size: 11px; line-height: 1.4; }
+.ef-account-plan-rule { height: 1px; margin: 12px 0; background: var(--account-line); }
+.ef-account-plan-fact { margin-top: 5px; display: block; font-size: 11px; line-height: 1.42; }
+.ef-account-plan-fact b { color: #fff; font-size: 11px; }
+.ef-account-model-access { color: var(--account-subtle); }
+.ef-account-plan-select { margin-top: auto; padding-top: 15px; display: flex; align-items: center; justify-content: space-between; color: #bdc9ff; font-size: 11px; font-weight: 750; }
+.ef-account-plan.is-selected .ef-account-plan-select { color: color-mix(in srgb, var(--account-accent) 72%, white); }
+
+.ef-account-checkout-row {
+  margin-top: 13px;
+  padding-top: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid var(--account-line);
+}
+.ef-account-checkout-row > div { margin-right: auto; display: grid; gap: 2px; }
+.ef-account-checkout-row strong { font-size: 11px; }
+
+/* Top-up and reload */
+
+.ef-account-rate {
+  padding: 7px 9px;
+  flex: none;
+  border: 1px solid rgba(80, 221, 176, .2);
+  border-radius: 9px;
+  background: rgba(80, 221, 176, .05);
+  color: var(--account-green);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.ef-account-topup-row {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, .65fr) auto;
+  align-items: end;
+  gap: 9px;
+}
+.ef-account-topup-row label { min-width: 0; display: grid; gap: 6px; }
+.ef-account-topup-row input { padding: 0 12px; }
+.ef-account-quote { min-height: 44px; padding: 7px 10px; display: grid; grid-template-columns: 1fr auto; align-content: center; column-gap: 8px; border: 1px solid var(--account-line); border-radius: 11px; background: rgba(0, 0, 0, .17); }
+.ef-account-quote small { color: var(--account-muted); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .09em; }
+.ef-account-quote strong { grid-row: 1 / 3; grid-column: 2; align-self: center; font-size: 16px; }
+.ef-account-quote span { color: var(--account-subtle); font-size: 11px; }
+.ef-account-field-help { min-height: 14px; margin: 7px 0 0; color: var(--account-subtle); font-size: 11px; line-height: 1.45; }
+.ef-account-field-help.is-error { color: #ff8a9d; }
+.ef-account-plan-required { margin: 13px 0 0; padding: 8px 10px; border: 1px solid rgba(255, 180, 84, .2); border-radius: 10px; background: rgba(255, 180, 84, .05); color: #ffd08a; font-size: 11px; line-height: 1.45; }
+
+.ef-account-autoreload-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.ef-account-autoreload-icon { width: 39px; height: 39px; display: grid; place-items: center; border: 1px solid rgba(123, 157, 255, .25); border-radius: 12px; background: rgba(123, 157, 255, .07); color: var(--account-blue); font-size: 17px; }
+.ef-account-switch { width: 45px; height: 26px; padding: 3px; border: 1px solid var(--account-line); border-radius: 999px; background: rgba(0, 0, 0, .27); cursor: pointer; transition: background 160ms ease, border-color 160ms ease; }
+.ef-account-switch span { width: 18px; height: 18px; display: block; border-radius: 50%; background: #858592; transition: transform 160ms ease, background 160ms ease; }
+.ef-account-switch[aria-checked='true'] { border-color: color-mix(in srgb, var(--account-accent) 46%, transparent); background: color-mix(in srgb, var(--account-accent) 26%, transparent); }
+.ef-account-switch[aria-checked='true'] span { transform: translateX(19px); background: #fff; }
+
+.ef-account-autoreload-controls {
+  margin-top: 14px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid var(--account-line);
+  border-radius: 13px;
+  background: rgba(0, 0, 0, .14);
+}
+.ef-account-autoreload-controls label { min-width: 0; display: grid; gap: 5px; }
+.ef-account-autoreload-controls label > div { min-width: 0; position: relative; }
+.ef-account-autoreload-controls input { padding: 0 52px 0 11px; appearance: textfield; }
+.ef-account-autoreload-controls input::-webkit-inner-spin-button { display: none; }
+.ef-account-autoreload-controls label small { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--account-subtle); font-size: 11px; }
+.ef-account-flow { align-self: center; color: var(--account-subtle); }
+.ef-account-autoreload-controls > button { min-height: 44px; }
+
+/* Admin diagnostics */
+
+.ef-account-admin {
+  border-color: rgba(255, 180, 84, .22);
+  background: linear-gradient(145deg, rgba(255, 180, 84, .055), rgba(23, 23, 30, .94));
+}
+.ef-account-admin-head { display: flex; align-items: flex-start; gap: 11px; }
+.ef-account-admin-head > span { width: 37px; height: 37px; flex: none; display: grid; place-items: center; border: 1px solid rgba(255, 180, 84, .24); border-radius: 11px; background: rgba(255, 180, 84, .075); color: #ffca7a; }
+.ef-account-admin-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ef-account-admin-grid > div { min-width: 0; padding: 11px; display: grid; gap: 4px; border: 1px solid var(--account-line); border-radius: 11px; background: rgba(0, 0, 0, .17); }
+.ef-account-admin-grid small { color: #d3b998; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .1em; }
+.ef-account-admin-grid strong { overflow: hidden; text-overflow: ellipsis; color: #fff; font-size: 12px; }
+
+@media (max-width: 620px) {
+  .ef-account-content { padding: 14px 14px 70px; }
+  .ef-account-section { padding: 16px; }
+  .ef-account-plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ef-account-topup-row { grid-template-columns: minmax(0, 1fr) minmax(122px, .7fr); }
+  .ef-account-topup-row > .ef-account-primary { grid-column: 1 / -1; width: 100%; }
+  .ef-account-autoreload-controls { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .ef-account-autoreload-controls > button { grid-column: 1 / -1; }
+}
+
+@media (max-width: 460px) {
+  .ef-account-header { min-height: 58px; padding: 9px 12px; }
+  .ef-account-heading > span { font-size: 11px; }
+  .ef-account-heading strong,
+  .ef-account-heading h1 { font-size: 13px; }
+  .ef-account-identity > span { display: none; }
+  .ef-account-identity > div { max-width: 105px; }
+  .ef-account-identity > div strong { display: none; }
+  .ef-account-identity > button { min-height: 32px; padding: 0 9px; }
+  .ef-account-content { padding: 11px 10px 64px; gap: 10px; }
+  .ef-account-section { padding: 14px; border-radius: 16px; }
+  .ef-account-section-title { display: grid; gap: 11px; }
+  .ef-account-section-title h2,
+  .ef-account-autoreload-head h2,
+  .ef-account-admin-head h2 { font-size: 17px; }
+  .ef-account-section-title p { font-size: 11px; }
+  .ef-account-total { width: 100%; min-width: 0; grid-template-columns: 1fr auto; align-items: baseline; text-align: left; }
+  .ef-account-balance-grid { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-plans-head { align-items: stretch; }
+  .ef-account-interval { width: 100%; }
+  .ef-account-interval button { min-width: 0; }
+  .ef-account-current { grid-template-columns: minmax(0, 1fr) auto; }
+  .ef-account-current p { grid-column: 1 / -1; grid-row: 2; }
+  .ef-account-plan-grid { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-plan { min-height: 218px; }
+  .ef-account-checkout-row { display: grid; }
+  .ef-account-checkout-row > div { margin: 0; }
+  .ef-account-checkout-row .ef-account-primary { width: 100%; }
+  .ef-account-rate { justify-self: start; white-space: normal; }
+  .ef-account-topup-row { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-topup-row > .ef-account-primary { grid-column: auto; }
+  .ef-account-autoreload-head { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .ef-account-autoreload-head p { grid-column: 1 / -1; }
+  .ef-account-autoreload-controls { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-flow { display: none; }
+  .ef-account-autoreload-controls > button { grid-column: auto; width: 100%; }
+  .ef-account-admin-grid { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-verify { grid-template-columns: auto minmax(0, 1fr); }
+  .ef-account-verify > button { grid-column: 1 / -1; width: 100%; }
+  .ef-account-auth { padding: 16px 10px 60px; }
+  .ef-account-auth-card { padding: 20px 16px; border-radius: 18px; }
+}
+
+@media (max-width: 380px) {
+  .ef-account-header { gap: 8px; }
+  .ef-account-back { width: 34px; height: 34px; }
+  .ef-account-identity > div { display: none; }
+  .ef-account-section { padding: 13px 12px; }
+  .ef-account-socials { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-auth-tabs button { font-size: 11px; }
+  .ef-account-plan { padding: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ef-account-screen *,
+  .ef-account-screen *::before,
+  .ef-account-screen *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+}
