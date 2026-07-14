@@ -57,7 +57,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.0",
     "electron": "^43.1.0",
-    "hyperframes": "^0.7.37",
+    "hyperframes": "^0.7.57",
     "typescript": "~5.8.3",
     "vite": "^6.3.5"
   }
