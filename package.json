@@ -43,16 +43,16 @@
     "@fontsource-variable/instrument-sans": "5.2.8",
     "@fontsource-variable/jetbrains-mono": "5.2.8",
     "@fontsource-variable/space-grotesk": "5.2.8",
-    "@remotion/player": "^4.0.485",
+    "@remotion/player": "4.0.489",
     "gsap": "3.14.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "remotion": "^4.0.485"
+    "remotion": "4.0.489"
   },
   "devDependencies": {
-    "@remotion/bundler": "^4.0.485",
-    "@remotion/cli": "^4.0.485",
-    "@remotion/renderer": "^4.0.485",
+    "@remotion/bundler": "4.0.489",
+    "@remotion/cli": "4.0.489",
+    "@remotion/renderer": "4.0.489",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.0",

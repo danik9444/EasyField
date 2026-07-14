@@ -9,8 +9,8 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.2.0",
-  "createdAt": "2026-07-14T11:59:57.815Z",
-  "buildId": "49cff85e6e5b2e1247d131dbc1c0a6b0888604efd490d1e5f822bad33ff2d640",
+  "createdAt": "2026-07-14T12:12:21.069Z",
+  "buildId": "bc7f653b1c4a65d0321c1eea40f6373ab83ce401fb82ca7a2fc1775563da0425",
   "files": [
     {
       "path": "animation-render.cjs",
@@ -108,14 +108,14 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-B0QQR5Y5.js",
-      "size": 247886,
-      "sha256": "9a82a330bccca410619531529ce1947e87ca170a48d507c51c175a9a0c480030"
+      "path": "ui/assets/AnimationRenderHost-2Tfsucug.js",
+      "size": 247271,
+      "sha256": "b339417fa2c7bd19b83ca81e7bf0aac57bf3b2559646926cd6a7cee85855757c"
     },
     {
-      "path": "ui/assets/App-BusYCAH6.js",
+      "path": "ui/assets/App-BYpDo-Fe.js",
       "size": 937214,
-      "sha256": "cd9a095f8fe375ce0c2c2f7ffbb93c39db685789bf085ac21c627ad57b657f98"
+      "sha256": "fe16a537421a63b8009b67811ae5b390f064b2efc8280853633a6913804f44c5"
     },
     {
       "path": "ui/assets/body-type-atlas-NP73N7QF.jpg",
@@ -163,14 +163,14 @@
       "sha256": "145656ee57053b9da69d3ccc42f72c9ec58dd4ed68ff55849241e06f67744176"
     },
     {
-      "path": "ui/assets/index-BtLRvoc-.js",
+      "path": "ui/assets/index-9bhWEU6F.js",
       "size": 196577,
-      "sha256": "d9d8ebffe377103eb7e8d7bcda6898e52b1db12c2e1c4f0524b7e10a8e1699d0"
+      "sha256": "6c84bf0daf4c8c2be0995f5a59561e5504bd0f2c104767c855679ff84e2aadbd"
     },
     {
-      "path": "ui/assets/index-Djr1DnDD.js",
+      "path": "ui/assets/index-CJKS_Lmy.js",
       "size": 66,
-      "sha256": "9575ffe7612f77a9ade92cc4311e778e932fbe9c8ea8185a2f2098ef7c259a60"
+      "sha256": "1651cdc4eb47468ca0280582d539541b0e1d7fb06a55ebe0533db5da67d32816"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -240,7 +240,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "5af5e21518603bc305d2829ac7bd0d0703d3c5f0b2dbc2b79b19a3d3959fa886"
+      "sha256": "4867ead2f1c36a6e402f6ee3acd967624d5cef5e5a55d8d194d6e469ed3f9014"
     },
     {
       "path": "url-context.cjs",
