@@ -253,7 +253,103 @@ test('HTTP boundary rejects non-JSON and oversized render requests before openin
   })
   assert.equal(oversized.status, 413)
   assert.equal((await oversized.json()).code, 'PAYLOAD_TOO_LARGE')
+
+  const malformed = await fetch(`${baseUrl}/api/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{',
+  })
+  assert.equal(malformed.status, 400)
+  assert.deepEqual(await malformed.json(), {
+    ok: false,
+    error: 'Animation render request is invalid',
+    code: 'BAD_RENDER_REQUEST',
+  })
   assert.equal(windowsOpened, 0)
+})
+
+test('HTTP boundary never exposes unknown renderer exception details', async (t) => {
+  class ThrowingWindow {
+    constructor() {
+      throw new Error('sensitive internal renderer path and stack detail')
+    }
+  }
+  const service = createAnimationRenderService({
+    BrowserWindow: ThrowingWindow,
+    origin: 'http://127.0.0.1:1',
+    ffmpegPath: 'ffmpeg',
+    authorizeRequest: () => true,
+    logger: { error() {} },
+  })
+  t.after(() => service.dispose())
+
+  const server = createServer((req, res) => {
+    const pathname = new URL(req.url, 'http://127.0.0.1').pathname
+    if (!service.handleRequest(req, res, pathname)) res.writeHead(404).end()
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  t.after(() => server.close())
+  const address = server.address()
+  assert(address && typeof address === 'object')
+
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ engine: 'Remotion', ...metadata, props }),
+  })
+  assert.equal(response.status, 500)
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    error: 'Animation render failed',
+    code: 'RENDER_FAILED',
+  })
+})
+
+test('HTTP boundary never exposes internal RenderError details', async (t) => {
+  let destroyed = false
+  class FailedHostWindow {
+    webContents = {
+      executeJavaScript: async () => ({
+        ready: false,
+        error: 'sensitive renderer stack and local path',
+      }),
+    }
+    setMenu() {}
+    isDestroyed() { return destroyed }
+    destroy() { destroyed = true }
+    async loadURL() {}
+  }
+  const service = createAnimationRenderService({
+    BrowserWindow: FailedHostWindow,
+    origin: 'http://127.0.0.1:1',
+    ffmpegPath: '/private/sensitive/ffmpeg',
+    authorizeRequest: () => true,
+    logger: { error() {} },
+  })
+  t.after(() => service.dispose())
+
+  const server = createServer((req, res) => {
+    const pathname = new URL(req.url, 'http://127.0.0.1').pathname
+    if (!service.handleRequest(req, res, pathname)) res.writeHead(404).end()
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  t.after(() => server.close())
+  const address = server.address()
+  assert(address && typeof address === 'object')
+
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ engine: 'Remotion', ...metadata, props }),
+  })
+  assert.equal(response.status, 422)
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    error: 'Animation render host failed',
+    code: 'RENDER_HOST_FAILED',
+  })
 })
 
 test('a render-wide deadline aborts and destroys a hung hidden window', async (t) => {

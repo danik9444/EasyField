@@ -16,6 +16,7 @@ const {
   createTranscriptionService,
   normalizeTranscription,
   parseOptions,
+  readWhisperResultJson,
   runProcess,
 } = require('../plugin/whisper-transcription.cjs')
 
@@ -48,6 +49,20 @@ function markModelReady(modelRoot, model = 'tiny') {
     { mode: 0o600 },
   )
 }
+
+test('Whisper result reader accepts regular JSON and rejects symlinks and non-files', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'easyfield-whisper-result-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const regular = path.join(root, 'result.json')
+  const linked = path.join(root, 'linked.json')
+  const payload = { result: { language: 'en' }, transcription: [] }
+  await writeFile(regular, JSON.stringify(payload))
+  fs.symlinkSync(regular, linked)
+
+  assert.deepEqual(readWhisperResultJson(regular), payload)
+  assert.throws(() => readWhisperResultJson(linked), (error) => error.code === 'INVALID_TRANSCRIPTION_RESULT')
+  assert.throws(() => readWhisperResultJson(root), (error) => error.code === 'INVALID_TRANSCRIPTION_RESULT')
+})
 
 test('strict Whisper options include requested controls and reject unsupported combinations', () => {
   assert.deepEqual(parseOptions({

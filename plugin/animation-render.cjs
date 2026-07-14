@@ -74,6 +74,18 @@ class RenderError extends Error {
     }
 }
 
+const CLIENT_RENDER_MESSAGES = Object.freeze({
+    BAD_RENDER_REQUEST: 'Animation render request is invalid',
+    PAYLOAD_TOO_LARGE: 'Render request is too large',
+    RENDER_CANCELLED: 'Render cancelled',
+    RENDER_TIMEOUT: 'Animation render timed out',
+    RENDER_HOST_FAILED: 'Animation render host failed',
+    FFMPEG_MISSING: 'FFmpeg is unavailable. Install FFmpeg and restart EasyField.',
+    FFMPEG_FAILED: 'Animation encoding failed',
+    RENDER_UNAVAILABLE: 'Animation renderer is unavailable',
+    RENDER_BUSY: 'Another animation render is already queued',
+});
+
 function abortError(signal) {
     if (signal && signal.reason instanceof RenderError) return signal.reason;
     return new RenderError('Render cancelled', 'RENDER_CANCELLED', 499);
@@ -236,10 +248,11 @@ function sendRenderError(res, error) {
         return;
     }
     const known = error instanceof RenderError;
+    const code = known ? error.code : 'RENDER_FAILED';
     sendJSON(res, known ? error.status : 500, {
         ok: false,
-        error: known ? error.message : (error && error.message) || String(error),
-        code: known ? error.code : 'RENDER_FAILED',
+        error: CLIENT_RENDER_MESSAGES[code] || 'Animation render failed',
+        code,
     });
 }
 

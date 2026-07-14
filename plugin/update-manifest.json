@@ -9,13 +9,13 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.2.0",
-  "createdAt": "2026-07-14T12:12:21.069Z",
-  "buildId": "bc7f653b1c4a65d0321c1eea40f6373ab83ce401fb82ca7a2fc1775563da0425",
+  "createdAt": "2026-07-14T12:36:51.814Z",
+  "buildId": "ad81600d46ebdf3fe1261d21fe4e00b83510809a612fc9cc5ba7bed5080e9dde",
   "files": [
     {
       "path": "animation-render.cjs",
-      "size": 32501,
-      "sha256": "64cdc83c2af2ee1c37a1450a8816e57d25fae190ae2e34499a4392196ef652af"
+      "size": 33083,
+      "sha256": "bddf5a78bd425e5d8194046ea0dad16b9d389eb76212aba2ceb80e785b836ef2"
     },
     {
       "path": "audio-capture.cjs",
@@ -59,8 +59,8 @@
     },
     {
       "path": "plugin-updater.cjs",
-      "size": 40894,
-      "sha256": "48ff8a763b6c99648322951b7dac2f8dd30ea090484d32f95f0a6c1eae0e167a"
+      "size": 43094,
+      "sha256": "1f0916d4fc518b08e2ab1140d61d7f4845a3ba093b271cfc6a2a44b04e6d8996"
     },
     {
       "path": "preload.cjs",
@@ -108,14 +108,14 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-2Tfsucug.js",
+      "path": "ui/assets/AnimationRenderHost-Kg_7lITg.js",
       "size": 247271,
-      "sha256": "b339417fa2c7bd19b83ca81e7bf0aac57bf3b2559646926cd6a7cee85855757c"
+      "sha256": "accfbc739f16a88067bf74580c2e2fd2524e78d5153f34e4614650189f10ebf2"
     },
     {
-      "path": "ui/assets/App-BYpDo-Fe.js",
-      "size": 937214,
-      "sha256": "fe16a537421a63b8009b67811ae5b390f064b2efc8280853633a6913804f44c5"
+      "path": "ui/assets/App-BU0B4KM7.js",
+      "size": 937813,
+      "sha256": "36ac6db34e1afb9f5bf1931bc080de955fba4e3f2caa85e58ce1fe949059005e"
     },
     {
       "path": "ui/assets/body-type-atlas-NP73N7QF.jpg",
@@ -163,14 +163,14 @@
       "sha256": "145656ee57053b9da69d3ccc42f72c9ec58dd4ed68ff55849241e06f67744176"
     },
     {
-      "path": "ui/assets/index-9bhWEU6F.js",
+      "path": "ui/assets/index-BF5dR3SI.js",
       "size": 196577,
-      "sha256": "6c84bf0daf4c8c2be0995f5a59561e5504bd0f2c104767c855679ff84e2aadbd"
+      "sha256": "5ca1b396feb4973220d12aa5b5c07b1d8a9a95b197c41a3a03884654366d109f"
     },
     {
-      "path": "ui/assets/index-CJKS_Lmy.js",
+      "path": "ui/assets/index-D-UG0jP8.js",
       "size": 66,
-      "sha256": "1651cdc4eb47468ca0280582d539541b0e1d7fb06a55ebe0533db5da67d32816"
+      "sha256": "7f479afe5f95b6157c746f3985ebe0084d69502263a226738412dd66ce77ba8f"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -240,7 +240,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "4867ead2f1c36a6e402f6ee3acd967624d5cef5e5a55d8d194d6e469ed3f9014"
+      "sha256": "b36373b3c05ed142ad8ba7375cc0dab0f39d9e609b06652fc67ab018b87c3bbf"
     },
     {
       "path": "url-context.cjs",
@@ -249,8 +249,8 @@
     },
     {
       "path": "whisper-transcription.cjs",
-      "size": 35339,
-      "sha256": "9155af6c8843519ef059de4722dd1ed9a3b25494e5ed6af28b6b8f9e00061332"
+      "size": 36702,
+      "sha256": "08113b9bf378aea7aa1969a01b3ac4fe9e52bcc14922deb5bf735e962895d120"
     },
     {
       "path": "workflow-integration.cjs",
