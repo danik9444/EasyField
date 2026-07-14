@@ -13,6 +13,7 @@ const {
   candidateIsNewer,
   computeBuildId,
   createPluginUpdater,
+  readVerifiedRegularFile,
   stageVerifiedRelease,
   validateManifest,
   validateRemoteRelease,
@@ -102,6 +103,24 @@ function createRemoteEnvelope(manifest, { repository = 'easyfield/releases', rel
 function writeRemoteSource(installed, descriptor) {
   fs.writeFileSync(path.join(installed, '.easyfield-update-source.json'), JSON.stringify(descriptor))
 }
+
+test('regular-file reader rejects symlinks and non-files while preserving verified bytes', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-updater-file-read-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const regular = path.join(root, 'regular.json')
+  const linked = path.join(root, 'linked.json')
+  const bytes = Buffer.from('{"ok":true}')
+  fs.writeFileSync(regular, bytes)
+  fs.symlinkSync(regular, linked)
+
+  assert.deepEqual(readVerifiedRegularFile(regular, {
+    expectedBytes: bytes.length,
+    expectedSha256: sha256(bytes),
+    errorMessage: 'Rejected release input',
+  }), bytes)
+  assert.throws(() => readVerifiedRegularFile(linked, { errorMessage: 'Rejected release input' }), /Rejected release input/)
+  assert.throws(() => readVerifiedRegularFile(root, { errorMessage: 'Rejected release input' }), /Rejected release input/)
+})
 
 test('detects and atomically installs a newer verified build of the same version', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-updater-test-'))

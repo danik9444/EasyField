@@ -51,12 +51,56 @@ const REQUIRED_FILES = Object.freeze([
     'workflow-integration.cjs',
 ]);
 
-function safeReadJson(filePath) {
-    const stat = fs.lstatSync(filePath);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > MAX_MANIFEST_BYTES) {
-        throw new Error('Invalid update metadata file');
+function readVerifiedRegularFile(filePath, options = {}) {
+    const errorMessage = options.errorMessage || 'Invalid file';
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    const closeOnExec = typeof fs.constants.O_CLOEXEC === 'number' ? fs.constants.O_CLOEXEC : 0;
+    let descriptor;
+    try {
+        descriptor = fs.openSync(filePath, fs.constants.O_RDONLY | noFollow | closeOnExec);
+        const before = fs.fstatSync(descriptor);
+        // O_NOFOLLOW is not available on every Node platform. In that case,
+        // compare the opened inode with the path after opening so a symlink or
+        // path swap can never make validation apply to a different file.
+        if (!noFollow) {
+            const pathStat = fs.lstatSync(filePath);
+            if (pathStat.isSymbolicLink() || pathStat.dev !== before.dev || pathStat.ino !== before.ino) {
+                throw new Error(errorMessage);
+            }
+        }
+        const minBytes = options.minBytes == null ? 0 : options.minBytes;
+        const maxBytes = options.maxBytes == null ? Number.MAX_SAFE_INTEGER : options.maxBytes;
+        if (!before.isFile() || before.size < minBytes || before.size > maxBytes
+            || (options.expectedBytes != null && before.size !== options.expectedBytes)) {
+            throw new Error(errorMessage);
+        }
+        const bytes = fs.readFileSync(descriptor);
+        const after = fs.fstatSync(descriptor);
+        if (!after.isFile() || bytes.length !== before.size || after.size !== before.size
+            || after.dev !== before.dev || after.ino !== before.ino
+            || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
+            throw new Error(errorMessage);
+        }
+        if (options.expectedSha256 != null
+            && crypto.createHash('sha256').update(bytes).digest('hex') !== options.expectedSha256) {
+            throw new Error(errorMessage);
+        }
+        return bytes;
+    } catch (error) {
+        if (error && error.message === errorMessage) throw error;
+        throw new Error(errorMessage, { cause: error });
+    } finally {
+        if (descriptor != null) fs.closeSync(descriptor);
     }
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function safeReadJson(filePath) {
+    const bytes = readVerifiedRegularFile(filePath, {
+        minBytes: 1,
+        maxBytes: MAX_MANIFEST_BYTES,
+        errorMessage: 'Invalid update metadata file',
+    });
+    return JSON.parse(bytes.toString('utf8'));
 }
 
 function validReleasePath(relativePath) {
@@ -827,6 +871,7 @@ module.exports = {
     MANIFEST_NAME,
     SOURCE_NAME,
     REQUIRED_FILES,
+    readVerifiedRegularFile,
     computeBuildId,
     validateManifest,
     validateRemoteRelease,

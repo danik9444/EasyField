@@ -27,6 +27,7 @@ export interface PluginUpdateInstallResult {
 }
 
 const memory = new Map<string, unknown>()
+const credentialMemory = new Map<string, string>()
 
 function nativeHost() {
   return typeof window !== 'undefined' ? window.easyfield : undefined
@@ -42,22 +43,20 @@ export const host = {
   async getCredential(name: string): Promise<string> {
     const api = nativeHost()
     if (api?.credentials) return api.credentials.get(name)
-    try { return sessionStorage.getItem(`ef-credential:${name}`) ?? '' } catch { return '' }
+    return credentialMemory.get(name) ?? ''
   },
 
   async setCredential(name: string, value: string): Promise<void> {
     const api = nativeHost()
     if (api?.credentials) return api.credentials.set(name, value)
-    try {
-      if (value) sessionStorage.setItem(`ef-credential:${name}`, value)
-      else sessionStorage.removeItem(`ef-credential:${name}`)
-    } catch { /* session-only fallback unavailable */ }
+    if (value) credentialMemory.set(name, value)
+    else credentialMemory.delete(name)
   },
 
   async deleteCredential(name: string): Promise<void> {
     const api = nativeHost()
     if (api?.credentials) return api.credentials.delete(name)
-    try { sessionStorage.removeItem(`ef-credential:${name}`) } catch { /* ignore */ }
+    credentialMemory.delete(name)
   },
 
   async getState<T>(namespace: StateNamespace, key: string): Promise<T | null> {

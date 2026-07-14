@@ -31,7 +31,12 @@ function sha256(bytes) {
 }
 
 function safeJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  const bytes = updater.readVerifiedRegularFile(filePath, {
+    minBytes: 1,
+    maxBytes: 4 * 1024 * 1024,
+    errorMessage: 'Invalid update manifest file',
+  })
+  return JSON.parse(bytes.toString('utf8'))
 }
 
 function loadPrivateKey() {
@@ -164,11 +169,11 @@ if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
 const fileBuffers = new Map()
 for (const entry of manifest.files) {
   const absolutePath = path.join(pluginRoot, ...entry.path.split('/'))
-  const stat = fs.lstatSync(absolutePath)
-  const bytes = fs.readFileSync(absolutePath)
-  if (!stat.isFile() || stat.isSymbolicLink() || bytes.length !== entry.size || sha256(bytes) !== entry.sha256) {
-    throw new Error(`Plugin file failed manifest verification: ${entry.path}`)
-  }
+  const bytes = updater.readVerifiedRegularFile(absolutePath, {
+    expectedBytes: entry.size,
+    expectedSha256: entry.sha256,
+    errorMessage: `Plugin file failed manifest verification: ${entry.path}`,
+  })
   fileBuffers.set(entry.path, bytes)
 }
 

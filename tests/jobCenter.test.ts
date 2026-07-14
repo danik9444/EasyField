@@ -131,7 +131,8 @@ test('restart recovery resumes every persisted provider family without submittin
     '/kie/api/v1/generate/record-info?taskId=sound-task',
     '/kie/api/v1/jobs/recordInfo?taskId=market-task',
   ])
-  assert(!calls.some((url) => /createTask|\/generate$/.test(url)), 'recovery must never submit paid work again')
+  const resubmittedPaidWork = calls.some((url) => url.includes('createTask') || url.endsWith('/generate'))
+  assert.equal(resubmittedPaidWork, false, 'recovery must never submit paid work again')
   const recovered = getJobs().find((job) => job.id === 'persisted-fanout')
   assert.equal(recovered?.status, 'succeeded')
   assert.equal(recovered?.resultCount, 3)

@@ -131,14 +131,56 @@ export function isConnected(): boolean {
   return !!currentApiKey()
 }
 
+const EXPLICIT_URL_SCHEME = /^[a-z][a-z\d+.-]*:/i
+const NETWORK_PATH_REFERENCE = /^[\\/]{2}/
+
+export function validatedDownloadUrl(rawUrl: string, baseUrl: string): string {
+  const candidate = rawUrl.trim()
+  if (!candidate) {
+    throw new Error('Unsafe download URL: only blob:, https:, and same-origin relative URLs are allowed.')
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(candidate, baseUrl)
+  } catch {
+    throw new Error('Unsafe download URL: only blob:, https:, and same-origin relative URLs are allowed.')
+  }
+
+  if (parsed.protocol === 'blob:' || parsed.protocol === 'https:') return parsed.href
+
+  // Managed Library artifacts use a relative /artifacts/... URL served by the
+  // authenticated loopback origin. Permit only genuinely relative references
+  // that stay on that origin; absolute http:, protocol-relative, file:, data:
+  // and javascript: inputs must never reach the anchor URL sink.
+  if (!EXPLICIT_URL_SCHEME.test(candidate) && !NETWORK_PATH_REFERENCE.test(candidate)) {
+    let base: URL
+    try {
+      base = new URL(baseUrl)
+    } catch {
+      throw new Error('Unsafe download URL: only blob:, https:, and same-origin relative URLs are allowed.')
+    }
+    if (
+      (base.protocol === 'http:' || base.protocol === 'https:')
+      && parsed.protocol === base.protocol
+      && parsed.origin === base.origin
+    ) {
+      return parsed.href
+    }
+  }
+
+  throw new Error('Unsafe download URL: only blob:, https:, and same-origin relative URLs are allowed.')
+}
+
 // Save a result to disk. Localized (blob) results download directly; remote video
 // URLs can't be force-saved cross-origin, so we open them for the user to save.
 export function saveUrl(url: string, filename: string): void {
+  const safeUrl = validatedDownloadUrl(url, document.baseURI)
   const a = document.createElement('a')
-  a.href = url
+  a.href = safeUrl
   a.download = filename
   a.rel = 'noreferrer'
-  if (!url.startsWith('blob:')) a.target = '_blank'
+  if (!safeUrl.startsWith('blob:')) a.target = '_blank'
   document.body.appendChild(a)
   a.click()
   a.remove()

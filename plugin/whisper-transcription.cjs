@@ -605,6 +605,43 @@ function normalizeTranscription(payload, options) {
     };
 }
 
+function readWhisperResultJson(filePath) {
+    const invalid = () => new TranscriptionError(
+        'Whisper result is empty, too large, or invalid.',
+        'INVALID_TRANSCRIPTION_RESULT',
+        500,
+    );
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    const closeOnExec = typeof fs.constants.O_CLOEXEC === 'number' ? fs.constants.O_CLOEXEC : 0;
+    let descriptor;
+    try {
+        descriptor = fs.openSync(filePath, fs.constants.O_RDONLY | noFollow | closeOnExec);
+        const before = fs.fstatSync(descriptor);
+        if (!noFollow) {
+            const pathStat = fs.lstatSync(filePath);
+            if (pathStat.isSymbolicLink() || pathStat.dev !== before.dev || pathStat.ino !== before.ino) throw invalid();
+        }
+        if (!before.isFile() || before.size <= 0 || before.size > MAX_RESULT_JSON_BYTES) throw invalid();
+        const bytes = fs.readFileSync(descriptor);
+        const after = fs.fstatSync(descriptor);
+        if (!after.isFile() || bytes.length !== before.size || after.size !== before.size
+            || after.dev !== before.dev || after.ino !== before.ino
+            || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
+            throw invalid();
+        }
+        try {
+            return JSON.parse(bytes.toString('utf8'));
+        } catch {
+            throw invalid();
+        }
+    } catch (error) {
+        if (error instanceof TranscriptionError) throw error;
+        throw invalid();
+    } finally {
+        if (descriptor != null) fs.closeSync(descriptor);
+    }
+}
+
 function createTranscriptionService(options = {}) {
     const runtimeRoot = options.runtimeRoot || path.join(os.homedir(), 'Library', 'Application Support', 'EasyField', 'runtime', 'whisper');
     const modelRoot = options.modelRoot || path.join(os.homedir(), 'Library', 'Application Support', 'EasyField', 'models', 'whisper');
@@ -723,9 +760,7 @@ function createTranscriptionService(options = {}) {
             if (result.timedOut) throw new TranscriptionError('Whisper transcription timed out.', 'TRANSCRIPTION_TIMEOUT', 504);
             if (result.code !== 0) throw new TranscriptionError('whisper.cpp could not transcribe this media.', 'TRANSCRIPTION_FAILED', 500);
             const jsonPath = `${outputBase}.json`;
-            const stat = fs.statSync(jsonPath);
-            if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_RESULT_JSON_BYTES) throw new TranscriptionError('Whisper result is empty or too large.', 'INVALID_TRANSCRIPTION_RESULT', 500);
-            const payload = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            const payload = readWhisperResultJson(jsonPath);
             sendJSON(res, 200, normalizeTranscription(payload, transcriptionOptions));
         } finally {
             try { fs.rmSync(temporary, { recursive: true, force: true }); } catch { /* best effort */ }
@@ -767,5 +802,6 @@ module.exports = {
     optionsFromHeaders,
     parseOptions,
     probeRuntime,
+    readWhisperResultJson,
     runProcess,
 };
