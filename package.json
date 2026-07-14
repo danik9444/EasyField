@@ -1,0 +1,64 @@
+{
+  "name": "easyfield",
+  "private": true,
+  "version": "1.2.0",
+  "description": "AI creation and timeline-assistance panel for DaVinci Resolve",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danik9444/EasyField.git"
+  },
+  "homepage": "https://github.com/danik9444/EasyField#readme",
+  "bugs": {
+    "url": "https://github.com/danik9444/EasyField/issues"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "packageManager": "npm@10.9.8",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:plugin-ui": "vite build --base=./ --outDir plugin/ui --emptyOutDir",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.*",
+    "verify:notices": "cmp THIRD_PARTY_NOTICES.md plugin/THIRD_PARTY_NOTICES.txt",
+    "verify:source": "npm run verify:notices && npm run typecheck && npm run build:plugin-ui && npm test",
+    "verify": "npm run verify:source && npm run build && node scripts/plugin-update-manifest.mjs && node scripts/release-verify-plugin.mjs",
+    "plugin:assemble": "npm run verify:notices && npm run typecheck && npm run build:plugin-ui && node scripts/plugin-update-manifest.mjs && node scripts/release-verify-plugin.mjs",
+    "plugin:build": "npm run plugin:assemble && node scripts/plugin-publish-local-update.mjs",
+    "plugin:dev": "EF_DEV=1 electron plugin/",
+    "plugin:start": "electron plugin/",
+    "plugin:install": "bash scripts/plugin-install.sh",
+    "release:version": "node scripts/release-version.mjs",
+    "release:verify-plugin": "node scripts/release-verify-plugin.mjs",
+    "release:keygen": "node scripts/release-generate-key.mjs",
+    "release:sbom": "node scripts/release-generate-sbom.mjs",
+    "release:update": "node scripts/release-build-update.mjs",
+    "release:pkg": "node scripts/release-build-pkg.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "5.2.8",
+    "@fontsource-variable/jetbrains-mono": "5.2.8",
+    "@fontsource-variable/space-grotesk": "5.2.8",
+    "@remotion/player": "^4.0.485",
+    "gsap": "3.14.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remotion": "^4.0.485"
+  },
+  "devDependencies": {
+    "@remotion/bundler": "^4.0.485",
+    "@remotion/cli": "^4.0.485",
+    "@remotion/renderer": "^4.0.485",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "electron": "^43.1.0",
+    "hyperframes": "^0.7.37",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}

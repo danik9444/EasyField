@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  EASYFIELD_RELEASE_REPOSITORY: danik9444/EasyField
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.18.0
+          cache: npm
+
+      - name: Enforce external Resolve SDK boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch plugin/WorkflowIntegration.node >/dev/null 2>&1; then
+            echo "WorkflowIntegration.node is owned by Blackmagic Design and must not be tracked." >&2
+            exit 1
+          fi
+          test ! -e plugin/WorkflowIntegration.node
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit all dependencies
+        run: npm audit --audit-level=high
+
+      - name: Check synchronized version
+        run: npm run release:version -- check
+
+      - name: Verify clean source checkout
+        run: npm run verify
+
+      - name: Generate shipped-dependency SBOM
+        run: |
+          mkdir -p output
+          npm run release:sbom -- --out output/easyfield-ci.spdx.json
+
+      - name: Rebuild deterministic release manifest
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" npm run plugin:assemble
+
+      - name: Exercise signed update builder
+        run: |
+          npm run release:keygen -- --out-dir release/ci-keys
+          npm run release:update -- \
+            --repo "$EASYFIELD_RELEASE_REPOSITORY" \
+            --private-key release/ci-keys/easyfield-update-private.pem \
+            --out-dir release/ci-output \
+            --notes "CI verification only"
+
+      - name: Verify update reproducibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          ARCHIVE="EasyField-${VERSION}-plugin.tar.gz"
+          npm run release:update -- \
+            --repo "$EASYFIELD_RELEASE_REPOSITORY" \
+            --private-key release/ci-keys/easyfield-update-private.pem \
+            --out-dir release/ci-rebuild \
+            --notes "CI verification only"
+          cmp "release/ci-output/$ARCHIVE" "release/ci-rebuild/$ARCHIVE"
+          cmp release/ci-output/easyfield-update.json release/ci-rebuild/easyfield-update.json
+
+      - name: Exercise unsigned PKG builder
+        run: npm run release:pkg -- --unsigned --out-dir release/ci-output
+
+      - name: Inspect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          tar -tzf "release/ci-output/EasyField-${VERSION}-plugin.tar.gz" | grep -q '^com.easyfield.panel/update-manifest.json$'
+          pkgutil --expand-full "release/ci-output/EasyField-${VERSION}-macOS-universal-unsigned.pkg" release/expanded-pkg
+          test -x release/expanded-pkg/*/Scripts/preinstall
+          test -x release/expanded-pkg/*/Scripts/postinstall
+          PAYLOAD="$(find release/expanded-pkg -type d -path '*/InstallerPayload/com.easyfield.panel' -print -quit)"
+          test -n "$PAYLOAD"
+          CHECKSUMS="$PWD/$(dirname "$PAYLOAD")/release-checksums.sha256"
+          test -f "$CHECKSUMS"
+          test -z "$(find "$PAYLOAD" -type l -print -quit)"
+          test "$(find "$PAYLOAD" -type f | wc -l | tr -d '[:space:]')" -eq "$(wc -l < "$CHECKSUMS" | tr -d '[:space:]')"
+          (cd "$PAYLOAD" && shasum -a 256 -c "$CHECKSUMS")
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: easyfield-ci-artifacts
+          path: |
+            release/ci-output/easyfield-update.json
+            release/ci-output/EasyField-*-plugin.tar.gz
+            release/ci-output/EasyField-*-unsigned.pkg
+            output/easyfield-ci.spdx.json
+          if-no-files-found: warn
+          retention-days: 7

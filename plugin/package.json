@@ -1,0 +1,6 @@
+{
+  "name": "easyfield-resolve-plugin",
+  "version": "1.2.0",
+  "description": "EasyField Workflow Integration plugin for DaVinci Resolve",
+  "main": "main.cjs"
+}

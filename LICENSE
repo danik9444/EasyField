@@ -1,0 +1,24 @@
+EasyField Proprietary License
+
+Copyright (c) 2026 EasyField. All rights reserved.
+
+The source code, user interface, documentation, original media, and other
+EasyField materials in this repository are proprietary. No license is granted
+to copy, modify, distribute, sublicense, sell, or create derivative works from
+those materials unless the copyright holder gives prior written permission.
+
+Publication of this repository and access through GitHub do not make EasyField
+open-source software and do not waive any right held by the copyright holder.
+Terms accompanying an official binary release, if any, govern use of that
+release.
+
+This notice does not apply to third-party components. Those components remain
+subject to their respective copyright notices and license terms, summarized in
+THIRD_PARTY_NOTICES.md and inventoried by the release SBOM.
+
+THE EASYFIELD MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM
+EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED TO THE MATERIALS OR THEIR
+USE.

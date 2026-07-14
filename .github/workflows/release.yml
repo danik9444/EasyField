@@ -1,0 +1,245 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing version tag without the leading v
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  EASYFIELD_RELEASE_REPOSITORY: danik9444/EasyField
+
+concurrency:
+  group: release-${{ github.ref_name }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: release
+    steps:
+      - name: Verify release gate
+        shell: bash
+        env:
+          RELEASE_ENABLED: ${{ vars.EASYFIELD_RELEASE_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_ENABLED" != "true" ]]; then
+            echo "Release publishing is disabled. Set the protected release environment variable EASYFIELD_RELEASE_ENABLED=true after every release prerequisite is satisfied." >&2
+            exit 1
+          fi
+
+      - name: Check out release tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.18.0
+          cache: npm
+
+      - name: Enforce external Resolve SDK boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch plugin/WorkflowIntegration.node >/dev/null 2>&1; then
+            echo "WorkflowIntegration.node is owned by Blackmagic Design and must not be tracked or released." >&2
+            exit 1
+          fi
+          test ! -e plugin/WorkflowIntegration.node
+
+      - name: Resolve and verify version
+        id: version
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" != "$EASYFIELD_RELEASE_REPOSITORY" ]]; then
+            echo "Signed releases are restricted to $EASYFIELD_RELEASE_REPOSITORY; refusing $GITHUB_REPOSITORY." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            TAG="$GITHUB_REF_NAME"
+            VERSION="${TAG#v}"
+          else
+            VERSION="$DISPATCH_VERSION"
+            TAG="v${VERSION}"
+            git checkout --detach "$TAG"
+          fi
+          # This feed is the stable channel and GitHub's `latest` endpoint does
+          # not provide prereleases. A beta channel needs a separate descriptor.
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          node scripts/release-version.mjs check "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$TAG")" >> "$GITHUB_ENV"
+
+      - name: Verify annotated signed tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG_REF="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")"
+          TAG_TYPE="$(jq -r '.object.type' <<<"$TAG_REF")"
+          TAG_OBJECT_SHA="$(jq -r '.object.sha' <<<"$TAG_REF")"
+          if [[ "$TAG_TYPE" != "tag" || ! "$TAG_OBJECT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "$TAG must be an annotated tag, not a lightweight tag." >&2
+            exit 1
+          fi
+          VERIFICATION="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$TAG_OBJECT_SHA")"
+          if [[ "$(jq -r '.verification.verified' <<<"$VERIFICATION")" != "true" ]]; then
+            REASON="$(jq -r '.verification.reason // "unknown"' <<<"$VERIFICATION")"
+            echo "$TAG does not have a GitHub-verified signature (reason: $REASON)." >&2
+            exit 1
+          fi
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit shipped dependencies
+        run: npm audit --omit=dev
+
+      - name: Test and assemble plugin
+        run: npm run verify
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          mkdir -p release/output
+          git show -s --format=%B '${{ steps.version.outputs.tag }}' | head -c 3900 > release/output/release-notes.md
+          if [[ ! -s release/output/release-notes.md ]]; then
+            printf 'EasyField %s\n' '${{ steps.version.outputs.version }}' > release/output/release-notes.md
+          fi
+
+      - name: Generate shipped-dependency SBOM
+        run: npm run release:sbom -- --out "release/output/easyfield-${{ steps.version.outputs.version }}.spdx.json"
+
+      - name: Import Developer ID Installer certificate
+        id: signing
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/easyfield-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          CERTIFICATE="$RUNNER_TEMP/easyfield-installer.p12"
+          trap 'rm -f "$CERTIFICATE"' EXIT
+          printf '%s' "$CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$CERTIFICATE"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/productbuild -T /usr/bin/pkgbuild -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed update feed and archive
+        shell: bash
+        env:
+          EASYFIELD_UPDATE_PRIVATE_KEY_BASE64: ${{ secrets.EASYFIELD_UPDATE_PRIVATE_KEY_BASE64 }}
+        run: |
+          npm run release:update -- \
+            --repo "$EASYFIELD_RELEASE_REPOSITORY" \
+            --out-dir release/output \
+            --notes-file release/output/release-notes.md
+
+      - name: Build signed installer
+        env:
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+        run: npm run release:pkg -- --out-dir release/output
+
+      - name: Notarize and staple installer
+        shell: bash
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/AuthKey_${NOTARY_KEY_ID}.p8"
+          PKG="release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg"
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s' "$NOTARY_KEY_BASE64" | /usr/bin/base64 -D > "$KEY"
+          chmod 600 "$KEY"
+          xcrun notarytool submit "$PKG" \
+            --key "$KEY" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --wait \
+            --output-format json > release/output/notarization.json
+          xcrun stapler staple "$PKG"
+          xcrun stapler validate "$PKG"
+          pkgutil --check-signature "$PKG"
+          spctl --assess --type install --verbose=2 "$PKG"
+
+      - name: Create checksum ledger
+        shell: bash
+        working-directory: release/output
+        run: |
+          shasum -a 256 \
+            "EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg" \
+            "EasyField-${{ steps.version.outputs.version }}-plugin.tar.gz" \
+            easyfield-update.json \
+            easyfield-update-public.spki.b64 \
+            "easyfield-${{ steps.version.outputs.version }}.spdx.json" \
+            notarization.json > SHA256SUMS
+
+      - name: Attest release artifacts
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: |
+            release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg
+            release/output/EasyField-${{ steps.version.outputs.version }}-plugin.tar.gz
+            release/output/easyfield-update.json
+
+      - name: Attest installer SBOM
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg
+          sbom-path: release/output/easyfield-${{ steps.version.outputs.version }}.spdx.json
+
+      - name: Publish immutable GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.version.outputs.tag }}'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; same-version replacement is forbidden." >&2
+            exit 1
+          fi
+          gh release create "$TAG" --verify-tag --draft --title "EasyField ${{ steps.version.outputs.version }}" --notes-file release/output/release-notes.md
+          gh release upload "$TAG" \
+            "release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg" \
+            "release/output/EasyField-${{ steps.version.outputs.version }}-plugin.tar.gz" \
+            release/output/easyfield-update.json \
+            release/output/easyfield-update-public.spki.b64 \
+            "release/output/easyfield-${{ steps.version.outputs.version }}.spdx.json" \
+            release/output/notarization.json \
+            release/output/SHA256SUMS
+          gh release edit "$TAG" --draft=false
+
+      - name: Remove temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/easyfield-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/easyfield-installer.p12" "$RUNNER_TEMP"/AuthKey_*.p8

@@ -1,0 +1,93 @@
+#!/bin/sh
+set -eu
+
+MIN_MACOS="15.0.0"
+MIN_RESOLVE="21.0.2"
+RESOLVE_APP="/Applications/DaVinci Resolve/DaVinci Resolve.app"
+WORKFLOW_MODULE="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Workflow Integrations/Examples/SamplePlugin/WorkflowIntegration.node"
+WORKFLOW_IDENTIFIER="com.blackmagic-design.WorkflowIntegration"
+WORKFLOW_TEAM="9ZGFBWLSYP"
+
+version_at_least() {
+  /usr/bin/awk -v actual="$1" -v minimum="$2" 'BEGIN {
+    split(actual, a, "."); split(minimum, m, ".");
+    for (i = 1; i <= 3; i++) {
+      av = (a[i] == "" ? 0 : a[i]) + 0;
+      mv = (m[i] == "" ? 0 : m[i]) + 0;
+      if (av > mv) exit 0;
+      if (av < mv) exit 1;
+    }
+    exit 0;
+  }'
+}
+
+verify_workflow_module() {
+  if [ ! -f "$WORKFLOW_MODULE" ] || [ -L "$WORKFLOW_MODULE" ]; then
+    echo "Blackmagic WorkflowIntegration.node was not found in Resolve's official SamplePlugin. Reinstall DaVinci Resolve from Blackmagic Design." >&2
+    return 1
+  fi
+
+  if ! /usr/bin/codesign --verify --strict --verbose=2 "$WORKFLOW_MODULE" >/dev/null 2>&1; then
+    echo "Blackmagic WorkflowIntegration.node failed code-signature verification." >&2
+    return 1
+  fi
+
+  if ! SIGNATURE_INFO=$(/usr/bin/codesign -d --verbose=4 "$WORKFLOW_MODULE" 2>&1); then
+    echo "Blackmagic WorkflowIntegration.node signature metadata could not be read." >&2
+    return 1
+  fi
+  if ! /usr/bin/printf '%s\n' "$SIGNATURE_INFO" | /usr/bin/grep -Fqx "Identifier=$WORKFLOW_IDENTIFIER"; then
+    echo "Blackmagic WorkflowIntegration.node has an unexpected signing identifier." >&2
+    return 1
+  fi
+  if ! /usr/bin/printf '%s\n' "$SIGNATURE_INFO" | /usr/bin/grep -Fqx "TeamIdentifier=$WORKFLOW_TEAM"; then
+    echo "Blackmagic WorkflowIntegration.node is not signed by the expected Blackmagic Design team." >&2
+    return 1
+  fi
+
+  if ! ARCHITECTURES=$(/usr/bin/lipo -archs "$WORKFLOW_MODULE" 2>/dev/null); then
+    echo "Blackmagic WorkflowIntegration.node architectures could not be inspected." >&2
+    return 1
+  fi
+  case "$ARCHITECTURES" in
+    "arm64 x86_64"|"x86_64 arm64") ;;
+    *)
+      echo "Blackmagic WorkflowIntegration.node must be universal arm64 + x86_64 (found: ${ARCHITECTURES:-unknown})." >&2
+      return 1
+      ;;
+  esac
+}
+
+MACOS_VERSION=$(/usr/bin/sw_vers -productVersion)
+if ! version_at_least "$MACOS_VERSION" "$MIN_MACOS"; then
+  echo "EasyField requires macOS $MIN_MACOS or newer (found $MACOS_VERSION)." >&2
+  exit 1
+fi
+
+if [ ! -d "$RESOLVE_APP" ]; then
+  echo "DaVinci Resolve was not found at $RESOLVE_APP." >&2
+  exit 1
+fi
+
+if [ -f "$RESOLVE_APP/Contents/_MASReceipt/receipt" ]; then
+  echo "The Mac App Store build of DaVinci Resolve does not support Workflow Integration plugins. Install Resolve from Blackmagic Design." >&2
+  exit 1
+fi
+
+INFO_PLIST="$RESOLVE_APP/Contents/Info.plist"
+RESOLVE_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST" 2>/dev/null \
+  || true)
+if [ -z "$RESOLVE_VERSION" ] || ! version_at_least "$RESOLVE_VERSION" "$MIN_RESOLVE"; then
+  echo "EasyField requires DaVinci Resolve $MIN_RESOLVE or newer (found ${RESOLVE_VERSION:-unknown})." >&2
+  exit 1
+fi
+
+verify_workflow_module
+
+if /usr/bin/pgrep -x Resolve >/dev/null 2>&1; then
+  echo "Quit DaVinci Resolve before installing EasyField." >&2
+  exit 1
+fi
+
+exit 0

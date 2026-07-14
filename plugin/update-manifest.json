@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "com.easyfield.panel",
+  "platform": "darwin",
+  "architectures": [
+    "arm64",
+    "x64"
+  ],
+  "minMacOSVersion": "15.0.0",
+  "minResolveVersion": "21.0.2",
+  "version": "1.2.0",
+  "createdAt": "2026-07-14T11:59:57.815Z",
+  "buildId": "49cff85e6e5b2e1247d131dbc1c0a6b0888604efd490d1e5f822bad33ff2d640",
+  "files": [
+    {
+      "path": "animation-render.cjs",
+      "size": 32501,
+      "sha256": "64cdc83c2af2ee1c37a1450a8816e57d25fae190ae2e34499a4392196ef652af"
+    },
+    {
+      "path": "audio-capture.cjs",
+      "size": 8237,
+      "sha256": "360c3a60a78c6c1b5bdf2e96a5a4a49e43690b03e5104bd2b48e2b3257b9accd"
+    },
+    {
+      "path": "beat-detection.cjs",
+      "size": 13848,
+      "sha256": "a36d6c6c836d55ffddaca62a5134f84211505bd77159d3139636373fd2e2735e"
+    },
+    {
+      "path": "beat-markers.cjs",
+      "size": 9669,
+      "sha256": "8b0df88afbdb28f4145c47590acd345a9a8bbd9114f9797ee3262595d0a44d71"
+    },
+    {
+      "path": "edit-image-capture.cjs",
+      "size": 10135,
+      "sha256": "993047d36befd1539106428991c416f86c9530695a2bbecb80bdea3aad884aeb"
+    },
+    {
+      "path": "edit-video-capture.cjs",
+      "size": 8452,
+      "sha256": "ff25016026873197bad29e20553dddccce4bc324075d2fbd8d21ea08f16dd0fb"
+    },
+    {
+      "path": "main.cjs",
+      "size": 91746,
+      "sha256": "6e330bf41c1a7268c768b8f57568c7d3f14a7820c65c0889d217149ceb8a60a2"
+    },
+    {
+      "path": "manifest.xml",
+      "size": 300,
+      "sha256": "56abffa918201ed14395c271bdf928befd0d1421829d5617b8e2df84af1dbb00"
+    },
+    {
+      "path": "package.json",
+      "size": 163,
+      "sha256": "36290031f865bf484de65f16feab3b21897f28714ee6c9069827c5f160a1a847"
+    },
+    {
+      "path": "plugin-updater.cjs",
+      "size": 40894,
+      "sha256": "48ff8a763b6c99648322951b7dac2f8dd30ea090484d32f95f0a6c1eae0e167a"
+    },
+    {
+      "path": "preload.cjs",
+      "size": 1399,
+      "sha256": "9170b40d71dc5150d0ba23291846e0c6cfc68d814ce0785f304cfaf210708e09"
+    },
+    {
+      "path": "python/beat_detect.py",
+      "size": 5711,
+      "sha256": "4506fd3b4d207d478d78b85291f2c443ebb5f9f9af5eaba26e7168e9c15b7b2e"
+    },
+    {
+      "path": "python/README.md",
+      "size": 702,
+      "sha256": "cdce504fd6868e336bce8b4b7a27f6e96cf0fa943e1fc86e98ddde832868558a"
+    },
+    {
+      "path": "python/requirements-beat.txt",
+      "size": 56,
+      "sha256": "54d9631e9d59131a8fee0731cde806ba5f8a52690dded2097270acff7d5300ab"
+    },
+    {
+      "path": "state-store.cjs",
+      "size": 2614,
+      "sha256": "b39561c843b6deef5349a77ef60097252e4f3a91aad80b9893992d78f4b38284"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.txt",
+      "size": 9380,
+      "sha256": "c3153b539b55b096583ebb9607c024093f96b5a1d649ec57fc1e4ae26816e9bf"
+    },
+    {
+      "path": "timecode.cjs",
+      "size": 3704,
+      "sha256": "c78809796e0901b7fd95ab9201805b1a540eed77ec339a129168e3dfb152a42a"
+    },
+    {
+      "path": "timeline-capture.cjs",
+      "size": 10089,
+      "sha256": "45e6b39f89c39f9f3aa0424a0cb5dc9f8c30be547c9caed77e089ff7cc63b200"
+    },
+    {
+      "path": "ui/assets/age-progression-atlas-lNNF_s5J.jpg",
+      "size": 402749,
+      "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
+    },
+    {
+      "path": "ui/assets/AnimationRenderHost-B0QQR5Y5.js",
+      "size": 247886,
+      "sha256": "9a82a330bccca410619531529ce1947e87ca170a48d507c51c175a9a0c480030"
+    },
+    {
+      "path": "ui/assets/App-BusYCAH6.js",
+      "size": 937214,
+      "sha256": "cd9a095f8fe375ce0c2c2f7ffbb93c39db685789bf085ac21c627ad57b657f98"
+    },
+    {
+      "path": "ui/assets/body-type-atlas-NP73N7QF.jpg",
+      "size": 267625,
+      "sha256": "376dbec6e68ef5c07a6db0ada77c3c14c912b9f98a4bb0a35555db971ae1740d"
+    },
+    {
+      "path": "ui/assets/cartoon-character-BD5cHo9h.jpg",
+      "size": 15464,
+      "sha256": "2e54d821919b88b0e27f4e3ab967102ec80a8ae39ad5c894a4554ddfa6706496"
+    },
+    {
+      "path": "ui/assets/character-type-atlas-v2-GCXMjdq3.jpg",
+      "size": 554792,
+      "sha256": "aa87c6f37d47982535bd882aebaa3568c7142fab812814c71211fc7c5a1328fd"
+    },
+    {
+      "path": "ui/assets/eye-color-atlas-DSI8-IZ_.jpg",
+      "size": 559365,
+      "sha256": "b8c6c45a494a6018c784e118e2f61a61d7c562462d710d72400fd81a3b4c8f92"
+    },
+    {
+      "path": "ui/assets/face-options-atlas-v2-z4l8Bz8p.jpg",
+      "size": 574329,
+      "sha256": "c2af2fe36742a7989a2052b8d354be794a46149a5876db03655355118e0c472d"
+    },
+    {
+      "path": "ui/assets/gender-atlas-B3xfs65R.jpg",
+      "size": 434392,
+      "sha256": "e657d949e7be14269f5574fc429ab6631fc9810782276178297fffe5c1ca21c0"
+    },
+    {
+      "path": "ui/assets/heritage-atlas-Dk3QxU83.jpg",
+      "size": 109439,
+      "sha256": "504ced7fb8a3122062ae08200e5b3181b2d9ec3bb3bb03defb816e7d065614ad"
+    },
+    {
+      "path": "ui/assets/identity-body-atlas-D0Dr3PC6.jpg",
+      "size": 359920,
+      "sha256": "5b3391f991449172eb3d91264615b3f7020cb4edb2c565e4fb44010f5e1f4b39"
+    },
+    {
+      "path": "ui/assets/index--vjYjRqO.css",
+      "size": 491480,
+      "sha256": "145656ee57053b9da69d3ccc42f72c9ec58dd4ed68ff55849241e06f67744176"
+    },
+    {
+      "path": "ui/assets/index-BtLRvoc-.js",
+      "size": 196577,
+      "sha256": "d9d8ebffe377103eb7e8d7bcda6898e52b1db12c2e1c4f0524b7e10a8e1699d0"
+    },
+    {
+      "path": "ui/assets/index-Djr1DnDD.js",
+      "size": 66,
+      "sha256": "9575ffe7612f77a9ade92cc4311e778e932fbe9c8ea8185a2f2098ef7c259a60"
+    },
+    {
+      "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
+      "size": 11144,
+      "sha256": "c4fcfea41f2c1cfeea9211fa43679845454a1d0e0d7e95e069c7e73c4ae302d2"
+    },
+    {
+      "path": "ui/assets/instrument-sans-latin-wght-normal-BbzFLZTg.woff2",
+      "size": 30092,
+      "sha256": "2ee17598a98d8a59e4df8152d015bec9ab8e4d5672cc0ab42bef806b568e3971"
+    },
+    {
+      "path": "ui/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2",
+      "size": 12108,
+      "sha256": "d274604c40757f98f07df623a8b8fb5194508a6fa4f5413a7a107f09e3b7452a"
+    },
+    {
+      "path": "ui/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2",
+      "size": 9004,
+      "sha256": "ee863198077f3093ffa81c072581cc4bd608a04e60a8a9c0b846396ce4f14109"
+    },
+    {
+      "path": "ui/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2",
+      "size": 15196,
+      "sha256": "79bfdab9ba467e26eea4122e6f2567e188dd8a09a8c730d501fc487c4ab99c6e"
+    },
+    {
+      "path": "ui/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2",
+      "size": 40404,
+      "sha256": "18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e"
+    },
+    {
+      "path": "ui/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2",
+      "size": 7504,
+      "sha256": "2288795da89dd97e648954b96e22b4501bd85dfc453264460b252f888b582ca2"
+    },
+    {
+      "path": "ui/assets/limb-options-atlas-CQZHvsKO.jpg",
+      "size": 254500,
+      "sha256": "a0389501209b0ae17b26bc008ecdd5533d0d558e34c8e4551c01ddbc65889c5c"
+    },
+    {
+      "path": "ui/assets/material-pattern-atlas-ClVlekD5.jpg",
+      "size": 627498,
+      "sha256": "60a468bb7c8a0435d8d6ab884b93cd6d5dcb6aab1cbe32068513435331273c4a"
+    },
+    {
+      "path": "ui/assets/space-grotesk-latin-ext-wght-normal-D9tNdqV9.woff2",
+      "size": 18940,
+      "sha256": "952dddb45d2f96f71cbf3b7f510b24379afc3c89ea02fcf89d377b45d62c0166"
+    },
+    {
+      "path": "ui/assets/space-grotesk-latin-wght-normal-BmihWDuX.woff2",
+      "size": 22376,
+      "sha256": "22f9fe0df47741897991d459bcd18c03edefacafd00ad20f2d25e1d75d3be77e"
+    },
+    {
+      "path": "ui/assets/space-grotesk-vietnamese-wght-normal-D0rl6rjA.woff2",
+      "size": 6712,
+      "sha256": "8895e3d49825128bfa5238e4c96e9b432d7a3dadbe5c17c6081267398305dc71"
+    },
+    {
+      "path": "ui/assets/style-options-v2-CnDb-skw.jpg",
+      "size": 509466,
+      "sha256": "3f3e97e24b655294fedbdc2626f764c8d3197e56dd1735b322d8ce75b1370f92"
+    },
+    {
+      "path": "ui/index.html",
+      "size": 867,
+      "sha256": "5af5e21518603bc305d2829ac7bd0d0703d3c5f0b2dbc2b79b19a3d3959fa886"
+    },
+    {
+      "path": "url-context.cjs",
+      "size": 20936,
+      "sha256": "353bc3d563d7317b133265afb4bd8d6175094d6b8f65a96daf2e659d1906f0bb"
+    },
+    {
+      "path": "whisper-transcription.cjs",
+      "size": 35339,
+      "sha256": "9155af6c8843519ef059de4722dd1ed9a3b25494e5ed6af28b6b8f9e00061332"
+    },
+    {
+      "path": "workflow-integration.cjs",
+      "size": 1902,
+      "sha256": "146ab06808b58044ab8e9df84e619b7216f744e332e544d6435be645d5f53a2f"
+    }
+  ]
+}

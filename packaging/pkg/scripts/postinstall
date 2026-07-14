@@ -1,0 +1,81 @@
+#!/bin/sh
+set -eu
+
+PLUGIN_ID="com.easyfield.panel"
+PAYLOAD_ROOT="/Library/Application Support/EasyField/InstallerPayload"
+STAGE="$PAYLOAD_ROOT/$PLUGIN_ID"
+CHECKSUMS="$PAYLOAD_ROOT/release-checksums.sha256"
+DEST_ROOT="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins"
+DEST="$DEST_ROOT/$PLUGIN_ID"
+RECOVERY_ROOT="/Library/Application Support/EasyField/Recovery"
+BACKUP="$RECOVERY_ROOT/$PLUGIN_ID.previous"
+NEXT="$DEST.next.$$"
+HAD_CURRENT=0
+SWAP_STARTED=0
+INSTALL_COMPLETE=0
+
+cleanup_install() {
+  /bin/rm -rf "$NEXT" 2>/dev/null || true
+  if [ "$INSTALL_COMPLETE" -ne 1 ] && [ "$SWAP_STARTED" -eq 1 ]; then
+    if [ "$HAD_CURRENT" -eq 1 ] && [ -e "$BACKUP" ]; then
+      /bin/rm -rf "$DEST" 2>/dev/null || true
+      /bin/mv "$BACKUP" "$DEST" 2>/dev/null || true
+    elif [ "$HAD_CURRENT" -eq 0 ]; then
+      /bin/rm -rf "$DEST" 2>/dev/null || true
+    fi
+  fi
+}
+trap cleanup_install EXIT
+trap 'exit 1' HUP INT TERM
+
+verify_tree() {
+  TREE="$1"
+  if [ ! -d "$TREE" ] || [ ! -f "$CHECKSUMS" ]; then return 1; fi
+  if [ -n "$(/usr/bin/find "$TREE" -type l -print -quit)" ]; then return 1; fi
+  if [ -n "$(/usr/bin/find "$TREE" ! -type f ! -type d -print -quit)" ]; then return 1; fi
+  EXPECTED=$(/usr/bin/wc -l < "$CHECKSUMS" | /usr/bin/tr -d '[:space:]')
+  ACTUAL=$(/usr/bin/find "$TREE" -type f -print | /usr/bin/wc -l | /usr/bin/tr -d '[:space:]')
+  if [ "$EXPECTED" -ne "$ACTUAL" ]; then return 1; fi
+  (cd "$TREE" && /usr/bin/shasum -a 256 -c "$CHECKSUMS" >/dev/null)
+}
+
+if ! verify_tree "$STAGE"; then
+  echo "EasyField installer payload failed checksum verification." >&2
+  exit 1
+fi
+
+/bin/mkdir -p "$DEST_ROOT" "$RECOVERY_ROOT"
+/bin/rm -rf "$NEXT"
+/bin/cp -R "$STAGE" "$NEXT"
+/usr/sbin/chown -R root:wheel "$NEXT"
+/bin/chmod -R a+rX "$NEXT"
+if ! verify_tree "$NEXT"; then
+  echo "EasyField staged plugin failed checksum verification." >&2
+  exit 1
+fi
+
+if [ -e "$DEST" ]; then
+  HAD_CURRENT=1
+fi
+SWAP_STARTED=1
+if [ "$HAD_CURRENT" -eq 1 ]; then
+  /bin/rm -rf "$BACKUP"
+  /bin/mv "$DEST" "$BACKUP"
+fi
+
+if ! /bin/mv "$NEXT" "$DEST"; then
+  if [ "$HAD_CURRENT" -eq 1 ] && [ -e "$BACKUP" ]; then /bin/mv "$BACKUP" "$DEST"; fi
+  echo "EasyField could not replace the existing plugin." >&2
+  exit 1
+fi
+
+if ! verify_tree "$DEST"; then
+  /bin/rm -rf "$DEST"
+  if [ "$HAD_CURRENT" -eq 1 ] && [ -e "$BACKUP" ]; then /bin/mv "$BACKUP" "$DEST"; fi
+  echo "EasyField installation failed final verification; the previous version was restored." >&2
+  exit 1
+fi
+
+INSTALL_COMPLETE=1
+/bin/rm -rf "$PAYLOAD_ROOT"
+exit 0

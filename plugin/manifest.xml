@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.easyfield.panel</Id>
+        <Name>EasyField</Name>
+        <Version>1.2.0</Version>
+        <Description>EasyField AI toolkit</Description>
+        <FilePath>main.cjs</FilePath>
+    </Plugin>
+</BlackmagicDesign>
