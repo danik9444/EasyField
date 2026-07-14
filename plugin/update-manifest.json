@@ -9,8 +9,8 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.2.0",
-  "createdAt": "2026-07-14T13:30:51.000Z",
-  "buildId": "19d5c920aa1c69f1a632bdb8598d53dd20c26e905a0d5d88bc7a4de3f396407f",
+  "createdAt": "2026-07-14T13:57:58.000Z",
+  "buildId": "4538f0142743793153c0b67f7afcd8f56d80159ca0bfd6e6a9be9585df29aac5",
   "files": [
     {
       "path": "animation-render.cjs",
@@ -44,8 +44,8 @@
     },
     {
       "path": "main.cjs",
-      "size": 94513,
-      "sha256": "319569eff139bc0ec38e90caadb2e9f1d9fa80ab7ae8600731e8758106be894e"
+      "size": 96108,
+      "sha256": "7c36b13634d9921ec38ed881928d5e58e9045a77e2cbb21d4acddb0d509c3d73"
     },
     {
       "path": "manifest.xml",
@@ -59,8 +59,8 @@
     },
     {
       "path": "plugin-updater.cjs",
-      "size": 43340,
-      "sha256": "783442355f016519db36d01de14fae9ac702e52918ccc1075b091409acc60cc0"
+      "size": 43365,
+      "sha256": "375cf8b44e908657d109131383a674c5d7684200787cb61f747350097fc5ee74"
     },
     {
       "path": "preload.cjs",
@@ -108,14 +108,14 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-BTkwwyXE.js",
+      "path": "ui/assets/AnimationRenderHost-xPXAZ8Ro.js",
       "size": 247271,
-      "sha256": "a503f2cebdf4a16e0743c4075054b8ed0a3e4587dd2ca1544e1a0cdc8eab9f60"
+      "sha256": "385a9a4a9cb0e7bc338161a493a7e802c5fa9df75a723bcc22e8c25d9f6395f9"
     },
     {
-      "path": "ui/assets/App-BNoyLtjm.js",
+      "path": "ui/assets/App-Da-XpZLy.js",
       "size": 939324,
-      "sha256": "b5cd7806f85cc97768b467cc0287a1acbddd5c05328ff750770aaab57cef6791"
+      "sha256": "ecc2acff8dfab61470cebb5b2da7141a088feaebf12c18c7e6a0d43496f3af03"
     },
     {
       "path": "ui/assets/body-type-atlas-NP73N7QF.jpg",
@@ -158,19 +158,19 @@
       "sha256": "5b3391f991449172eb3d91264615b3f7020cb4edb2c565e4fb44010f5e1f4b39"
     },
     {
-      "path": "ui/assets/index--vjYjRqO.css",
-      "size": 491480,
-      "sha256": "145656ee57053b9da69d3ccc42f72c9ec58dd4ed68ff55849241e06f67744176"
-    },
-    {
-      "path": "ui/assets/index-DD5pFm74.js",
+      "path": "ui/assets/index-BM71w6mu.js",
       "size": 196577,
-      "sha256": "30d68da1dd49de4e0eaea4cbc6dbc53dc80e2fb664efc1675e37c573033cd4a1"
+      "sha256": "b65be8498d93481b407617ab7cb14f137af2ad37044aadb63f63220a6c675dba"
     },
     {
-      "path": "ui/assets/index-NNWr-pMk.js",
+      "path": "ui/assets/index-C51klSLZ.js",
       "size": 66,
-      "sha256": "4cc7f0ec64a6d1b288e8e9f56f897547e01ca5f1a6b3c2f3b86a8b0d3ec66224"
+      "sha256": "65dbedd0eea243df047eae271b4aa3b317e3610aac1874ea9f0a1ffc531bbb53"
+    },
+    {
+      "path": "ui/assets/index-CHL-sCeL.css",
+      "size": 491755,
+      "sha256": "968d21ff17cecfc5af4dcf3ff4ab53afa90daa3942849b9aada20ecd42c4880a"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -240,7 +240,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "8ef9bf39bfaf55fc61571f64e46bc85409a8028dc504ac85d71cbfeb3141d104"
+      "sha256": "f8d3dad6720124a6dafe12a9fd930268fa2788110af19bdededf94c8a592effe"
     },
     {
       "path": "url-context.cjs",
@@ -251,6 +251,11 @@
       "path": "whisper-transcription.cjs",
       "size": 36702,
       "sha256": "08113b9bf378aea7aa1969a01b3ac4fe9e52bcc14922deb5bf735e962895d120"
+    },
+    {
+      "path": "window-policy.cjs",
+      "size": 11120,
+      "sha256": "f905af6600ee19adeedc911020823188c5e52cbfcf2307dd49dbb04fa9900ceb"
     },
     {
       "path": "workflow-integration.cjs",

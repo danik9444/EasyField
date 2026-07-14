@@ -100,10 +100,21 @@ class FakeBrowserWindow extends EventEmitter {
     this.options = options
     this.webContents = new FakeWebContents()
     this.destroyed = false
+    this.focused = false
+    this.bounds = { x: options.x, y: options.y, width: options.width, height: options.height }
+    this.minimumSize = null
+    this.maximumSize = null
+    this.alwaysOnTopCalls = []
     FakeBrowserWindow.last = this
   }
   setMenu() {}
-  setContentSize() {}
+  getBounds() { return { ...this.bounds } }
+  setBounds(bounds) { this.bounds = { ...bounds } }
+  setMinimumSize(width, height) { this.minimumSize = [width, height] }
+  setMaximumSize(width, height) { this.maximumSize = [width, height] }
+  setAlwaysOnTop(...args) { this.alwaysOnTopCalls.push(args) }
+  setVisibleOnAllWorkspaces() {}
+  isFocused() { return this.focused }
   isDestroyed() { return this.destroyed }
   loadURL(url) { this.webContents.mainFrame.url = url; return Promise.resolve() }
   destroy() { this.destroyed = true }
@@ -113,10 +124,13 @@ const app = new EventEmitter()
 app.whenReady = () => Promise.resolve()
 app.quit = () => {}
 app.getPath = () => process.env.EF_TEST_USER_DATA
+const screen = new EventEmitter()
+screen.getPrimaryDisplay = () => ({ id: 1, workArea: { x: 0, y: 25, width: 1440, height: 875 } })
+screen.getDisplayMatching = () => screen.getPrimaryDisplay()
 
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
-  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage }
+  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage, screen }
   if (request === 'https' || request === 'node:https') return fakeHttps
   if (request === 'dns' || request === 'node:dns') return fakeDns
   if (request.endsWith('WorkflowIntegration.node')) throw new Error('native Resolve bridge disabled by the IPC test')
@@ -138,6 +152,11 @@ void (async () => {
   const win = FakeBrowserWindow.last
   const trusted = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
   const secret = 'synthetic-ipc-test-secret'
+
+  await handlers.get('ef:window:set-mode')(trusted, 'expanded')
+  let arbitraryWindowModeRejected = false
+  try { await handlers.get('ef:window:set-mode')(trusted, { width: 10000, height: 10000 }) }
+  catch { arbitraryWindowModeRejected = true }
 
   const legacyCredentialName = Buffer.from('a2llLWFwaS1rZXk=', 'base64').toString()
   const legacyCredentialPath = path.join(process.env.EF_TEST_USER_DATA, legacyCredentialName + '.safe')
@@ -215,6 +234,10 @@ void (async () => {
     secureProxyForwardedSentinel: capturedProxyAuthorization === 'Bearer __easyfield_secure__',
     secureProxyForwardedBridgeToken: capturedProxyBridgeToken !== '',
     bridgeTokenArgumentExposed: Array.isArray(win.options.webPreferences.additionalArguments),
+    expandedWindowBounds: win.bounds,
+    expandedWindowMinimum: win.minimumSize,
+    expandedWindowMaximum: win.maximumSize,
+    arbitraryWindowModeRejected,
     artifactStatus: response.status,
     artifactMatches: bytes.equals(png),
     checksumLength: artifact.checksum.length,
@@ -281,6 +304,10 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     secureProxyForwardedSentinel: false,
     secureProxyForwardedBridgeToken: false,
     bridgeTokenArgumentExposed: false,
+    expandedWindowBounds: { x: 464, y: 41, width: 960, height: 800 },
+    expandedWindowMinimum: [720, 560],
+    expandedWindowMaximum: [1200, 843],
+    arbitraryWindowModeRejected: true,
     artifactStatus: 200,
     artifactMatches: true,
     checksumLength: 64,

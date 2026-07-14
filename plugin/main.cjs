@@ -6,7 +6,7 @@
 //   2. Embedded HTTP server: static UI + streaming cloud-provider proxies + /bridge.
 //   3. BrowserWindow that loads the UI from the embedded server.
 
-const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -30,6 +30,12 @@ const { createAudioCapture } = require('./audio-capture.cjs');
 const { createBeatMarkerService } = require('./beat-markers.cjs');
 const { loadWorkflowIntegration } = require('./workflow-integration.cjs');
 const { timecodeToFrames, timelineFrameToTimecode, timelinePlayheadToSourceFrame } = require('./timecode.cjs');
+const {
+    applyWindowMode,
+    clampWindowToWorkArea,
+    createResolveAwareFloatingController,
+    windowBoundsForMode,
+} = require('./window-policy.cjs');
 
 const PLUGIN_ID = 'com.easyfield.panel';
 const PORT = parseInt(process.env.EF_PORT, 10) || 18832;
@@ -1667,6 +1673,9 @@ function startServer() {
 
 let mainWindow = null;
 let stateStore = null;
+let currentWindowMode = 'compact';
+let floatingController = null;
+let displayChangeHandler = null;
 
 // Artifact rows contain absolute paths and are Main-owned. They deliberately do
 // not participate in the renderer's generic state IPC surface.
@@ -1820,8 +1829,8 @@ function registerHostIpc() {
     registerTrustedHandler('ef:window:set-mode', (mode) => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
-        const expanded = mode === 'expanded';
-        mainWindow.setContentSize(expanded ? 900 : 400, expanded ? 860 : 820, true);
+        currentWindowMode = mode;
+        applyWindowMode(mainWindow, screen, mode, { animate: true });
     });
     // No renderer argument is accepted: Main owns the verified source and the
     // fixed Resolve destination, including administrator-authorized rollback.
@@ -1864,12 +1873,13 @@ function registerHostIpc() {
 }
 
 function createWindow() {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const initialBounds = windowBoundsForMode('compact', primaryDisplay.workArea);
     mainWindow = new BrowserWindow({
-        width: 400,
-        height: 820,
-        minWidth: 340,
-        minHeight: 520,
-        useContentSize: true,
+        ...initialBounds,
+        // Bounds are outer-window bounds so titlebar height is included when
+        // clamping the panel to a display work area.
+        useContentSize: false,
         // Match the panel background so resizing never reveals black/white gaps.
         backgroundColor: '#101015',
         webPreferences: {
@@ -1882,6 +1892,19 @@ function createWindow() {
         },
     });
     mainWindow.setMenu(null);
+    applyWindowMode(mainWindow, screen, currentWindowMode, { initial: true });
+    floatingController = createResolveAwareFloatingController(mainWindow);
+
+    // Re-clamp on resolution, work-area, scale-factor and monitor changes. The
+    // matching display is derived from the current window, so a panel moved to
+    // another monitor stays there rather than jumping back to the primary one.
+    displayChangeHandler = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        clampWindowToWorkArea(mainWindow, screen, currentWindowMode);
+    };
+    screen.on('display-metrics-changed', displayChangeHandler);
+    screen.on('display-removed', displayChangeHandler);
+    mainWindow.on('moved', displayChangeHandler);
 
     // EF_DEV=1 -> vite dev server (HMR); otherwise the embedded static UI.
     const url = trustedPanelOrigin();
@@ -1936,7 +1959,17 @@ function createWindow() {
     mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
     mainWindow.loadURL(url);
 
-    mainWindow.on('close', () => app.quit());
+    mainWindow.on('close', () => {
+        floatingController?.dispose();
+        floatingController = null;
+        if (displayChangeHandler) {
+            screen.removeListener('display-metrics-changed', displayChangeHandler);
+            screen.removeListener('display-removed', displayChangeHandler);
+            mainWindow?.removeListener('moved', displayChangeHandler);
+            displayChangeHandler = null;
+        }
+        app.quit();
+    });
 }
 
 app.whenReady().then(async () => {

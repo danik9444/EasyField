@@ -977,36 +977,6 @@ textarea {
   flex: 1;
 }
 
-.ef-toggle {
-  width: 30px;
-  height: 17px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  cursor: pointer;
-  position: relative;
-  padding: 0;
-}
-.ef-toggle.on {
-  background: color-mix(in srgb, var(--ef-accent) 40%, transparent);
-  border-color: var(--ef-accent);
-}
-.ef-toggle::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: #d8d8e0;
-  transition: transform 0.15s ease;
-}
-.ef-toggle.on::after {
-  transform: translateX(13px);
-  background: #fff;
-}
-
 /* ---------------- Sub-screen header (Create / SuperBrain) ---------------- */
 
 .ef-sub-header {
@@ -2640,10 +2610,12 @@ textarea {
 .ef-avatar-inline-option button.is-on { color: #fff; border-color: var(--ef-tool-accent); background: color-mix(in srgb, var(--ef-tool-accent) 18%, transparent); }
 
 .ef-avatar-consent {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0,1fr);
   gap: 10px;
   align-items: center;
+  overflow: hidden;
   padding: 11px 12px;
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 12px;
@@ -2651,7 +2623,20 @@ textarea {
   cursor: pointer;
 }
 .ef-avatar-consent.is-confirmed { border-color: color-mix(in srgb, #46d99a 50%, transparent); background: rgba(70,217,154,.055); }
-.ef-avatar-consent > input { position: absolute; opacity: 0; pointer-events: none; }
+.ef-avatar-consent > input {
+  position: absolute;
+  top: 50%;
+  left: 24px;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.ef-avatar-consent:has(> input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--ef-tool-accent) 58%, white 8%); outline-offset: 2px; }
 .ef-avatar-consent-mark { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid var(--ef-border-strong); border-radius: 7px; color: #07120d; background: rgba(255,255,255,.035); font-size: 13px; font-weight: 800; }
 .ef-avatar-consent.is-confirmed .ef-avatar-consent-mark { border-color: #46d99a; background: #46d99a; }
 .ef-avatar-consent > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }

@@ -48,6 +48,7 @@ const REQUIRED_FILES = Object.freeze([
     'timecode.cjs',
     'ui/index.html',
     'url-context.cjs',
+    'window-policy.cjs',
     'workflow-integration.cjs',
 ]);
 
