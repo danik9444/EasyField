@@ -698,6 +698,10 @@ if [ -e "$DEST" ]; then
   HAD_CURRENT=1
 fi
 if /bin/mv "$NEXT" "$DEST"; then
+  # The previous bundle is needed only while the atomic swap is in flight.
+  # Keeping it after success can retain obsolete credentials, endpoints, and
+  # product copy that the verified replacement intentionally removed.
+  /bin/rm -rf "$BACKUP"
   /bin/rm -f "$ROOT_CHECKSUMS"
   exit 0
 fi

@@ -122,6 +122,18 @@ test('regular-file reader rejects symlinks and non-files while preserving verifi
   assert.throws(() => readVerifiedRegularFile(root, { errorMessage: 'Rejected release input' }), /Rejected release input/)
 })
 
+test('successful privileged swaps purge the obsolete recovery bundle', () => {
+  const updaterSource = fs.readFileSync(new URL('../plugin/plugin-updater.cjs', import.meta.url), 'utf8')
+  const successBlock = updaterSource.match(/if \/bin\/mv "\$NEXT" "\$DEST"; then([\s\S]*?)\nfi/)
+
+  assert.ok(successBlock, 'the atomic swap success block must remain explicit')
+  assert.match(successBlock[1], /\/bin\/rm -rf "\$BACKUP"/)
+  assert.ok(
+    successBlock[1].indexOf('/bin/rm -rf "$BACKUP"') < successBlock[1].indexOf('exit 0'),
+    'the old bundle must be removed before the privileged installer reports success',
+  )
+})
+
 test('detects and atomically installs a newer verified build of the same version', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-updater-test-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
