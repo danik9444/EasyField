@@ -20,7 +20,7 @@ SamplePlugin copy in place.
 
 ## One-time repository setup
 
-1. Keep [`danik9444/EasyField`](https://github.com/danik9444/EasyField) public and protect `main`. Require the `CI` workflow before merge.
+1. Keep [`danik9444/EasyField`](https://github.com/danik9444/EasyField) public and protect `main`. Require strict `verify` plus CodeQL analysis for Actions, JavaScript/TypeScript and Python before merge.
    The installed updater intentionally has no GitHub credential and accepts only unauthenticated HTTPS downloads from this pinned owner/repository. The protected Release workflow refuses to sign or publish from any other repository.
 2. Enable GitHub immutable releases in repository settings. Never replace assets for a released version.
 3. Create a protected GitHub Actions environment named `release` with required
