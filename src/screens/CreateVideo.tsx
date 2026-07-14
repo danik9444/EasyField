@@ -856,7 +856,13 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
       url: g.blobUrl,
       durationSeconds: g.durationSeconds,
     }
-    setter((prev) => (prev.length >= max ? prev : [...prev, item]))
+    setter((prev) => {
+      if (prev.length >= max) {
+        revokeMedia(item)
+        return prev
+      }
+      return [...prev, item]
+    })
     if (item.kind === 'upload' && grabber === resolve.grabClip) {
       void probeVideoMetadata(item.url).then((metadata) => {
         setter((prev) => prev.map((currentItem) => currentItem.id === item.id && currentItem.kind === 'upload'

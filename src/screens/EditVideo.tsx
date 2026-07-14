@@ -391,7 +391,13 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
       return
     }
     const item: ReferenceImage = { id: nextId(), kind: 'upload', name: g.name, url: g.blobUrl }
-    setRefImages((prev) => (prev.length >= refImagesMax ? prev : [...prev, item]))
+    setRefImages((prev) => {
+      if (prev.length >= refImagesMax) {
+        revokeRef(item)
+        return prev
+      }
+      return [...prev, item]
+    })
   }
   const removeRefImage = (id: string) =>
     setRefImages((prev) => {
@@ -417,7 +423,13 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
       return
     }
     const item: MediaFile = { id: nextId(), kind: 'upload', name: g.name, url: g.blobUrl }
-    setRefVideos((prev) => (prev.length >= refVideosMax ? prev : [...prev, item]))
+    setRefVideos((prev) => {
+      if (prev.length >= refVideosMax) {
+        revokeMedia(item)
+        return prev
+      }
+      return [...prev, item]
+    })
   }
   const removeRefVideo = (id: string) =>
     setRefVideos((prev) => {

@@ -23,6 +23,7 @@ interface Window {
     }
     artifacts?: {
       ingestUrl: (input: { url: string; name: string; kind: 'image' | 'video' | 'audio' }) => Promise<{ id: string; url: string; checksum: string }>
+      ingestBytes: (input: { bytes: ArrayBuffer; name: string; kind: 'image' | 'video' | 'audio' }) => Promise<{ id: string; url: string; checksum: string }>
     }
   }
 }

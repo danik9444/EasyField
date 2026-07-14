@@ -9,13 +9,13 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.2.0",
-  "createdAt": "2026-07-14T15:10:10.000Z",
-  "buildId": "4538f0142743793153c0b67f7afcd8f56d80159ca0bfd6e6a9be9585df29aac5",
+  "createdAt": "2026-07-14T16:19:45.151Z",
+  "buildId": "422e84b5c37e860ed9e8b346486c68825cae2efd9dd4e8c2b092fb61ef43fdf7",
   "files": [
     {
       "path": "animation-render.cjs",
-      "size": 33083,
-      "sha256": "bddf5a78bd425e5d8194046ea0dad16b9d389eb76212aba2ceb80e785b836ef2"
+      "size": 34100,
+      "sha256": "3e2896dea08e9505ed546fdbb9ba814261b4cbde4c514e9ab978a606feeb257e"
     },
     {
       "path": "audio-capture.cjs",
@@ -44,8 +44,8 @@
     },
     {
       "path": "main.cjs",
-      "size": 96108,
-      "sha256": "7c36b13634d9921ec38ed881928d5e58e9045a77e2cbb21d4acddb0d509c3d73"
+      "size": 99620,
+      "sha256": "bd71914697ddd7f16a7b63a077f3c04a5c3d52e18cc7684893ede6973edfd3aa"
     },
     {
       "path": "manifest.xml",
@@ -64,8 +64,8 @@
     },
     {
       "path": "preload.cjs",
-      "size": 1399,
-      "sha256": "9170b40d71dc5150d0ba23291846e0c6cfc68d814ce0785f304cfaf210708e09"
+      "size": 1487,
+      "sha256": "3a6561444ef567d29d516b8b04e5c001712333acf57a694a08bdc0512dbe2857"
     },
     {
       "path": "python/beat_detect.py",
@@ -108,14 +108,14 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-xPXAZ8Ro.js",
+      "path": "ui/assets/AnimationRenderHost-CEyMSO6i.js",
       "size": 247271,
-      "sha256": "385a9a4a9cb0e7bc338161a493a7e802c5fa9df75a723bcc22e8c25d9f6395f9"
+      "sha256": "99ff93aa8660c18f1c49187c7f86408843100fcff465edad80f2a30fd6456bac"
     },
     {
-      "path": "ui/assets/App-Da-XpZLy.js",
-      "size": 939324,
-      "sha256": "ecc2acff8dfab61470cebb5b2da7141a088feaebf12c18c7e6a0d43496f3af03"
+      "path": "ui/assets/App-CuTO2Wxu.js",
+      "size": 944357,
+      "sha256": "0bb71cd8a05b939ba1486f0ee3ee2d1beec2652b4710f50a0bff61253929e5f9"
     },
     {
       "path": "ui/assets/body-type-atlas-NP73N7QF.jpg",
@@ -158,19 +158,19 @@
       "sha256": "5b3391f991449172eb3d91264615b3f7020cb4edb2c565e4fb44010f5e1f4b39"
     },
     {
-      "path": "ui/assets/index-BM71w6mu.js",
-      "size": 196577,
-      "sha256": "b65be8498d93481b407617ab7cb14f137af2ad37044aadb63f63220a6c675dba"
-    },
-    {
-      "path": "ui/assets/index-C51klSLZ.js",
+      "path": "ui/assets/index-BUQZtgF6.js",
       "size": 66,
-      "sha256": "65dbedd0eea243df047eae271b4aa3b317e3610aac1874ea9f0a1ffc531bbb53"
+      "sha256": "c1abdca1ac894c559030d7bd6209b395409e6e7e7e98d16184d443f4a02c174f"
     },
     {
-      "path": "ui/assets/index-CHL-sCeL.css",
-      "size": 491755,
-      "sha256": "968d21ff17cecfc5af4dcf3ff4ab53afa90daa3942849b9aada20ecd42c4880a"
+      "path": "ui/assets/index-DdftXaxm.js",
+      "size": 196577,
+      "sha256": "8eca046a5ce9d76d9722e83ff2a2cfaf6e8df8301c8e8142e5f4fc5f1a314fb3"
+    },
+    {
+      "path": "ui/assets/index-Je0gjsEe.css",
+      "size": 493135,
+      "sha256": "5b8e8298c75623434b150b7a750c6536526c7d13597303a43e03d7e9b469bb84"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -240,7 +240,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "f8d3dad6720124a6dafe12a9fd930268fa2788110af19bdededf94c8a592effe"
+      "sha256": "d230c93c8f1fc67e9c8f978594ffd9604ae156cbdcd9479a20cfce99d77f0fc0"
     },
     {
       "path": "url-context.cjs",

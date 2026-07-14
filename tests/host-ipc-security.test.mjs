@@ -207,6 +207,21 @@ void (async () => {
   })
   const response = await fetch('http://127.0.0.1:' + process.env.EF_PORT + artifact.url)
   const bytes = Buffer.from(await response.arrayBuffer())
+  const byteArtifact = await handlers.get('ef:artifacts:ingest-bytes')(trusted, {
+    bytes: png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+    name: 'Local storyboard',
+    kind: 'image',
+  })
+  const byteResponse = await fetch('http://127.0.0.1:' + process.env.EF_PORT + byteArtifact.url)
+  const committedBytes = Buffer.from(await byteResponse.arrayBuffer())
+  let mismatchedArtifactRejected = false
+  try {
+    await handlers.get('ef:artifacts:ingest-bytes')(trusted, {
+      bytes: png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+      name: 'Mislabeled output',
+      kind: 'video',
+    })
+  } catch { mismatchedArtifactRejected = true }
   const artifactDir = path.join(process.env.HOME, 'Movies', 'EasyField', '_Artifacts')
   const partials = fs.readdirSync(artifactDir).filter((name) => name.endsWith('.download') || name.endsWith('.tmp'))
 
@@ -240,6 +255,10 @@ void (async () => {
     arbitraryWindowModeRejected,
     artifactStatus: response.status,
     artifactMatches: bytes.equals(png),
+    localArtifactStatus: byteResponse.status,
+    localArtifactMatches: committedBytes.equals(png),
+    mismatchedArtifactRejected,
+    localChecksumLength: byteArtifact.checksum.length,
     checksumLength: artifact.checksum.length,
     partialCount: partials.length,
   }))
@@ -310,6 +329,10 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     arbitraryWindowModeRejected: true,
     artifactStatus: 200,
     artifactMatches: true,
+    localArtifactStatus: 200,
+    localArtifactMatches: true,
+    mismatchedArtifactRejected: true,
+    localChecksumLength: 64,
     checksumLength: 64,
     partialCount: 0,
   })
@@ -336,6 +359,7 @@ console.log(JSON.stringify({
   frozen: Object.isFrozen(exposed),
   hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
   hasCredentials: typeof exposed.credentials?.get === 'function',
+  hasArtifactBytes: typeof exposed.artifacts?.ingestBytes === 'function',
 }))
 `
   const child = spawn(process.execPath, ['-e', bootstrap, pluginPreload], {
@@ -353,5 +377,6 @@ console.log(JSON.stringify({
   assert.equal(result.frozen, true)
   assert.equal(result.hasBridgeToken, false)
   assert.equal(result.hasCredentials, true)
+  assert.equal(result.hasArtifactBytes, true)
   assert.deepEqual(result.keys, ['artifacts', 'credentials', 'plugin', 'state', 'updates', 'window'])
 })

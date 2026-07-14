@@ -20,8 +20,8 @@ import { ChatError, enhancePrompt, planStoryboard, type EnhanceReference } from 
 import { resolve } from '../services/resolve'
 import { renderStoryboardPng } from '../services/storyboardExport'
 import { isConnected, isGenerationExit, runImage, saveUrl } from '../services/run'
-import { canBackgroundJob, canCancelJob, cancelJob, continueJobInBackground, getJobs, useJobs } from '../services/jobCenter'
-import { addCreations, useCreations, usePersistenceState, type Creation } from '../data/creations'
+import { canBackgroundJob, canCancelJob, cancelJob, continueJobInBackground, getJobs, prepareJobLedger, startJob, useJobs } from '../services/jobCenter'
+import { addCreations, addCreationsDurably, useCreations, usePersistenceState, type Creation } from '../data/creations'
 import { IMAGE_MODEL_CONFIG, resolveImageOptions } from '../data/imageModelConfig'
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, IMAGE_MODELS } from '../data/models'
 import { AGENT_MODEL_META, IMAGE_MODEL_META } from '../data/modelPresentation'
@@ -1163,7 +1163,17 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     }
 
     setExportingBoard(true)
+    let exportJob: ReturnType<typeof startJob> | null = null
     try {
+      await prepareJobLedger()
+      exportJob = startJob({
+        title: 'Export storyboard',
+        subtitle: `${current.scenes.length} scenes · one image`,
+        kind: 'image',
+      })
+      const activeExportJob = exportJob
+      await activeExportJob.persisted
+      activeExportJob.update({ status: 'running', detail: 'Rendering storyboard locally' })
       const blob = await renderStoryboardPng({
         title: current.title.trim() || 'EasyField Storyboard',
         story: completeStory,
@@ -1172,19 +1182,39 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         totalDurationSeconds: current.totalDurationSeconds,
         scenes: exportScenes,
       })
-      const url = URL.createObjectURL(blob)
-      const [creation] = addCreations([{
-        kind: 'image',
-        url,
-        model: 'EasyField Storyboard',
-        prompt: completeStory,
-        meta: `Complete storyboard · ${current.timingMode === 'none' ? '' : `${current.totalDurationSeconds}s · `}${current.scenes.length} scene${current.scenes.length === 1 ? '' : 's'} · 1920px PNG`,
-      }])
-      if (!creation) throw new Error('The complete storyboard could not be saved to Library.')
-      saveUrl(creation.url, `${safeExportName(current.title)}.png`)
-      setLightbox(creation.url)
-      toast('Complete storyboard saved to Library and exported as one image')
+      const localUrl = URL.createObjectURL(blob)
+      let ownsTemporaryUrl = true
+      try {
+        const [creation] = await addCreationsDurably([{
+          kind: 'image',
+          url: localUrl,
+          model: 'EasyField Storyboard',
+          prompt: completeStory,
+          meta: `Complete storyboard · ${current.timingMode === 'none' ? '' : `${current.totalDurationSeconds}s · `}${current.scenes.length} scene${current.scenes.length === 1 ? '' : 's'} · 1920px PNG`,
+          durability: 'local',
+        }], {
+          onSecured: async (securedItems) => {
+            await activeExportJob.secureResults(securedItems.map((item) => item.url), securedItems.length, 'Storyboard secured locally · adding to Library')
+          },
+        })
+        if (!creation) throw new Error('The complete storyboard could not be saved to Library.')
+        await activeExportJob.commitResults([creation.url], 1, 'Storyboard saved locally')
+        if (creation.url !== localUrl) {
+          URL.revokeObjectURL(localUrl)
+          ownsTemporaryUrl = false
+        } else {
+          // Development Library owns this Blob URL until the record is removed.
+          ownsTemporaryUrl = false
+        }
+        saveUrl(creation.url, `${safeExportName(current.title)}.png`)
+        setLightbox(creation.url)
+        toast('Complete storyboard saved to Library and exported as one image')
+      } catch (error) {
+        if (ownsTemporaryUrl) URL.revokeObjectURL(localUrl)
+        throw error
+      }
     } catch (error) {
+      exportJob?.fail(error)
       toast(error instanceof Error ? error.message : 'Could not build the complete storyboard image')
     } finally {
       if (mountedRef.current) setExportingBoard(false)

@@ -4,8 +4,10 @@
 // URLs so they're self-contained for both the browser preview and Node render.
 import type { AnimSettings } from '../data/animationConfig'
 import { dimsFor } from '../data/animationConfig'
+import { addCreationsDurably } from '../data/creations'
 import { buildHyperframesHtml } from '../animation/hyperframes'
 import { prepareJobLedger, startJob } from './jobCenter'
+import { readAnimationRenderResult } from './animationRenderResult'
 
 export async function renderAnimation(
   s: AnimSettings,
@@ -58,13 +60,28 @@ export async function renderAnimation(
       }
       throw new Error(msg)
     }
-    const blob = await res.blob()
-    if (!blob.size || !blob.type.toLowerCase().startsWith('video/mp4')) {
-      throw new Error('Render server returned an invalid MP4')
+    const rendered = await readAnimationRenderResult(res)
+    const renderedUrl = rendered.url
+    try {
+      const [creation] = await addCreationsDurably([{
+        kind: 'video',
+        url: renderedUrl,
+        model: s.engine,
+        prompt: s.text || 'Animation render',
+        meta: `${s.aspect} · ${s.durationSec}s · ${s.fps}fps`,
+        durability: 'local',
+      }], {
+        onSecured: async (securedItems) => {
+          await job.secureResults(securedItems.map((item) => item.url), securedItems.length, 'Render secured locally · adding to Library')
+        },
+      })
+      if (!creation) throw new Error('Animation could not be saved to the local Library')
+      await job.commitResults([creation.url], 1, 'Rendered and saved locally')
+      return creation.url
+    } catch (error) {
+      if (!rendered.managed && renderedUrl.startsWith('blob:')) URL.revokeObjectURL(renderedUrl)
+      throw error
     }
-    const url = URL.createObjectURL(blob)
-    job.succeed(1)
-    return url
   } catch (error) {
     job.fail(controller.signal.aborted ? new Error('Cancelled') : error)
     throw controller.signal.aborted ? new Error('Cancelled') : error

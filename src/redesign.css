@@ -1440,10 +1440,52 @@ body::before {
 .ef-source-copy span { color: var(--ef-ink-muted); font-size: 10px; }
 .ef-workspace-source-list {
   width: min(100%, 520px);
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  max-height: min(310px, 46vh);
+  padding: 2px;
+  display: grid;
+  grid-template-columns: minmax(0,1fr);
+  align-items: start;
   gap: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  text-align: left;
+  scrollbar-gutter: stable;
+}
+.ef-workspace-source-card {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ef-tool-accent) 25%, var(--ef-line));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ef-tool-accent) 7%, rgba(255,255,255,.025));
+}
+.ef-workspace-source-preview {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  border-bottom: 1px solid var(--ef-line);
+  background: #050508;
+}
+.ef-workspace-source-preview video {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #050508;
+}
+.ef-workspace-source-preview audio {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  color-scheme: dark;
+}
+.ef-workspace-source-card .ef-workspace-source-chip {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .ef-workspace-source-chip {
   min-width: 0;
@@ -1491,6 +1533,7 @@ body::before {
   background: rgba(255,255,255,.11);
 }
 .ef-workspace-source-clear {
+  justify-self: end;
   min-height: 30px;
   padding-inline: 10px;
   border: 1px solid var(--ef-line);

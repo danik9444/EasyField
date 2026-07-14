@@ -7,6 +7,7 @@ import { ModelBrowser } from '../components/ModelBrowser'
 import { PromptCard } from '../components/PromptCard'
 import { BeatAnalysisResult } from '../components/BeatAnalysisResult'
 import { LibraryPickerButton } from '../components/LibraryPicker'
+import { WorkspaceSourcePreviewList } from '../components/WorkspaceSourcePreviewList'
 import { host } from '../services/host'
 import { resolve } from '../services/resolve'
 import { prepareJobLedger, startJob } from '../services/jobCenter'
@@ -361,9 +362,19 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
   }
 
   const addTimelineSource = (source: WorkspaceSource) => {
-    if (source.blobUrl) capturedBlobUrlsRef.current.add(source.blobUrl)
-    if (toolId === 'beat') replaceSources([source])
-    else setSources((current) => [...current, source].slice(0, 12))
+    if (toolId === 'beat') {
+      if (source.blobUrl) capturedBlobUrlsRef.current.add(source.blobUrl)
+      replaceSources([source])
+      return
+    }
+    setSources((current) => {
+      if (current.length >= 12) {
+        if (source.blobUrl) URL.revokeObjectURL(source.blobUrl)
+        return current
+      }
+      if (source.blobUrl) capturedBlobUrlsRef.current.add(source.blobUrl)
+      return [...current, source]
+    })
   }
 
   const removeSource = (index: number) => {
@@ -655,16 +666,7 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
                 <span>{acceptedKinds.length === 0 ? 'Generate directly from the prompt; no media will be uploaded.' : sources.length ? 'Review the selected media below. Source files must be selected again after a restart.' : dragActive ? 'Release to add these files.' : 'Drop media here, choose files, or capture the current Resolve context.'}</span>
               </div>
               {sources.length > 0 && (
-                <div className="ef-workspace-source-list" aria-label="Selected source media">
-                  {sources.map((source, index) => (
-                    <span className="ef-workspace-source-chip" key={`${source.kind}-${source.name}-${index}`}>
-                      <small>{source.kind}</small>
-                      <strong title={source.name}>{source.name}</strong>
-                      <button type="button" aria-label={`Remove source ${source.name}`} onClick={() => removeSource(index)}>×</button>
-                    </span>
-                  ))}
-                  {sources.length > 1 && <button type="button" className="ef-workspace-source-clear" onClick={clearSources}>Clear all</button>}
-                </div>
+                <WorkspaceSourcePreviewList sources={sources} onRemove={removeSource} onClear={clearSources} />
               )}
               {acceptedKinds.length > 0 && (
                 <div className="ef-source-actions">

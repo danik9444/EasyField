@@ -468,7 +468,13 @@ async function withTrackedJob<T extends RunResult>(
         prompt: meta.title,
         meta: background ? 'Completed in background · review before timeline placement' : undefined,
         durability: 'link-only',
-      })))
+      })), {
+        onSecured: async (securedItems) => {
+          const securedUrls = securedItems.map((item) => item.url)
+          const securedCount = (getJobs().find((item) => item.id === job.id)?.resultCount ?? 0) + securedUrls.length
+          await job.secureResults(securedUrls, securedCount, 'Results secured locally · adding to Library')
+        },
+      })
       if (creations.length !== result.urls.length) {
         throw new Error('Not every generated result could be committed to Library.')
       }

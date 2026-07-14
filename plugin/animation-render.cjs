@@ -61,6 +61,7 @@ const ALLOWED_SIZES = new Set([
 ]);
 const ALLOWED_FPS = new Set([24, 30, 60]);
 const ALLOWED_DURATIONS = new Set([3, 5, 8, 10, 15]);
+const MANAGED_ARTIFACT_PATH = /^\/artifacts\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_MODES = new Set(['presets', 'prompt', 'assets']);
 const ALLOWED_PRESETS = new Set(['Fade In', 'Slide Up', 'Pop Scale', 'Kinetic Type', 'Lower Third', 'Title Card']);
 const ALLOWED_RECIPES = new Set(['custom', 'smart-captions', 'text-motion-graphics', 'product-video', 'intros-outros', 'overlays-graphics', 'website-to-video', 'audio-visualizer', 'data-to-video']);
@@ -523,6 +524,7 @@ function createAnimationRenderService(options) {
     const ffmpegPath = resolveFfmpegPath(options.ffmpegPath);
     const spawnProcess = options.spawnProcess || defaultSpawn;
     const authorizeRequest = options.authorizeRequest;
+    const commitArtifactFile = typeof options.commitArtifactFile === 'function' ? options.commitArtifactFile : null;
     const maxBodyBytes = parseConfiguredLimit(options.maxBodyBytes || process.env.EF_MAX_RENDER_BYTES, DEFAULT_MAX_BODY_BYTES);
     const maxQueue = parseConfiguredLimit(options.maxQueue || process.env.EF_MAX_RENDER_QUEUE, DEFAULT_MAX_QUEUE);
     const renderTimeoutMs = parseConfiguredLimit(options.renderTimeoutMs || process.env.EF_RENDER_TIMEOUT_MS, DEFAULT_RENDER_TIMEOUT_MS);
@@ -708,6 +710,19 @@ function createAnimationRenderService(options) {
             tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-animation-'));
             const outputPath = await enqueue(() => renderToFile(job, controller.signal, tempDir));
             assertNotAborted(controller.signal);
+            const artifact = commitArtifactFile
+                ? await commitArtifactFile(outputPath, { kind: 'video', name: 'EasyField animation' })
+                : null;
+            if (commitArtifactFile && (!artifact || !MANAGED_ARTIFACT_PATH.test(artifact.url))) {
+                throw new RenderError('Animation could not be committed to local storage', 'RENDER_FAILED', 500);
+            }
+            if (artifact) {
+                // The packaged renderer and Artifact Store live in the same
+                // Main process. Return only the opaque managed receipt instead
+                // of copying the completed MP4 back through renderer memory.
+                sendJSON(res, 200, { ok: true, artifactUrl: artifact.url });
+                return;
+            }
             const stat = fs.statSync(outputPath);
             res.writeHead(200, {
                 'Content-Type': 'video/mp4',

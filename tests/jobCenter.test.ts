@@ -11,7 +11,7 @@ test('a cancelled job cannot be resurrected by late provider callbacks', () => {
   assert.equal(cancelJob(job.id), 'cancelled')
   assert.equal(cancelJob(job.id), 'terminal')
   job.update({ status: 'running', detail: 'Late poll' })
-  job.succeed(1)
+  job.succeed(0)
 
   const record = getJobs().find((item) => item.id === job.id)
   assert.equal(cancelled, true)
@@ -35,9 +35,23 @@ test('accepted provider work keeps tracking instead of offering false cancellati
   assert.equal(canBackgroundJob(record!), true)
   assert.equal(continueJobInBackground(job.id), 'backgrounded')
 
-  job.succeed(1)
+  assert.throws(
+    () => job.succeed(0),
+    /must commit durable artifact results/i,
+  )
   record = getJobs().find((item) => item.id === job.id)
-  assert.equal(record?.status, 'succeeded')
+  assert.equal(record?.status, 'running')
+  removeJob(job.id)
+})
+
+test('media-producing jobs cannot report success without committing durable results', () => {
+  const job = startJob({ title: 'Durability guard', kind: 'video' })
+  assert.throws(
+    () => job.succeed(1),
+    /must commit durable artifact results/i,
+  )
+  assert.notEqual(getJobs().find((item) => item.id === job.id)?.status, 'succeeded')
+  job.succeed(0)
   removeJob(job.id)
 })
 
@@ -346,5 +360,18 @@ test('restart recovery keeps a paid task retryable until its result is verified 
   assert.equal(recovered.durability, 'local')
 
   removeCreations([recovered.id])
+  removeJob(job.id)
+})
+
+test('verified artifacts enter the recovery ledger before Library indexing', async () => {
+  const job = startJob({ title: 'Precommit recovery receipt', kind: 'video' })
+  const artifactUrl = '/artifacts/cd93300f-c854-41ad-8273-66a67501f2cc'
+  await job.secureResults([artifactUrl], 1, 'Adding to Library')
+  job.fail(new Error('IndexedDB unavailable'))
+
+  const record = getJobs().find((item) => item.id === job.id)
+  assert.equal(record?.status, 'failed')
+  assert.deepEqual(record?.resultUrls, [artifactUrl])
+  assert.equal(record?.resultCount, 1)
   removeJob(job.id)
 })

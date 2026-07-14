@@ -25,5 +25,6 @@ contextBridge.exposeInMainWorld('easyfield', Object.freeze({
     }),
     artifacts: Object.freeze({
         ingestUrl: (input) => ipcRenderer.invoke('ef:artifacts:ingest-url', input),
+        ingestBytes: (input) => ipcRenderer.invoke('ef:artifacts:ingest-bytes', input),
     }),
 }));

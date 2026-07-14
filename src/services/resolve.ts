@@ -210,10 +210,11 @@ function subscribe(cb: () => void): () => void {
 // Grabs (frame / clip / audio)
 // ---------------------------------------------------------------------------
 
-// The server caps clip/audio extraction at 30s and rendered boundaries at 20s.
-// Keep the renderer above both so a healthy queued operation is not abandoned
-// while it is still allowed to run server-side.
+// Audio extraction and frame boundaries are short operations. Generic video
+// Grab may need to transcode an exact ProRes/HEVC/DNxHR range to browser-safe
+// H.264, so that call opts into its own finite long-running deadline.
 const GRAB_TIMEOUT_MS = 35000
+const CLIP_GRAB_TIMEOUT_MS = 15 * 60_000 + 2_000
 
 // Turn a successful grab response into real local bytes. Errors are returned as
 // structured failures so callers can explain the problem without creating a
@@ -563,7 +564,7 @@ export const resolve = {
   grabUpscaleSource,
   grabShotStartFrame: (): Promise<Grab> => grab('/bridge/grab/shot-start-frame', true, 'grab-shot-start-frame', 'rendered shot start frame'),
   grabShotEndFrame: (): Promise<Grab> => grab('/bridge/grab/shot-end-frame', true, 'grab-shot-end-frame', 'rendered shot end frame'),
-  grabClip: (): Promise<Grab> => grab('/bridge/grab/clip', true),
+  grabClip: (): Promise<Grab> => grab('/bridge/grab/clip', true, undefined, 'timeline clip', CLIP_GRAB_TIMEOUT_MS),
   grabAudio: (): Promise<Grab> => grab('/bridge/grab/audio', true),
   applyBeatMarkers,
   undoBeatMarkers,
