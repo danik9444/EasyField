@@ -43,7 +43,7 @@
     "@fontsource-variable/instrument-sans": "5.2.8",
     "@fontsource-variable/jetbrains-mono": "5.2.8",
     "@fontsource-variable/space-grotesk": "5.2.8",
-    "@remotion/player": "^4.0.485",
+    "@remotion/player": "^4.0.489",
     "gsap": "3.14.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
