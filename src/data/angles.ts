@@ -78,7 +78,7 @@ export function normalizeAnglesDraft(raw: unknown): AnglesDraft {
     mode,
     model: safeModel(source.model ?? source.modelId),
     randomCount: normalizeRandomAngleCount(source.randomCount),
-    // Preserve every draft that can fit any current Kie image model. The
+    // Preserve every draft that can fit any current cloud image model. The
     // selected model's smaller live budget is enforced without deleting text
     // on a model switch.
     customPrompt: truncatePrompt(customPromptSource, ANGLES_PROMPT_MAX),

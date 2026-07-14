@@ -159,7 +159,7 @@ export function SuperBrain({ onBack, toast, onSpend }: SuperBrainProps) {
     : planning
       ? `PLANNING · ${selectedMode.title.toUpperCase()}`
       : !connected
-        ? 'CONNECT KIE.AI TO PLAN'
+        ? 'CONNECT EASYFIELD CLOUD TO PLAN'
         : executionUnavailable
           ? 'PLAN READY · RUN ADAPTER REQUIRED'
           : selectedMode.status
@@ -218,7 +218,7 @@ export function SuperBrain({ onBack, toast, onSpend }: SuperBrainProps) {
             <span className="ef-brain-input-spark"><Icon glyph="spark" size={13} /></span>
             <input aria-label="Describe an edit or answer SuperBrain" aria-describedby="ef-brain-call-preflight" placeholder="Describe the result you want…" value={input} maxLength={2400} disabled={planning || frozen} onChange={(event) => setInput(event.target.value)} />
             <span id="ef-brain-call-preflight" className="ef-brain-call-cost" title="Live token billing with no EasyField spend cap">LIVE BILLING</span>
-            <button type="submit" className="ef-brain-send" aria-label={!connected ? 'Connect Kie.ai before sending to SuperBrain' : 'Send to SuperBrain; live token billing with no EasyField spend cap'} disabled={!input.trim() || planning || frozen || !connected}>→</button>
+            <button type="submit" className="ef-brain-send" aria-label={!connected ? 'Connect EasyField Cloud before sending to SuperBrain' : 'Send to SuperBrain; live token billing with no EasyField spend cap'} disabled={!input.trim() || planning || frozen || !connected}>→</button>
           </form>
         </main>
 

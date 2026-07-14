@@ -125,8 +125,8 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
         <button
           type="button"
           className={'ef-enhance-btn' + (enhancing ? ' loading' : '')}
-          aria-label={!connected ? 'Connect your kie.ai key to enhance' : `Enhance prompt for ${targetModel} with ${enhanceModel}; token billed with no EasyField spend cap`}
-          title={!connected ? 'Connect your kie.ai key (credits badge on Home) to enhance' : `Rewrite for ${targetModel} · live token billing, no EasyField spend cap`}
+          aria-label={!connected ? 'Connect EasyField Cloud to enhance' : `Enhance prompt for ${targetModel} with ${enhanceModel}; token billed with no EasyField spend cap`}
+          title={!connected ? 'Connect EasyField Cloud from the credits badge on Home to enhance' : `Rewrite for ${targetModel} · live token billing, no EasyField spend cap`}
           disabled={enhancing || !prompt.trim() || overLimit || !connected}
           onClick={enhance}
         >

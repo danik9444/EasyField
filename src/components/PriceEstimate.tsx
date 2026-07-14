@@ -8,7 +8,7 @@ export function PriceEstimate({ estimate }: { estimate: Estimate }) {
       <span className="ef-price-value">
         <span
           className={`ef-price-source is-${estimate.source ?? 'fallback'}`}
-          title={estimate.source === 'live' ? 'Live from kie.ai/pricing' : estimate.source === 'fallback' ? 'Current dated fallback; live feed unavailable' : undefined}
+          title={estimate.source === 'live' ? 'Live cloud pricing' : estimate.source === 'fallback' ? 'Current dated fallback; live feed unavailable' : undefined}
         >
           {priceSourceLabel(estimate)}
         </span>

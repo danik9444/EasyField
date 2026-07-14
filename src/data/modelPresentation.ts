@@ -30,7 +30,7 @@ export const VIDEO_MODEL_META: Record<string, DropdownOptionMeta> = withProvider
   'Wan 2.7 Video': { group: 'Wan', eyebrow: 'WAN', badge: '2.7', description: 'Text, references, endpoint frames or an external continuation clip.' },
   'Hailuo 2.3 Pro': { group: 'Hailuo', eyebrow: 'HAILUO', badge: 'PRO', description: 'Premium first-frame image-to-video tier at 768P or 1080P.' },
   'Hailuo 2.3 Standard': { group: 'Hailuo', eyebrow: 'HAILUO', badge: 'STANDARD', description: 'Value first-frame tier at 768P or 1080P.' },
-  'Runway AI Video': { group: 'Runway', eyebrow: 'RUNWAY', badge: 'KIE WRAPPER', description: 'Kie-managed Runway route; the underlying model identity is not exposed.' },
+  'Runway AI Video': { group: 'Runway', eyebrow: 'RUNWAY', badge: 'CLOUD ROUTE', description: 'EasyField Cloud route; the underlying model identity is not exposed.' },
   'Happy Horse 1.1': { group: 'Happy Horse', eyebrow: 'HAPPYHORSE', badge: '1.1', description: 'Text, first-frame or multi-image reference generation.' },
 })
 

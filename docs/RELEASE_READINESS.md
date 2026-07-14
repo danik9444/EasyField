@@ -18,7 +18,7 @@
 - [x] Installer and updater both preserve the previous plugin for rollback and fail closed on checksum, signature, compatibility or tree mismatch.
 - [x] All 20 tool screens pass responsive UI smoke at compact and expanded widths without horizontal overflow.
 - [x] The installed 1.1.0 panel opens inside the real Resolve Workflow Integrations host and connects to the active project/timeline.
-- [x] Live Kie generation exercised accepted-task persistence, timeout recovery without resubmission, and an honest terminal upstream failure.
+- [x] Live EasyField Cloud generation exercised accepted-task persistence, timeout recovery without resubmission, and an honest terminal upstream failure.
 - [x] A real provider rejection exposed and fixed OmniHuman's 300-character prompt boundary before release.
 
 ## Public bootstrap release prerequisites

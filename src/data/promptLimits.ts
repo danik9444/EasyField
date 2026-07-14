@@ -14,16 +14,16 @@ export function truncatePrompt(value: string, maximum: number): string {
 }
 
 /**
- * Kie schemas that do not publish a prompt maximum still need a bounded
+ * Cloud schemas that do not publish a prompt maximum still need a bounded
  * request contract. This intentionally conservative ceiling is surfaced in
- * the UI as an unpublished-provider fallback, not presented as a Kie limit.
+ * the UI as an unpublished-provider fallback, not presented as a model limit.
  */
-export const KIE_UNPUBLISHED_PROMPT_MAX = 800
+export const PROVIDER_UNPUBLISHED_PROMPT_MAX = 800
 
 export const HAPPY_HORSE_PROMPT_MAX = 4_999
 export const HAPPY_HORSE_CJK_PROMPT_MAX = 2_500
 
-/** Kie's Happy Horse contract applies a lower ceiling to CJK prompts. */
+/** The Happy Horse contract applies a lower ceiling to CJK prompts. */
 export function happyHorsePromptMax(value: string): number {
   return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value)
     ? HAPPY_HORSE_CJK_PROMPT_MAX

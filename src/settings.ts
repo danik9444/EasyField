@@ -12,6 +12,7 @@ export interface Settings {
 
 export const ACCENT_OPTIONS = ['#E26BD2', '#5B8CFF', '#3ED598', '#FFB454']
 export const SECURE_API_KEY_TOKEN = '__easyfield_secure__'
+export const CLOUD_API_CREDENTIAL = 'cloud-generation-api-key'
 
 export const DEFAULT_SETTINGS: Settings = {
   accent: '#E26BD2',
@@ -86,7 +87,7 @@ export function saveSettings(settings: Settings) {
   }
 }
 
-// The connected kie.ai key, read fresh from storage at call time (so generation
+// The connected cloud key, read fresh from storage at call time (so generation
 // always uses the latest key without threading it through every component).
 export function currentApiKey(): string {
   return runtimeApiKey.trim()

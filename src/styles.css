@@ -857,7 +857,7 @@ textarea {
   color: #8b8b99;
 }
 
-/* ---- kie.ai API key ---- */
+/* ---- EasyField Cloud API key ---- */
 
 .ef-apikey-row {
   display: flex;
@@ -3592,7 +3592,7 @@ textarea {
   min-width: min(104px, 100%);
 }
 
-/* Actual credits charged (from kie.ai's creditsConsumed), shown after a job. */
+/* Actual cloud credits charged, shown after a job. */
 .ef-charged {
   text-align: center;
   font-family: 'JetBrains Mono', monospace;

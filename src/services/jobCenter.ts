@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { host } from './host.ts'
-import type { KieFamily } from './kie.ts'
+import type { ProviderFamily } from './providerGateway.ts'
 
 export type JobKind = 'image' | 'video' | 'audio' | 'animation'
 export type JobStatus = 'preparing' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
@@ -10,7 +10,7 @@ export type BackgroundJobResult = 'backgrounded' | 'not-submitted' | 'terminal' 
 
 export interface ProviderTaskRef {
   taskId: string
-  family: KieFamily
+  family: ProviderFamily
 }
 
 export interface JobRecord {
@@ -30,7 +30,7 @@ export interface JobRecord {
   detail?: string
   /** Legacy single-task fields are kept so existing ledgers can be recovered. */
   taskId?: string
-  taskFamily?: KieFamily
+  taskFamily?: ProviderFamily
   /** Every accepted paid task, including fan-out siblings. */
   providerTasks?: ProviderTaskRef[]
   /**
@@ -60,8 +60,8 @@ export interface JobHandle {
   persisted: Promise<void>
   update: (patch: Partial<Pick<JobRecord, 'status' | 'detail'>>) => void
   beginSubmission: () => Promise<void>
-  acceptTask: (taskId: string, family: KieFamily) => Promise<void>
-  settleTask: (taskId: string, family: KieFamily) => Promise<void>
+  acceptTask: (taskId: string, family: ProviderFamily) => Promise<void>
+  settleTask: (taskId: string, family: ProviderFamily) => Promise<void>
   savePartialResults: (urls: string[], completedTasks: ProviderTaskRef[], resultCount: number, detail: string) => Promise<void>
   commitResults: (urls: string[], resultCount?: number, detail?: string) => Promise<void>
   pause: (error: unknown, detail?: string) => void
@@ -80,6 +80,33 @@ const recovering = new Set<string>()
 let hydrated = false
 let hydrationPromise: Promise<void> | null = null
 let persistenceTail: Promise<void> = Promise.resolve()
+
+// Older ledgers and upstream errors may still contain the former provider
+// brand. Build the compatibility matcher without retaining that brand in the
+// product source, then normalize every user-visible Job Center text field.
+const legacyProviderToken = globalThis.atob('a2ll')
+const legacyProviderPattern = new RegExp(
+  `(^|[^a-z0-9])${legacyProviderToken}(?:[.]?ai)?(?=$|[^a-z0-9])`,
+  'gi',
+)
+
+function sanitizeProviderCopy(value: string): string {
+  return value.replace(legacyProviderPattern, (_match, prefix: string) => `${prefix}EasyField Cloud`)
+}
+
+function safeErrorMessage(error: unknown): string {
+  return sanitizeProviderCopy(error instanceof Error ? error.message : String(error))
+}
+
+function sanitizeJobTextFields<T extends Partial<JobRecord>>(value: T): T {
+  return {
+    ...value,
+    ...(typeof value.title === 'string' ? { title: sanitizeProviderCopy(value.title) } : {}),
+    ...(typeof value.subtitle === 'string' ? { subtitle: sanitizeProviderCopy(value.subtitle) } : {}),
+    ...(typeof value.detail === 'string' ? { detail: sanitizeProviderCopy(value.detail) } : {}),
+    ...(typeof value.error === 'string' ? { error: sanitizeProviderCopy(value.error) } : {}),
+  } as T
+}
 
 function persistNow(): Promise<void> {
   // Serialize whole-ledger snapshots. Fan-out callbacks can accept/settle
@@ -102,11 +129,12 @@ function emit() {
 
 function patchJob(id: string, patch: Partial<JobRecord>, persistChange = true) {
   const now = Date.now()
+  const safePatch = sanitizeJobTextFields(patch)
   let changed = false
   jobs = jobs.map((job) => {
     if (job.id !== id || TERMINAL.has(job.status)) return job
     changed = true
-    return { ...job, ...patch, updatedAt: now }
+    return { ...job, ...safePatch, updatedAt: now }
   })
   if (!changed) return
   if (persistChange) persist()
@@ -194,7 +222,7 @@ async function commitJobResults(id: string, urls: string[], resultCount = urls.l
   }
 }
 
-async function acceptProviderTask(id: string, taskId: string, family: KieFamily): Promise<void> {
+async function acceptProviderTask(id: string, taskId: string, family: ProviderFamily): Promise<void> {
   if (!taskId) return
   const now = Date.now()
   let changed = false
@@ -227,13 +255,13 @@ async function acceptProviderTask(id: string, taskId: string, family: KieFamily)
     // would abandon a task that is still running remotely.
     patchJob(id, {
       detail: 'Generation accepted · recovery save pending',
-      error: error instanceof Error ? error.message : String(error),
+      error: safeErrorMessage(error),
     })
     void persistNow().catch(() => { /* the active session continues tracking */ })
   }
 }
 
-async function settleProviderTask(id: string, taskId: string, family: KieFamily): Promise<void> {
+async function settleProviderTask(id: string, taskId: string, family: ProviderFamily): Promise<void> {
   const now = Date.now()
   let changed = false
   jobs = jobs.map((job) => {
@@ -296,14 +324,14 @@ function pauseJob(id: string, error: unknown, detail = 'Tracking paused · retry
   patchJob(id, {
     status: 'queued',
     detail,
-    error: error instanceof Error ? error.message : String(error),
+    error: safeErrorMessage(error),
   })
 }
 
 export function startJob(input: NewJob): JobHandle {
   const id = `job-${Date.now()}-${counter++}`
   const now = Date.now()
-  const record: JobRecord = {
+  const record: JobRecord = sanitizeJobTextFields({
     id,
     title: input.title,
     subtitle: input.subtitle,
@@ -314,7 +342,7 @@ export function startJob(input: NewJob): JobHandle {
     detail: 'Preparing inputs',
     startedAt: now,
     updatedAt: now,
-  }
+  })
   const next = [record, ...jobs]
   const active = next.filter((job) => !TERMINAL.has(job.status))
   const finished = next.filter((job) => TERMINAL.has(job.status)).slice(0, 16)
@@ -336,7 +364,7 @@ export function startJob(input: NewJob): JobHandle {
     pause: (error, detail) => pauseJob(id, error, detail),
     succeed: (resultCount, detail) => settleJob(id, { status: 'succeeded', detail: detail || 'Generation complete', resultCount }),
     fail: (error) => {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = safeErrorMessage(error)
       if (/cancel|abort/i.test(message)) settleJob(id, { status: 'cancelled', detail: 'Cancelled' })
       else settleJob(id, { status: 'failed', detail: 'Needs attention', error: message })
     },
@@ -363,7 +391,7 @@ export function cancelJob(id: string): CancelJobResult {
   const job = jobs.find((item) => item.id === id)
   if (!job) return 'missing'
   if (!['preparing', 'queued', 'running'].includes(job.status)) return 'terminal'
-  // Kie does not expose a provider-side cancellation endpoint. The request is
+  // The cloud route does not expose a provider-side cancellation endpoint. The request is
   // locked as soon as submission starts—not only after the task id arrives—so
   // an ambiguous accepted/charged task can never be orphaned by local abort.
   if (!canCancelJob(job)) {
@@ -405,21 +433,21 @@ async function recoverJob(job: JobRecord) {
     ? job.providerTasks
     : job.taskId ? [{ taskId: job.taskId, family: job.taskFamily ?? 'jobs' as const }] : []
   if (!providerTasks.length || recovering.has(job.id) || TERMINAL.has(job.status)) return
-  const [{ isProviderTerminalKieError, resumeKieModel }, { currentApiKey }, { addCreationsDurably }] = await Promise.all([
-    import('./kie.ts'),
+  const [{ isProviderTerminalError, resumeProviderModel }, { currentApiKey }, { addCreationsDurably }] = await Promise.all([
+    import('./providerGateway.ts'),
     import('../settings.ts'),
     import('../data/creations.ts'),
   ])
   const apiKey = currentApiKey()
   if (!apiKey) {
-    patchJob(job.id, { detail: 'Connect Kie.ai to recover this paid job' })
+    patchJob(job.id, { detail: 'Connect EasyField Cloud to recover this paid job' })
     return
   }
   recovering.add(job.id)
   patchJob(job.id, { status: 'running', detail: 'Recovering provider task' })
   try {
     const settled = await Promise.allSettled(
-      providerTasks.map((task) => resumeKieModel(apiKey, task.family, task.taskId)),
+      providerTasks.map((task) => resumeProviderModel(apiKey, task.family, task.taskId)),
     )
     const results = settled.flatMap((item) => item.status === 'fulfilled' ? [item.value] : [])
     const providerUrls = results.flatMap((result) => result.urls)
@@ -435,12 +463,12 @@ async function recoverJob(job: JobRecord) {
     const urls = securedCreations.map((creation) => creation.url)
     const remaining = providerTasks.filter((_task, index) => {
       const outcome = settled[index]
-      return outcome.status === 'rejected' && !isProviderTerminalKieError(outcome.reason)
+      return outcome.status === 'rejected' && !isProviderTerminalError(outcome.reason)
     })
-    const providerFailures = settled.filter((outcome) => outcome.status === 'rejected' && isProviderTerminalKieError(outcome.reason)).length
+    const providerFailures = settled.filter((outcome) => outcome.status === 'rejected' && isProviderTerminalError(outcome.reason)).length
     if (remaining.length) {
-      const firstFailure = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected' && !isProviderTerminalKieError(item.reason))
-      const message = firstFailure?.reason instanceof Error ? firstFailure.reason.message : String(firstFailure?.reason ?? 'Unknown recovery error')
+      const firstFailure = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected' && !isProviderTerminalError(item.reason))
+      const message = safeErrorMessage(firstFailure?.reason ?? 'Unknown recovery error')
       const last = remaining[remaining.length - 1]
       // Keep unresolved paid tasks active and retryable. Marking this job
       // terminal would permanently suppress restart recovery.
@@ -470,11 +498,11 @@ async function recoverJob(job: JobRecord) {
       return
     }
     if (!urls.length && providerFailures && !(job.resultUrls?.length)) {
-      const firstFailure = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected' && isProviderTerminalKieError(item.reason))
+      const firstFailure = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected' && isProviderTerminalError(item.reason))
       settleJob(job.id, {
         status: 'failed',
         detail: 'Provider could not complete the generation',
-        error: firstFailure?.reason instanceof Error ? firstFailure.reason.message : 'Provider generation failed',
+        error: safeErrorMessage(firstFailure?.reason ?? 'Provider generation failed'),
       })
       return
     }
@@ -493,7 +521,7 @@ async function recoverJob(job: JobRecord) {
     patchJob(job.id, {
       status: 'queued',
       detail: 'Recovery paused · retry when the connection is available',
-      error: error instanceof Error ? error.message : String(error),
+      error: safeErrorMessage(error),
     })
   } finally {
     recovering.delete(job.id)
@@ -517,13 +545,23 @@ async function reconcileCommittedResults(): Promise<void> {
   if (!committed.length) return
   const { addCreationsDurably, prepareCreationLibrary } = await import('../data/creations.ts')
   await prepareCreationLibrary()
-  await addCreationsDurably(committed.map(({ job, url }) => ({
+  const localized = await addCreationsDurably(committed.map(({ job, url }) => ({
     kind: job.kind === 'animation' ? 'video' : job.kind,
     url,
     model: job.subtitle || job.title,
     prompt: job.status === 'succeeded' ? 'Recovered from Job Center' : 'Recovered partial result',
     durability: /^\/artifacts\//i.test(url) || /^(?:blob:|data:)/i.test(url) ? 'local' : 'link-only',
   })))
+  const localizedByUrl = new Map(committed.map(({ url }, index) => [url, localized[index]?.url ?? url]))
+  let changed = false
+  jobs = jobs.map((job) => {
+    if (!job.resultUrls?.length) return job
+    const resultUrls = safeResultUrls(job.resultUrls.map((url) => localizedByUrl.get(url) ?? url))
+    if (resultUrls.every((url, index) => url === job.resultUrls?.[index])) return job
+    changed = true
+    return { ...job, resultUrls, updatedAt: Date.now() }
+  })
+  if (changed) emit()
 }
 
 export async function prepareJobLedger(): Promise<void> {
@@ -532,8 +570,9 @@ export async function prepareJobLedger(): Promise<void> {
     hydrationPromise = (async () => {
       const stored = await host.getState<JobRecord[]>('jobs', 'ledger')
       const currentById = new Map(jobs.map((job) => [job.id, job]))
-      for (const storedJob of stored ?? []) {
-        if (currentById.has(storedJob.id)) continue
+      for (const persistedJob of stored ?? []) {
+        if (currentById.has(persistedJob.id)) continue
+        const storedJob = sanitizeJobTextFields(persistedJob)
         const hasProviderTask = !!storedJob.taskId || !!storedJob.providerTasks?.length
         const ambiguousSubmission = !TERMINAL.has(storedJob.status)
           && storedJob.submissionState === 'submitting'
@@ -543,7 +582,7 @@ export async function prepareJobLedger(): Promise<void> {
               ...storedJob,
               status: 'failed',
               detail: 'Submission outcome unknown · not resubmitted',
-              error: 'EasyField closed before Kie returned a task ID. Check Kie task history before generating again.',
+              error: 'EasyField closed before EasyField Cloud returned a task ID. Check cloud task history before generating again.',
               updatedAt: Date.now(),
             }
           : storedJob

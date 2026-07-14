@@ -3,7 +3,7 @@
 //   HyperFrames (heygen-com/hyperframes) — write HTML/CSS/GSAP → MP4 (Node CLI)
 //   Remotion    (remotion.dev)           — write React → MP4 (@remotion/player + renderer)
 // Both are installed locally; rendering runs through the local CLIs (dev
-// middleware), so nothing here hits kie.ai.
+// middleware), so nothing here contacts the cloud-generation gateway.
 
 export const ANIM_ENGINES = ['HyperFrames', 'Remotion'] as const
 export type AnimEngine = (typeof ANIM_ENGINES)[number]

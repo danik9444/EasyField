@@ -3,9 +3,9 @@ import { createServer, request, type Server } from 'node:http'
 import { once } from 'node:events'
 import test from 'node:test'
 import {
-  createSecureKieDevMiddleware,
-  SECURE_KIE_PROXY_TOKEN,
-} from '../vite-plugin-secure-kie.ts'
+  createSecureProviderDevMiddleware,
+  SECURE_PROVIDER_PROXY_TOKEN,
+} from '../vite-plugin-secure-provider.ts'
 
 interface CapturedRequest {
   method: string
@@ -78,7 +78,7 @@ test('Vite routes only Electron sentinel requests back through secure Main', asy
   const mainPort = await listen(main)
 
   let fallthroughs = 0
-  const middleware = createSecureKieDevMiddleware(mainPort)
+  const middleware = createSecureProviderDevMiddleware(mainPort)
   const vite = createServer((req, res) => middleware(req, res, () => {
     fallthroughs += 1
     res.writeHead(204)
@@ -90,26 +90,26 @@ test('Vite routes only Electron sentinel requests back through secure Main', asy
     await close(main)
   })
 
-  const sentinel = `Bearer ${SECURE_KIE_PROXY_TOKEN}`
-  const account = await call(vitePort, '/kie/api/v1/chat/credit?source=dev', sentinel)
+  const sentinel = `Bearer ${SECURE_PROVIDER_PROXY_TOKEN}`
+  const account = await call(vitePort, '/provider/api/v1/chat/credit?source=dev', sentinel)
   assert.equal(account.status, 200)
   assert.deepEqual(JSON.parse(account.body), { proxiedByMain: true })
 
   const uploadBody = JSON.stringify({ file: 'synthetic-data-only' })
-  const upload = await call(vitePort, '/kie-upload/api/file-base64-upload', sentinel, uploadBody)
+  const upload = await call(vitePort, '/provider-upload/api/file-base64-upload', sentinel, uploadBody)
   assert.equal(upload.status, 200)
 
   assert.deepEqual(captured, [
     {
       method: 'GET',
-      url: '/kie/api/v1/chat/credit?source=dev',
+      url: '/provider/api/v1/chat/credit?source=dev',
       authorization: sentinel,
       bridgeToken: 'synthetic-main-boundary-token',
       body: '',
     },
     {
       method: 'POST',
-      url: '/kie-upload/api/file-base64-upload',
+      url: '/provider-upload/api/file-base64-upload',
       authorization: sentinel,
       bridgeToken: 'synthetic-main-boundary-token',
       body: uploadBody,
@@ -118,7 +118,7 @@ test('Vite routes only Electron sentinel requests back through secure Main', asy
 
   // A browser-only Vite session owns its raw key in sessionStorage. It must
   // continue to the existing direct provider proxy, never through Electron.
-  const browser = await call(vitePort, '/kie/api/v1/chat/credit', 'Bearer synthetic-browser-session-key')
+  const browser = await call(vitePort, '/provider/api/v1/chat/credit', 'Bearer synthetic-browser-session-key')
   assert.equal(browser.status, 204)
   assert.equal(fallthroughs, 1)
   assert.equal(captured.length, 2)

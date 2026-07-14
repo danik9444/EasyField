@@ -1,5 +1,5 @@
 /**
- * Pure preflight contracts for Kie's Kling 3 Motion Control endpoint.
+ * Pure preflight contracts for the Kling 3 Motion Control endpoint.
  *
  * Browser Files, Library artifacts, hosted URLs and Resolve grabs can all be
  * represented structurally. Metadata is deliberately optional: known invalid

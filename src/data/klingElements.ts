@@ -89,7 +89,7 @@ export interface KlingHostedElement {
   endTimeMs?: number
 }
 
-/** Exact `kling_elements` item shape accepted by Kie. */
+/** Exact `kling_elements` item shape accepted by the cloud endpoint. */
 export interface KlingProviderElement {
   name: string
   description: string

@@ -68,7 +68,7 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
     { label: 'Runtime', value: host.isPlugin() ? 'Electron plugin' : 'Browser development', ok: true },
     { label: 'EasyField version', value: updateStatus?.currentVersion ?? (host.isPlugin() ? 'Checking…' : 'Development build'), ok: updateStatus?.supported !== false && !updateStatus?.available && !updateError },
     { label: 'DaVinci Resolve', value: bridge.connected ? `${bridge.product ?? 'Resolve'} · ${bridge.timeline ?? 'Timeline'}` : bridge.compatibilityError ?? 'Disconnected', ok: bridge.connected },
-    { label: 'Kie.ai', value: apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : 'Disconnected', ok: apiStatus === 'connected' },
+    { label: 'EasyField Cloud', value: apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : 'Disconnected', ok: apiStatus === 'connected' },
     { label: 'Persistent state', value: host.isPlugin() ? 'SQLite · WAL' : 'Browser fallback', ok: true },
     { label: 'Credentials', value: host.isPlugin() ? 'macOS safeStorage' : 'Session only', ok: host.isPlugin() },
   ], [apiError, apiStatus, bridge, credits, updateError, updateStatus])
@@ -182,7 +182,7 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
 
           {section === 'ai' && (
             <>
-              <SettingsGroup title="Kie.ai" description="The API key is encrypted by macOS and is never written to localStorage.">
+              <SettingsGroup title="EasyField Cloud" description="The API key is encrypted by macOS and is never written to localStorage.">
                 <form
                   className="ef-settings-api-form"
                   onSubmit={(event) => {
@@ -200,7 +200,7 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
                       spellCheck={false}
                       aria-describedby="ef-settings-api-status"
                       aria-invalid={apiStatus === 'error'}
-                      placeholder={storedSecureKey ? 'Stored securely in macOS Keychain' : 'Paste a Kie.ai API key'}
+                      placeholder={storedSecureKey ? 'Stored securely in macOS Keychain' : 'Paste your EasyField Cloud API key'}
                       onChange={(event) => setKeyDraft(event.target.value)}
                     />
                   </label>

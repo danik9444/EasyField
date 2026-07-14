@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { buildImageUpscaleRequest, buildVideoUpscaleRequest } from '../src/data/kieModels.ts'
+import { buildImageUpscaleRequest, buildVideoUpscaleRequest } from '../src/data/providerModels.ts'
 import { applyLivePrices, upscaleBatchEstimate, upscaleRunEstimate } from '../src/data/pricing.ts'
 import {
   TOPAZ_IMAGE_MAX_BYTES,
@@ -11,9 +11,9 @@ import {
   topazModelForKind,
   validateTopazSource,
 } from '../src/data/upscale.ts'
-import type { KieLivePriceRow } from '../src/services/kie.ts'
+import type { ProviderLivePriceRow } from '../src/services/providerGateway.ts'
 
-function liveRow(modelDescription: string, credits: number, unit: string): KieLivePriceRow {
+function liveRow(modelDescription: string, credits: number, unit: string): ProviderLivePriceRow {
   return { modelDescription, credits, unit, usd: credits * 0.005, interfaceType: '', provider: 'Topaz', anchor: '' }
 }
 

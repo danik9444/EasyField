@@ -188,8 +188,8 @@ export function StoryboardSceneCard({
               <button
                 type="button"
                 className={'ef-enhance-btn' + (runState === 'enhancing' ? ' loading' : '')}
-                aria-label={!connected ? 'Connect Kie.ai to improve this scene prompt' : `Improve ${sceneLabel} using the complete story, all scene rows and references with ${enhancerModel}`}
-                title={!connected ? 'Connect Kie.ai to improve prompts' : `Uses the complete story, every scene row and all attached references · ${enhancerModel}`}
+                aria-label={!connected ? 'Connect EasyField Cloud to improve this scene prompt' : `Improve ${sceneLabel} using the complete story, all scene rows and references with ${enhancerModel}`}
+                title={!connected ? 'Connect EasyField Cloud to improve prompts' : `Uses the complete story, every scene row and all attached references · ${enhancerModel}`}
                 disabled={!connected || prompt.trim().length < 3 || promptOverLimit || busy || batchRunning}
                 onClick={onEnhance}
               >

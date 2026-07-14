@@ -337,7 +337,7 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
           : promptOverLimit
             ? `${model} allows ${providerPromptMax.toLocaleString()} prompt characters including the camera-preservation instructions · shorten the direction.`
           : !connected
-            ? 'Connect Kie.ai to generate camera angles'
+            ? 'Connect EasyField Cloud to generate camera angles'
             : spendBlocked
               ? spendApproval.reason
               : mode === 'random'

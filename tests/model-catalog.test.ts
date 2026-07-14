@@ -36,7 +36,7 @@ test('Upscale is a Footage tool backed by the two verified Topaz source adapters
   assert.equal(modelsForTool('upscale').every((model) => model.validated && model.available), true)
 })
 
-test('latest Kie chat models have the documented Responses routes', () => {
+test('latest cloud chat models have the documented Responses routes', () => {
   const expected = {
     'GPT 5.6 Sol': ['gpt-5-6-sol', 'codex'],
     'GPT 5.6 Terra': ['gpt-5-6-terra', 'codex'],

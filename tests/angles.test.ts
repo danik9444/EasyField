@@ -11,7 +11,7 @@ import {
 } from '../src/data/angles.ts'
 import { imageRunEstimate } from '../src/data/pricing.ts'
 import { modelsForTool } from '../src/data/validatedModels.ts'
-import { buildImageEditRequest } from '../src/data/kieModels.ts'
+import { buildImageEditRequest } from '../src/data/providerModels.ts'
 
 test('legacy Angles drafts migrate into the dedicated random/custom workspace', () => {
   const legacyCustom = normalizeAnglesDraft({

@@ -1,5 +1,5 @@
-// Per-model video generation options, sourced from kie.ai's published API
-// schemas (docs.kie.ai/...). Verified 2026-07-13 — frame inputs, reference
+// Per-model video generation options, sourced from published cloud API
+// schemas. Verified 2026-07-13 — frame inputs, reference
 // images, video/audio inputs, exclusivity, and duration ranges/gating.
 //
 // Input families:
@@ -7,11 +7,11 @@
 //  - referenceImages: subject/consistency reference images.
 //  - video / audio: uploadable video and audio inputs (reference clips, motion
 //    driver, continuation clip, or lip-sync voice — see each `label`).
-//  - framesRefsExclusive: kie.ai documents frames vs the reference/multimodal
+//  - framesRefsExclusive: the schema documents frames vs the reference/multimodal
 //    bucket as mutually exclusive for some models. `inBucket` marks which
 //    video/audio inputs belong to that exclusive bucket (locked in frame mode).
 import type { MultiShotRules } from './videoMultiShot.ts'
-import { HAPPY_HORSE_PROMPT_MAX, KIE_UNPUBLISHED_PROMPT_MAX } from './promptLimits.ts'
+import { HAPPY_HORSE_PROMPT_MAX, PROVIDER_UNPUBLISHED_PROMPT_MAX } from './promptLimits.ts'
 
 export type FrameMode = 'frames' | 'references' | 'text'
 
@@ -49,11 +49,11 @@ export interface VideoModelConfig {
   resolutions: string[]
   durations: string[]
   durationDefault: string
-  /** Provider prompt ceiling, or EasyField's explicit fallback when Kie omits one. */
+  /** Provider prompt ceiling, or EasyField's explicit fallback when the schema omits one. */
   promptMax: number
   durationFor?: (ctx: { resolution: string; mode: FrameMode }) => string[]
   extraOptions: VideoModelOption[]
-  // Creative extras (per kie.ai schema)
+  // Creative extras from the active cloud schema.
   negativePrompt?: boolean
   webSearch?: boolean
   multiShot?: MultiShotRules
@@ -74,7 +74,7 @@ const SEEDANCE_VIDEO: VideoMediaInput = { max: 3, label: 'REFERENCE VIDEOS', add
 const SEEDANCE_AUDIO: VideoMediaInput = { max: 3, label: 'REFERENCE AUDIO', addLabel: 'audio', side: 'bucket' }
 
 export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
-  // docs.kie.ai/market/bytedance/seedance-2 — reference_video_urls / reference_audio_urls
+  // Seedance 2 schema — reference_video_urls / reference_audio_urls
   // live in the multimodal-reference bucket (exclusive with first/last frames).
   'Seedance 2': {
     promptMax: 20_000,
@@ -127,7 +127,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     extraOptions: [GEN_AUDIO_OPTION],
     webSearch: true,
   },
-  // docs.kie.ai/market/kling/kling-3-0 — recurring media is represented by the
+  // Kling 3 schema — recurring media is represented by the
   // dedicated named Element bank, never by generic flat reference buckets.
   'Kling 3': {
     firstFrame: true,
@@ -152,7 +152,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
       briefMax: 260,
     },
   },
-  // docs.kie.ai/market/kling/v3-turbo-image-to-video — single starting frame only.
+  // Kling 3 Turbo image-to-video schema — single starting frame only.
   'Kling 3 Turbo': {
     firstFrame: true,
     lastFrame: false,
@@ -166,7 +166,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     promptMax: 2500,
     extraOptions: [],
   },
-  // docs.kie.ai/market/kling/motion-control-v3 — character reference image + a
+  // Kling Motion Control schema — character reference image + a
   // required driver video whose motion is transferred; no controllable duration.
   'Kling 3 Motion Control': {
     firstFrame: false,
@@ -185,7 +185,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
       { key: 'backgroundSource', label: 'BACKGROUND SOURCE', values: ['Video', 'Image'] },
     ],
   },
-  // docs.kie.ai/market/hailuo/2-3-image-to-video-pro — single first frame; 10s blocked at 1080P.
+  // Hailuo 2.3 Pro image-to-video schema — single first frame; 10s blocked at 1080P.
   'Hailuo 2.3 Pro': {
     promptMax: 5_000,
     firstFrame: true,
@@ -200,7 +200,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     durationFor: ({ resolution }) => (resolution === '1080P' ? ['6'] : ['6', '10']),
     extraOptions: [],
   },
-  // docs.kie.ai/runway-api/generate-ai-video — Kie's wrapper does not expose
+  // The Runway cloud route does not expose
   // the underlying Runway model identity, so the UI intentionally stays generic.
   // imageUrl (first frame) switches to image-to-video; 1080p and 10s are mutually
   // exclusive (1080p ⇒ 5s only).
@@ -218,10 +218,10 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     durationFor: ({ resolution }) => (resolution === '1080p' ? ['5'] : ['5', '10']),
     extraOptions: [],
   },
-  // docs.kie.ai/veo3-api — no video/audio uploads (native audio output only).
+  // Veo 3.1 schema — no video/audio uploads (native audio output only).
   'Veo 3.1 Quality': {
-    // Kie's current Veo wrapper schema publishes no prompt ceiling.
-    promptMax: KIE_UNPUBLISHED_PROMPT_MAX,
+    // The current Veo cloud schema publishes no prompt ceiling.
+    promptMax: PROVIDER_UNPUBLISHED_PROMPT_MAX,
     firstFrame: true,
     lastFrame: true,
     referenceImages: false,
@@ -234,8 +234,8 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     extraOptions: [],
   },
   'Veo 3.1 Fast': {
-    // Kie's current Veo wrapper schema publishes no prompt ceiling.
-    promptMax: KIE_UNPUBLISHED_PROMPT_MAX,
+    // The current Veo cloud schema publishes no prompt ceiling.
+    promptMax: PROVIDER_UNPUBLISHED_PROMPT_MAX,
     firstFrame: true,
     lastFrame: true,
     referenceImages: true,
@@ -249,8 +249,8 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     extraOptions: [],
   },
   'Veo 3.1 Lite': {
-    // Kie's current Veo wrapper schema publishes no prompt ceiling.
-    promptMax: KIE_UNPUBLISHED_PROMPT_MAX,
+    // The current Veo cloud schema publishes no prompt ceiling.
+    promptMax: PROVIDER_UNPUBLISHED_PROMPT_MAX,
     firstFrame: true,
     lastFrame: true,
     referenceImages: true,
@@ -263,7 +263,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     durationFor: ({ mode }) => (mode === 'references' ? ['8'] : ['4', '6', '8']),
     extraOptions: [],
   },
-  // docs.kie.ai/market/gemini-omni-video — reference images + one reference video
+  // Gemini Omni Video schema — reference images + one reference video
   // (audio_ids are generated voices, not uploads); all inputs coexist freely.
   'Gemini Omni Video': {
     promptMax: 20_000,
@@ -284,7 +284,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
       presets: ['Achernar', 'Achird', 'Algenib', 'Alnilam', 'Gacrux', 'Schedar', 'Sulafat', 'Zubenelgenubi'],
     },
   },
-  // docs.kie.ai/market/wan/2-7 — image-to-video (first/last frame + continuation
+  // Wan 2.7 schema — image-to-video (first/last frame + continuation
   // clip + lip-sync voice) and reference-to-video/r2v (up to 5 reference images +
   // reference voice) are separate, mutually-exclusive endpoints.
   'Wan 2.7 Video': {
@@ -304,7 +304,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     extraOptions: [],
     negativePrompt: true,
   },
-  // docs.kie.ai/market/happyhorse-1-1 — image inputs only.
+  // Happy Horse 1.1 schema — image inputs only.
   'Happy Horse 1.1': {
     // The T2V schema declares maxLength 4,999 (I2V describes 5,000).
     promptMax: HAPPY_HORSE_PROMPT_MAX,
@@ -320,7 +320,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     durationFor: ({ mode }) => (mode === 'references' ? range(3, 15) : ['5', '10', '15']),
     extraOptions: [],
   },
-  // docs.kie.ai/market/grok-imagine/image-to-video — image inputs only.
+  // Grok Imagine image-to-video schema — image inputs only.
   'Grok Imagine Video': {
     promptMax: 5_000,
     firstFrame: false,
@@ -334,7 +334,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     durationDefault: '6',
     extraOptions: [{ key: 'mode', label: 'MODE', values: ['Normal', 'Fun', 'Spicy'] }],
   },
-  // docs.kie.ai/market/grok-imagine/1-5-preview — a distinct Preview schema,
+  // Grok Imagine 1.5 Preview is a distinct schema,
   // not an alias for the generic Grok Imagine text/image-to-video endpoints.
   'Grok Imagine 1.5 Preview': {
     promptMax: 4_096,
@@ -349,7 +349,7 @@ export const VIDEO_MODEL_CONFIG: Record<string, VideoModelConfig> = {
     durationDefault: '8',
     extraOptions: [],
   },
-  // docs.kie.ai/market/hailuo/2-3-image-to-video-standard — required first
+  // Hailuo 2.3 Standard image-to-video schema — required first
   // frame; 10-second jobs are unavailable at 1080P.
   'Hailuo 2.3 Standard': {
     promptMax: 5_000,

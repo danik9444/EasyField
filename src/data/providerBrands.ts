@@ -20,7 +20,7 @@ export const PROVIDER_BRAND_IDS = [
   'remotion',
   'easyfield',
   'librosa',
-  'kie',
+  'cloud',
 ] as const
 
 export type ProviderBrandId = typeof PROVIDER_BRAND_IDS[number]
@@ -52,7 +52,7 @@ export const PROVIDER_BRANDS: Record<ProviderBrandId, ProviderBrandDefinition> =
   remotion: { label: 'Remotion', color: '#8B8CFF' },
   easyfield: { label: 'EasyField Local', color: '#E66FE1' },
   librosa: { label: 'librosa', color: '#62D6B5' },
-  kie: { label: 'Kie.ai', color: '#B8B6C8' },
+  cloud: { label: 'EasyField Cloud', color: '#B8B6C8' },
 }
 
 const MODEL_BRAND_BY_NAME: Record<string, ProviderBrandId> = {
@@ -128,8 +128,8 @@ const MODEL_BRAND_BY_NAME: Record<string, ProviderBrandId> = {
   'Local Whisper': 'openai',
   'Resolve Fusion Titles': 'davinci',
   'OmniHuman 1.5': 'bytedance',
-  InfiniteTalk: 'kie',
-  'InfiniteTalk From Audio': 'kie',
+  InfiniteTalk: 'cloud',
+  'InfiniteTalk From Audio': 'cloud',
   'Wan 2.2 Speech-to-Video Turbo': 'alibaba',
   'Volcengine Lip Sync': 'volcengine',
   'Volcengine Video Lip Sync': 'volcengine',
@@ -140,7 +140,7 @@ const MODEL_BRAND_BY_NAME: Record<string, ProviderBrandId> = {
 const PROVIDER_FALLBACKS: Record<string, ProviderBrandId> = {
   local: 'easyfield',
   resolve: 'davinci',
-  kie: 'kie',
+  cloud: 'cloud',
 }
 
 export function resolveProviderBrand(
@@ -181,6 +181,6 @@ export function withProviderBrands<T extends Record<string, object>>(metadata: T
 } {
   return Object.fromEntries(Object.entries(metadata).map(([modelName, meta]) => [
     modelName,
-    { ...meta, providerBrand: resolveProviderBrand(modelName, JSON.stringify(meta)) ?? 'kie' },
+    { ...meta, providerBrand: resolveProviderBrand(modelName, JSON.stringify(meta)) ?? 'cloud' },
   ])) as { [K in keyof T]: T[K] & { providerBrand: ProviderBrandId } }
 }

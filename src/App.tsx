@@ -20,11 +20,12 @@ import {
   sanitizeSettings,
   saveSettings,
   SECURE_API_KEY_TOKEN,
+  CLOUD_API_CREDENTIAL,
   setCurrentApiKey,
   type Settings,
 } from './settings'
 import { loadCredits, saveCredits } from './data/usage'
-import { fetchCredits, fetchModelPrices } from './services/kie'
+import { fetchCredits, fetchModelPrices } from './services/providerGateway'
 import { applyLivePrices } from './data/pricing'
 import { JobCenter } from './components/JobCenter'
 import { UpdateDialog } from './components/UpdateDialog'
@@ -186,7 +187,7 @@ export default function App() {
     setUpdateDialogOpen(false)
   }, [updateInstalled, updateInstalling, updateStatus])
 
-  // Keep the exact public kie.ai/pricing table fresh. The feed needs no key;
+  // Keep the public EasyField Cloud pricing table fresh. The feed needs no key;
   // a revision bump makes open workspaces immediately recompute their estimate.
   useEffect(() => {
     let active = true
@@ -253,7 +254,7 @@ export default function App() {
     navigate('workflow')
   }, [navigate])
 
-  // Read the live credit balance from kie.ai for the given key.
+  // Read the live EasyField Cloud credit balance for the given key.
   const refreshCredits = useCallback(async (key: string) => {
     if (!key.trim()) {
       setApiCredits(null)
@@ -282,9 +283,9 @@ export default function App() {
     bootRef.current = true
     void (async () => {
       const legacyKey = settings.apiKey.trim()
-      const securedKey = await host.getCredential('kie-api-key')
+      const securedKey = await host.getCredential(CLOUD_API_CREDENTIAL)
       const key = securedKey || legacyKey
-      if (legacyKey && !securedKey) await host.setCredential('kie-api-key', legacyKey)
+      if (legacyKey && !securedKey) await host.setCredential(CLOUD_API_CREDENTIAL, legacyKey)
       const runtimeKey = host.isPlugin() && key ? SECURE_API_KEY_TOKEN : key
       setCurrentApiKey(runtimeKey)
       setSettings((current) => ({ ...current, apiKey: runtimeKey }))
@@ -299,7 +300,7 @@ export default function App() {
       if (!candidate) {
         setApiCredits(null)
         setApiStatus('error')
-        setApiError('Enter a Kie.ai API key to connect.')
+        setApiError('Enter an EasyField Cloud API key to connect.')
         return
       }
 
@@ -315,7 +316,9 @@ export default function App() {
       }
 
       try {
-        if (candidate !== SECURE_API_KEY_TOKEN) await host.setCredential('kie-api-key', candidate)
+        if (candidate !== SECURE_API_KEY_TOKEN) {
+          await host.setCredential(CLOUD_API_CREDENTIAL, candidate)
+        }
       } catch {
         setApiStatus('error')
         setApiError('The API key is valid, but macOS secure storage is unavailable.')
@@ -337,7 +340,7 @@ export default function App() {
     if (key) await refreshCredits(key)
   }, [refreshCredits])
 
-  // When connected, the true balance lives on kie.ai — re-read it after a job.
+  // When connected, the true balance lives in EasyField Cloud — re-read it after a job.
   // Otherwise decrement the local mock balance by the actual creditsConsumed.
   const spendCredits = useCallback(
     (amount: number) => {

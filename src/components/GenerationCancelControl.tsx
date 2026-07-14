@@ -150,7 +150,7 @@ function exitCurrentJobs(jobIds: readonly string[], controller: AbortController 
 
 /**
  * Foreground control for a fan-out batch whose children remain separate durable
- * jobs. Accepted Kie tasks continue safely; children that have not submitted
+ * jobs. Accepted cloud tasks continue safely; children that have not submitted
  * are cancelled together with the local upload/preflight work.
  */
 export function useGenerationBatchJobControl(): GenerationBatchJobControl {

@@ -11,10 +11,10 @@ import {
   videoEditRunEstimate,
   videoRunEstimate,
 } from '../src/data/pricing.ts'
-import type { KieLivePriceRow } from '../src/services/kie.ts'
+import type { ProviderLivePriceRow } from '../src/services/providerGateway.ts'
 
-function row(modelDescription: string, credits: number, unit = 'per image'): KieLivePriceRow {
-  return { modelDescription, credits, unit, usd: credits * 0.005, interfaceType: '', provider: 'Kie', anchor: '' }
+function row(modelDescription: string, credits: number, unit = 'per image'): ProviderLivePriceRow {
+  return { modelDescription, credits, unit, usd: credits * 0.005, interfaceType: '', provider: 'Cloud', anchor: '' }
 }
 
 afterEach(() => applyLivePrices([]))
@@ -98,7 +98,7 @@ test('Suno Sounds uses the exact live per-request row without duration multiplic
   assert.equal(estimate.source, 'live')
 })
 
-test('Avatar pricing uses live Kie rows and the actual voice or frame duration', () => {
+test('Avatar pricing uses live cloud rows and the actual voice or frame duration', () => {
   applyLivePrices([
     row('Kling AI Avtar Pro', 16, 'per second'),
     row('InfiniteTalk, From Audio, 720p', 12, 'per second'),

@@ -370,7 +370,7 @@ function secureProxyRequest(baseUrl, { token, origin }) {
   const headers = { Authorization: 'Bearer __easyfield_secure__' }
   if (token !== undefined) headers['X-EF-Bridge-Token'] = token
   if (origin !== undefined) headers.Origin = origin
-  return fetch(`${baseUrl}/kie/api/v1/chat/credit`, { headers })
+  return fetch(`${baseUrl}/provider/api/v1/chat/credit`, { headers })
 }
 
 async function assertJsonError(response, status, code) {
@@ -622,7 +622,7 @@ test('the real /bridge HTTP boundary enforces its security policy', async (t) =>
     await assertJsonError(authorized, 400, 'UNSAFE_URL')
   })
 
-  await t.test('does not let another loopback process spend through the stored Kie credential', async () => {
+  await t.test('does not let another loopback process spend through the stored cloud credential', async () => {
     const missing = await secureProxyRequest(server.baseUrl, { origin: legitimateOrigin })
     assert.equal(missing.status, 401)
     const missingPayload = await missing.json()
@@ -1002,7 +1002,7 @@ test('a hung native Resolve initialization cannot hang /bridge/status', async (t
   assert(elapsed < 3_500, `status request remained hung for ${elapsed}ms`)
 })
 
-test('EF_DEV loopback origin does not bypass secure Kie proxy authentication', async (t) => {
+test('EF_DEV loopback origin does not bypass secure cloud proxy authentication', async (t) => {
   const server = await startBridgeServer({ EF_DEV: '1' })
   t.after(server.stop)
   const viteOrigin = 'http://localhost:5173'

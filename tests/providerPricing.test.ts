@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { fetchModelPrices } from '../src/services/kie.ts'
+import { fetchModelPrices } from '../src/services/providerGateway.ts'
 
 const originalFetch = globalThis.fetch
 
@@ -22,7 +22,7 @@ test('live pricing fetch follows every public pricing page without authenticatio
         records: [{
           modelDescription: description,
           interfaceType: 'image',
-          provider: 'Kie',
+          provider: 'Cloud',
           creditPrice: body.pageNum === 1 ? '5.5' : '20',
           creditUnit: body.pageNum === 1 ? 'per image' : 'per second',
           usdPrice: body.pageNum === 1 ? '0.0275' : '',

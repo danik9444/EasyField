@@ -1,13 +1,13 @@
 export interface ChatModelDef {
   family: 'anthropic' | 'openai' | 'responses'
   model: string
-  /** Base route before `/v1/...` on Kie's provider-compatible API. */
+  /** Base route before `/v1/...` on the provider-compatible API. */
   path?: string
-  /** Kie's documented Responses reasoning enum. */
+  /** The documented Responses reasoning enum. */
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
 }
 
-// Display name (models.ts) → Kie's exact provider-compatible route + model ID.
+// Display name (models.ts) → exact provider-compatible route + model ID.
 export const CHAT_MODELS: Record<string, ChatModelDef> = {
   'Fable 5': { family: 'anthropic', model: 'claude-fable-5' },
   'Opus 4.8': { family: 'anthropic', model: 'claude-opus-4-8' },

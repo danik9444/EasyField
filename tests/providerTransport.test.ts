@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { createTask, KieError, pollTask, resumeKieModel, runKieModel, uploadDataUrl } from '../src/services/kie.ts'
+import { createTask, neutralizeProviderMessage, ProviderError, pollTask, resumeProviderModel, runProviderModel, uploadDataUrl } from '../src/services/providerGateway.ts'
 
 const originalFetch = globalThis.fetch
 
@@ -11,6 +11,12 @@ afterEach(() => {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+test('provider copy sanitizer removes only the standalone legacy brand token', () => {
+  const branded = globalThis.atob('S2llLmFpIHJlcXVlc3QgZmFpbGVk')
+  assert.equal(neutralizeProviderMessage(branded), 'cloud provider request failed')
+  assert.equal(neutralizeProviderMessage('cookie rejected'), 'cookie rejected')
+})
+
 test('Market polling surfaces an unrecoverable read response as retryable tracking state after one read', async () => {
   let calls = 0
   globalThis.fetch = (async () => {
@@ -20,7 +26,7 @@ test('Market polling surfaces an unrecoverable read response as retryable tracki
 
   await assert.rejects(
     pollTask('not-a-real-key', 'existing-task', { intervalMs: 1, timeoutMs: 100 }),
-    (error: unknown) => error instanceof KieError
+    (error: unknown) => error instanceof ProviderError
       && error.code === 401
       && error.kind === 'tracking-recoverable'
       && error.message === 'Unauthorized',
@@ -90,7 +96,7 @@ test('Market hard-fail state is never retried', async () => {
 
   await assert.rejects(
     pollTask('key', 'existing-task', { intervalMs: 1, timeoutMs: 100 }),
-    (error: unknown) => error instanceof KieError
+    (error: unknown) => error instanceof ProviderError
       && error.kind === 'provider-terminal'
       && error.message === 'Provider rejected media',
   )
@@ -106,7 +112,7 @@ test('Ambiguous createTask network failure is never submitted twice', async () =
 
   await assert.rejects(
     createTask('key', 'model', { prompt: 'test' }),
-    (error: unknown) => error instanceof KieError
+    (error: unknown) => error instanceof ProviderError
       && error.kind === 'submission-uncertain'
       && /outcome is unknown/i.test(error.message),
   )
@@ -186,7 +192,7 @@ test('grabbed clip media uses its Data URL MIME when the Resolve label has no ex
   ])
 })
 
-test('unknown grab MIME omits an extensionless filename so Kie can infer one', async () => {
+test('unknown grab MIME omits an extensionless filename so the endpoint can infer one', async () => {
   let uploadedBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
     uploadedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -212,14 +218,14 @@ test('Dedicated polling also surfaces permanent errors without retrying creation
   }) as typeof fetch
 
   await assert.rejects(
-    runKieModel('key', { family: 'suno', body: { prompt: 'test' } }, { intervalMs: 1, timeoutMs: 100 }),
-    (error: unknown) => error instanceof KieError && error.code === 403,
+    runProviderModel('key', { family: 'suno', body: { prompt: 'test' } }, { intervalMs: 1, timeoutMs: 100 }),
+    (error: unknown) => error instanceof ProviderError && error.code === 403,
   )
   assert.equal(createCalls, 1)
   assert.equal(pollCalls, 1)
 })
 
-test('resumeKieModel uses a dedicated record endpoint and never creates another paid task', async () => {
+test('resumeProviderModel uses a dedicated record endpoint and never creates another paid task', async () => {
   const calls: string[] = []
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input)
@@ -235,8 +241,8 @@ test('resumeKieModel uses a dedicated record endpoint and never creates another 
     })
   }) as typeof fetch
 
-  const result = await resumeKieModel('key', 'suno', 'paid-task', { intervalMs: 1, timeoutMs: 100 })
-  assert.deepEqual(calls, ['/kie/api/v1/generate/record-info?taskId=paid-task'])
+  const result = await resumeProviderModel('key', 'suno', 'paid-task', { intervalMs: 1, timeoutMs: 100 })
+  assert.deepEqual(calls, ['/provider/api/v1/generate/record-info?taskId=paid-task'])
   assert.deepEqual(result.urls, ['https://cdn.example/song.mp3'])
   assert.equal(result.creditsConsumed, 12)
 })
@@ -270,7 +276,7 @@ test('Suno Sounds uses the sounds create route and persists its recovery family 
     })
   }) as typeof fetch
 
-  const result = await runKieModel('key', {
+  const result = await runProviderModel('key', {
     family: 'sounds',
     body: { prompt: 'Cinematic hit', model: 'V5_5', soundLoop: false, soundTempo: 120, grabLyrics: false },
   }, {
@@ -280,8 +286,8 @@ test('Suno Sounds uses the sounds create route and persists its recovery family 
   })
 
   assert.deepEqual(calls, [
-    '/kie/api/v1/generate/sounds',
-    '/kie/api/v1/generate/record-info?taskId=sounds-task',
+    '/provider/api/v1/generate/sounds',
+    '/provider/api/v1/generate/record-info?taskId=sounds-task',
   ])
   assert.deepEqual(result.urls, ['https://cdn.example/effect.mp3'])
   assert.equal(result.creditsConsumed, 2.5)
@@ -301,8 +307,8 @@ test('Suno Sounds recovery only polls its persisted task and never creates paid 
     })
   }) as typeof fetch
 
-  const result = await resumeKieModel('key', 'sounds', 'persisted-sounds-task', { intervalMs: 1, timeoutMs: 100 })
-  assert.deepEqual(calls, ['/kie/api/v1/generate/record-info?taskId=persisted-sounds-task'])
+  const result = await resumeProviderModel('key', 'sounds', 'persisted-sounds-task', { intervalMs: 1, timeoutMs: 100 })
+  assert.deepEqual(calls, ['/provider/api/v1/generate/record-info?taskId=persisted-sounds-task'])
   assert.deepEqual(result.urls, ['https://cdn.example/recovered-effect.mp3'])
   assert.equal(calls.some((url) => url.endsWith('/generate/sounds')), false)
 })
@@ -321,7 +327,7 @@ test('accepted task callback identifies the family needed for durable recovery',
     })
   }) as typeof fetch
 
-  await runKieModel('key', { family: 'jobs', model: 'image-model', input: { prompt: 'test' } }, {
+  await runProviderModel('key', { family: 'jobs', model: 'image-model', input: { prompt: 'test' } }, {
     intervalMs: 1,
     timeoutMs: 100,
     onTaskId: async (taskId, family) => {

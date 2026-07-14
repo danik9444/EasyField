@@ -43,15 +43,15 @@ test('every direct model catalog entry has branded presentation metadata', () =>
   for (const model of AGENT_MODELS) assert.ok(AGENT_MODEL_META[model]?.providerBrand, `Agent model ${model} is unbranded`)
 })
 
-test('generic workspaces resolve the real publisher before falling back to Kie', () => {
+test('generic workspaces resolve the real publisher before falling back to Cloud', () => {
   for (const model of VALIDATED_MODELS) {
     const brand = resolveProviderBrand(model.name, model.id, model.provider)
     assert.ok(brand, `${model.name} has no brand or explicit provider fallback`)
   }
 
-  assert.equal(resolveProviderBrand('Seedream 6 Ultra', 'future-seedream', 'kie'), 'bytedance')
-  assert.equal(resolveProviderBrand('Wan 3', 'future-wan', 'kie'), 'alibaba')
-  assert.equal(resolveProviderBrand('Unknown adapter', 'unknown', 'kie'), 'kie')
+  assert.equal(resolveProviderBrand('Seedream 6 Ultra', 'future-seedream', 'cloud'), 'bytedance')
+  assert.equal(resolveProviderBrand('Wan 3', 'future-wan', 'cloud'), 'alibaba')
+  assert.equal(resolveProviderBrand('Unknown adapter', 'unknown', 'cloud'), 'cloud')
   assert.equal(resolveProviderBrand('v5.5', 'SUNO'), 'suno')
   assert.equal(resolveProviderBrand('Turbo v2.5', 'ELEVENLABS'), 'elevenlabs')
 })

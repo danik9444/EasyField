@@ -13,7 +13,7 @@ import {
   buildAvatarRequest,
   buildAvatarSubjectDetectionRequest,
   type AvatarCtx,
-} from '../src/data/kieModels.ts'
+} from '../src/data/providerModels.ts'
 
 const MB = 1024 * 1024
 
@@ -22,7 +22,7 @@ function jobPayload(request: ReturnType<typeof buildAvatarRequest>): {
   input: Record<string, unknown>
 } {
   assert.equal(request.family, 'jobs')
-  if (request.family !== 'jobs') throw new Error('Expected a Kie Market job')
+  if (request.family !== 'jobs') throw new Error('Expected a cloud generation job')
   return { model: request.model, input: request.input }
 }
 
@@ -60,7 +60,7 @@ function validPortraitDraft(overrides: Partial<AvatarDraft> = {}): AvatarDraft {
   }
 }
 
-test('Avatar exposes exactly the six dedicated Kie contracts in workflow-safe order', () => {
+test('Avatar exposes exactly the six dedicated cloud contracts in workflow-safe order', () => {
   assert.deepEqual(AVATAR_MODELS, [
     'Kling Avatar Pro',
     'Kling Avatar Standard',
@@ -454,7 +454,7 @@ test('Avatar request adapters independently fail closed on missing or ambiguous 
   }))).input.mask_url, ['https://cdn.example/person-a.png'])
 })
 
-test('OmniHuman subject detection uses its dedicated exact Kie Market request', () => {
+test('OmniHuman subject detection uses its dedicated exact cloud request', () => {
   assert.deepEqual(jobPayload(buildAvatarSubjectDetectionRequest('https://cdn.example/group.png')), {
     model: 'omnihuman-1-5/subject-detection',
     input: { image_url: 'https://cdn.example/group.png' },

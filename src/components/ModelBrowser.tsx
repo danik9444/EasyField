@@ -26,7 +26,7 @@ function providerGroup(model: ModelDefinition): string {
   if (key.includes('grok')) return 'Grok Imagine'
   if (key.includes('wan')) return 'Wan'
   if (key.includes('suno')) return 'Suno Sounds'
-  return 'Kie Cloud'
+  return 'EasyField Cloud'
 }
 
 function priceLabel(model: ModelDefinition): string {
@@ -45,7 +45,7 @@ export function ModelBrowser({ models, value, onChange, label = 'Model', stepNum
       const summary = model.recommendationReason ?? model.recommendedFor.slice(0, 3).join(' · ')
       return [model.name, {
         group: providerGroup(model),
-        eyebrow: model.provider === 'kie' ? 'KIE CLOUD' : model.provider.toUpperCase(),
+        eyebrow: model.provider === 'cloud' ? 'EASYFIELD CLOUD' : model.provider.toUpperCase(),
         badge: model.available ? recommendation : 'PLANNED',
         description: [summary, priceLabel(model)].filter(Boolean).join(' · '),
         searchTerms: [
@@ -57,7 +57,7 @@ export function ModelBrowser({ models, value, onChange, label = 'Model', stepNum
         ],
         disabled: !model.available,
         disabledReason: model.unavailableReason,
-        providerBrand: resolveProviderBrand(model.name, model.id, model.provider) ?? 'kie',
+        providerBrand: resolveProviderBrand(model.name, model.id, model.provider) ?? 'cloud',
       } satisfies DropdownOptionMeta]
     }),
   ), [models])

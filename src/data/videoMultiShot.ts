@@ -196,7 +196,7 @@ export function buildMultiShotEnhancementContext(
 const uniqueTags = (tags: readonly string[]): string[] =>
   Array.from(new Set(tags.map((tag) => cleanText(tag)).filter((tag) => /^@[a-zA-Z0-9_]+$/.test(tag))))
 
-/** Kie documents each Kling element mention as consuming 37 prompt characters. */
+/** The Kling schema documents each Element mention as consuming 37 prompt characters. */
 export function weightedMultiShotPromptLength(prompt: string): number {
   const tags = prompt.match(/@[a-zA-Z0-9_]+/g) ?? []
   const visible = prompt.replace(/@[a-zA-Z0-9_]+/g, '').length

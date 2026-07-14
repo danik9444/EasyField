@@ -1,4 +1,4 @@
-// Concurrency and start-rate limiters for kie.ai's request budget
+// Concurrency and start-rate limiters for the cloud-generation request budget
 // (20 new generation requests / 10s). Everything funnels through these:
 //  - jobLimit    caps concurrent generation jobs (fan-out of N images/clips)
 //  - generationStartLimit spaces provider task creation across the rolling window

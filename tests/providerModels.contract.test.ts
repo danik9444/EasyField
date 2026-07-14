@@ -13,7 +13,7 @@ import {
   buildVideoEditRequest,
   buildVideoRequest,
   type VideoCtx,
-} from '../src/data/kieModels.ts'
+} from '../src/data/providerModels.ts'
 import { IMAGE_MODELS, VIDEO_MODELS } from '../src/data/models.ts'
 import { CUSTOM_VIDEO_MODELS, VIDEO_EDIT_CONFIG } from '../src/data/videoEditConfig.ts'
 import { EXTEND_VIDEO_MODELS } from '../src/data/extendVideoConfig.ts'
@@ -324,7 +324,7 @@ test('Kling 3 multi-shot includes only the selected shared element tags in each 
   assert.match(prompts[1].prompt, new RegExp(`${heroTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ${vehicleTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
 })
 
-test('Kling 3 rejects audio without the image/video element required by Kie', () => {
+test('Kling 3 rejects audio without the image/video element required by the endpoint', () => {
   assert.throws(
     () => buildVideoRequest('Kling 3', videoCtx({ audioUrls: ['https://cdn/ref.wav'] })),
     /must be defined as named Elements/,
@@ -884,7 +884,7 @@ test('minimal live-smoke image and TTS builders match their Market routes', () =
   assert.equal(tts.input.language_code, 'he')
 })
 
-test('ElevenLabs narration builders follow per-model Kie controls and limits', () => {
+test('ElevenLabs narration builders follow per-model endpoint controls and limits', () => {
   assert.deepEqual(TTS_SLIDERS.map((slider) => slider.step), [0.01, 0.01, 0.01, 0.01])
   assert.equal(TURBO_LANGUAGES.every((language) => !language.code || /^[a-z]{2}$/.test(language.code)), true)
   const base = {

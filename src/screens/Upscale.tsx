@@ -583,7 +583,7 @@ export function Upscale({ onBack, toast, onSpend }: UpscaleProps) {
       : !items.length
         ? 'Add any number of images or videos. Each source becomes one verified Topaz task.'
         : !connected
-          ? 'Connect Kie.ai to run Topaz upscale.'
+          ? 'Connect EasyField Cloud to run Topaz upscale.'
           : readyItems.length
             ? `${readyItems.length} ready · ${imageCount} image${imageCount === 1 ? '' : 's'} · ${videoCount} video${videoCount === 1 ? '' : 's'}`
             : failedCount
@@ -724,7 +724,7 @@ export function Upscale({ onBack, toast, onSpend }: UpscaleProps) {
 
         <section className={'ef-upscale-settings' + (items.length ? ' is-ready' : '')} aria-labelledby="ef-upscale-settings-title">
           <header><div><small>02 · BATCH REVIEW</small><strong id="ef-upscale-settings-title">{items.length ? `${readyItems.length} ready · ${completedCount} saved` : 'Waiting for sources'}</strong></div><ProviderLogo brand="topaz" size={22} /></header>
-          <p>Kie accepts one source per Topaz task. EasyField keeps every item separate, selects the correct endpoint automatically and preserves partial results if another item fails.</p>
+          <p>The cloud service accepts one source per Topaz task. EasyField keeps every item separate, selects the correct endpoint automatically and preserves partial results if another item fails.</p>
           <div className="ef-upscale-safety-note"><span aria-hidden="true">◎</span><p><strong>Non-destructive.</strong> Originals stay untouched. Every completed output is immediately saved as a new Library item.</p></div>
         </section>
 

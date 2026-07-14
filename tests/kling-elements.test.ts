@@ -124,7 +124,7 @@ test('image elements accept 2–4 JPG/PNG files and the inclusive 10 MB boundary
   assert(codes(wrongType).includes('image-type'))
 })
 
-test('image element dimensions and aspect ratio use inclusive Kie boundaries', () => {
+test('image element dimensions and aspect ratio use inclusive endpoint boundaries', () => {
   for (const [width, height] of [
     [300, 300],
     [300, 750],

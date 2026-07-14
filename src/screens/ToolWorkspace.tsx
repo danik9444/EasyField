@@ -109,7 +109,7 @@ function compatibleModelsForRecipe(toolId: ToolId, recipeId: string, models: Mod
     return models.filter((model) => requiredKinds.every((kind) => model.inputKinds.includes(kind)))
   }
   if (toolId === 'transcribe' && recipeId === 'local') return models.filter((model) => model.provider === 'local')
-  if (toolId === 'transcribe' && recipeId === 'kie') return models.filter((model) => model.provider === 'kie')
+  if (toolId === 'transcribe' && recipeId === 'cloud') return models.filter((model) => model.provider === 'cloud')
   if (toolId === 'extend') {
     // Keep task-ID-only providers visible but disabled until the source comes
     // from a durable Library artifact carrying its original provider task ID.
@@ -130,8 +130,8 @@ function recipeUnavailableReason(toolId: ToolId, recipeId: string): string | und
   if (toolId === 'extend' && recipeId === 'backward') {
     return 'No validated backward-extension adapter yet'
   }
-  if (toolId === 'transcribe' && recipeId === 'kie') {
-    return 'No verified Kie transcription adapter yet'
+  if (toolId === 'transcribe' && recipeId === 'cloud') {
+    return 'No verified cloud transcription adapter yet'
   }
   return undefined
 }
@@ -217,7 +217,7 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
   const selectedRecipe = tool.recipes.find((recipe) => recipe.id === draft.recipeId) ?? tool.recipes[0]
   const compatibleModels = useMemo(() => compatibleModelsForRecipe(toolId, draft.recipeId, models), [draft.recipeId, models, toolId])
   const selectedModel = compatibleModels.find((model) => model.id === draft.modelId) ?? compatibleModels[0]
-  const cloud = selectedModel?.provider === 'kie' || tool.privacy === 'cloud'
+  const cloud = selectedModel?.provider === 'cloud' || tool.privacy === 'cloud'
   const notesOnly = ['culling', 'transcribe', 'beat'].includes(toolId)
   const promptMediaKind = tool.category === 'image' ? 'image' : tool.category === 'video' ? 'video' : tool.category === 'audio' ? 'audio' : 'workflow'
   const acceptedKinds = useMemo(() => sourceKindsForRecipe(toolId, draft.recipeId, tool.sourceKinds), [draft.recipeId, tool.sourceKinds, toolId])
@@ -585,7 +585,7 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
               />
             ) : (
               <div className="ef-anim-hint" role="note">
-                Volcengine Lip Sync uses the selected video and audio directly; Kie does not expose a generation-prompt field for this model.
+                Volcengine Lip Sync uses the selected video and audio directly; this model does not expose a generation-prompt field.
               </div>
             )}
           </section>
