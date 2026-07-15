@@ -7568,7 +7568,6 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
 @media (max-width:760px) {
   .ef-panel--expanded .ef-angles-screen .ef-angles-workbench { grid-template-columns: 1fr; }
   .ef-panel--expanded .ef-angles-screen .ef-angles-source-column { position: static; }
-  .ef-panel--expanded .ef-angles-screen .ef-angles-source-card .ef-edit-canvas { min-height: 0; }
 }
 
 /* Create Video · model-gated multi-shot direction -----------------------

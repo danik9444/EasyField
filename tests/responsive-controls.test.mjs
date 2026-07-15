@@ -45,4 +45,8 @@ test('Angles uses the same bounded primary-image stage as Edit Image', () => {
     redesignedStyles,
     /\.ef-panel--expanded \.ef-angles-screen \.ef-angles-source-card \.ef-edit-canvas\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*inherit;[^}]*max-height:\s*inherit;/s,
   )
+  assert.doesNotMatch(
+    redesignedStyles,
+    /\.ef-panel--expanded \.ef-angles-screen \.ef-angles-source-card \.ef-edit-canvas\s*\{[^}]*min-height:\s*0;/s,
+  )
 })
