@@ -99,7 +99,7 @@ export const IMAGE_MODEL_CONFIG: Record<string, ImageModelConfig> = {
     maxReferenceImages: 8,
     aspectRatios: ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3'],
     resolutions: ['1K', '2K'],
-    extraOptions: [{ key: 'variant', label: 'VARIANT', values: ['Flex', 'Pro'] }],
+    extraOptions: [{ key: 'variant', label: 'VARIANT', values: ['Pro', 'Flex'] }],
   },
 }
 

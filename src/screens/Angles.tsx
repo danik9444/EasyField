@@ -12,7 +12,8 @@ import {
   DEFAULT_ANGLES_MODEL,
   MAX_RANDOM_ANGLES,
   MIN_RANDOM_ANGLES,
-  compileAnglePrompt,
+  angleAspectRatios,
+  angleDirectionPromptMax,
   createCustomAngleEntry,
   createRandomAngleEntries,
   normalizeAnglesDraft,
@@ -216,9 +217,9 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
   }
 
   const config = IMAGE_MODEL_CONFIG[model]
+  const supportedAspectRatios = angleAspectRatios(model)
   const providerPromptMax = config.promptMax
-  const angleScaffoldLength = promptCharacterCount(compileAnglePrompt(''))
-  const customPromptMax = Math.max(1, providerPromptMax - angleScaffoldLength)
+  const customPromptMax = angleDirectionPromptMax(model)
   const sourceReady = source?.kind === 'upload' && !!source.url
   const customEntry = createCustomAngleEntry(customPrompt)
   const outputCount = mode === 'random' ? randomCount : 1
@@ -341,8 +342,8 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
             : spendBlocked
               ? spendApproval.reason
               : mode === 'random'
-                ? `${randomCount} distinct camera positions · source identity preserved`
-                : 'One precise custom viewpoint · source identity preserved'
+                ? `${randomCount} distinct camera positions · identity preservation requested`
+                : 'One precise custom viewpoint · identity preservation requested'
 
   const registerUnusedClear = useCallback((_clear: () => void) => {}, [])
 
@@ -441,16 +442,16 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
                   contextKey={promptContextKey}
                   onSpend={onSpend}
                 />
-                <p className="ef-angle-preservation-note"><Icon glyph="spark" size={11} /> Prompt enhancement sees the source image. Generation still locks identity, scene and styling.</p>
+                <p className="ef-angle-preservation-note"><Icon glyph="spark" size={11} /> Prompt enhancement sees the source image. Generation asks the selected model to preserve identity, scene and styling.</p>
               </section>
             )}
 
             <section className="ef-angle-output-card" aria-labelledby="ef-angle-output-title">
               <div className="ef-angle-card-heading"><span><small>OUTPUT</small><strong id="ef-angle-output-title">Image settings</strong></span></div>
-              {config.aspectRatios.length > 0 && (
+              {supportedAspectRatios.length > 0 && (
                 <div className="ef-field">
                   <span className="ef-field-label">ASPECT</span>
-                  <Dropdown options={config.aspectRatios} selected={aspect} onSelect={setAspect} label="Aspect ratio" align="left" variant="field" />
+                  <Dropdown options={[...supportedAspectRatios]} selected={aspect} onSelect={setAspect} label="Aspect ratio" align="left" variant="field" />
                 </div>
               )}
               {config.resolutions.length > 0 && <ChipField label="RESOLUTION" options={config.resolutions} selected={resolution} onSelect={setResolution} />}
