@@ -590,7 +590,7 @@ export function CharacterBuilderPanel({
           supportingContext={selectionContext ? {
             label: 'Locked character selections',
             text: selectionContext,
-            instruction: 'Preserve these structured character choices exactly. Improve only the user’s additional direction. Do not infer or fill any trait, placement or design choice that was not selected or written.',
+            instruction: 'Preserve these structured character choices exactly. When custom direction exists, improve only that direction. In reference-led Auto, describe only selected or visibly evidenced traits. Do not infer or fill any trait, placement or design choice that was not selected, written or visible.',
           } : undefined}
           contextKey={enhanceContextKey}
           onSpend={onSpend}

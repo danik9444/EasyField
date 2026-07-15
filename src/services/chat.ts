@@ -21,6 +21,7 @@ import {
 import { promptCharacterCount, truncatePrompt } from '../data/promptLimits.ts'
 import {
   resolvePromptEnhancementProfile,
+  type PromptEnhancementInputMode,
   type PromptEnhancementMediaKind,
   type PromptEnhancementPurpose,
 } from '../data/promptEnhancementProfiles.ts'
@@ -57,6 +58,20 @@ export interface EnhanceSupportingContext {
   text: string
   /** Trusted product instruction describing how this read-only context should influence the primary text. */
   instruction?: string
+}
+
+export type EnhanceInputMode = PromptEnhancementInputMode
+
+export function canEnhancePrompt(
+  rough: string,
+  references: readonly EnhanceReference[] = [],
+  minimumTextLength = 1,
+): boolean {
+  return rough.trim().length >= Math.max(1, minimumTextLength) || references.length > 0
+}
+
+export function resolveEnhancementInputMode(rough: string): EnhanceInputMode {
+  return rough.trim() ? 'rewrite' : 'reference-draft'
 }
 
 // The largest verified image-model quota in the UI is 16 (GPT Image 2).
@@ -243,8 +258,10 @@ export function buildEnhanceUserMessage(
   attachedImageCount = 0,
 ): string {
   const styleNote = input.style && input.style.toLowerCase() !== 'none' ? ` in a ${input.style} style` : ''
-  let user = `AUTHORITATIVE PRIMARY TEXT TO IMPROVE for a ${input.mediaKind}${styleNote} (for the ${input.targetModel} model):\n"${input.rough.trim()}"`
-  user += '\n\nTreat the primary text as the complete creative request: clarify it without adding unrequested facts or scope.'
+  const inputMode = resolveEnhancementInputMode(input.rough)
+  let user = inputMode === 'rewrite'
+    ? `AUTHORITATIVE PRIMARY TEXT TO IMPROVE for a ${input.mediaKind}${styleNote} (for the ${input.targetModel} model):\n"${input.rough.trim()}"\n\nTreat the primary text as the complete creative request: clarify it without adding unrequested facts or scope.`
+    : `REFERENCE-LED AUTO DRAFT for a ${input.mediaKind}${styleNote} (for the ${input.targetModel} model):\nNo written direction was supplied. Create the shortest task-valid prompt from the selected tool purpose and attached reference roles/evidence only. Leave every unavailable or ambiguous source detail unspecified.`
   if (input.supportingContext?.text.trim()) {
     user += `\n\nREAD-ONLY ${input.supportingContext.label.toUpperCase()}:\n${input.supportingContext.text.trim()}`
   }
@@ -265,6 +282,7 @@ export function buildEnhanceSystemMessage(
   hasReferences?: boolean,
   supportingContext?: EnhanceSupportingContext,
   purpose?: EnhancePurpose,
+  inputMode: EnhanceInputMode = 'rewrite',
 ): string {
   const video = mediaKind === 'video'
   const image = mediaKind === 'image'
@@ -273,7 +291,7 @@ export function buildEnhanceSystemMessage(
   const styled = style && style.toLowerCase() !== 'none'
   const taskLabel = workflow ? 'editing or analysis workflow' : `${mediaKind}-generation task`
   const role = audio ? 'audio prompt editor' : workflow ? 'post-production instruction editor' : `${video ? 'video' : image ? 'image' : 'creative'} prompt editor`
-  const profile = resolvePromptEnhancementProfile(targetModel, mediaKind, purpose)
+  const profile = resolvePromptEnhancementProfile(targetModel, mediaKind, purpose, inputMode)
   const modelGuidance = video
     ? 'as a video model — organize only motion and temporal beats the user actually supplied'
     : image
@@ -282,11 +300,15 @@ export function buildEnhanceSystemMessage(
         ? 'as an audio model — express only supplied audible and timing facts in producible language'
         : 'for this editing workflow — keep every supplied instruction reviewable, scoped and non-destructive'
   return [
-    `You are a faithful ${role} inside a professional post-production app. Rewrite the user’s request into a clear, model-compatible brief for the ${taskLabel}, tailored to "${targetModel}". Enhancement means clarification, organization and compatible wording — never creative expansion. Reply with just the finished brief.`,
+    inputMode === 'rewrite'
+      ? `You are a faithful ${role} inside a professional post-production app. Rewrite the user’s request into a clear, model-compatible brief for the ${taskLabel}, tailored to "${targetModel}". Enhancement means clarification, organization and compatible wording — never creative expansion. Reply with just the finished brief.`
+      : `You are a faithful ${role} inside a professional post-production app. No written prompt was supplied. Create the shortest model-compatible auto draft for the selected ${taskLabel}, tailored to "${targetModel}", using the selected tool purpose and attached references as the complete authority. Reply with just the finished brief.`,
     ``,
     `AUTHORITY AND FIDELITY — NON-NEGOTIABLE:`,
-    `- The primary text, explicit UI selections, attached evidence and binding supporting context are the complete authority. Preserve every stated detail, prohibition, uncertainty and intentional omission.`,
-    `- Never invent or choose an unspecified subject, identity, trait, object, action, dialogue, onscreen text, setting, style, mood, colour, lighting, lens, camera move, timing, transition, sound, music, negative constraint or outcome. Missing or ambiguous information must remain unspecified.`,
+    `- ${inputMode === 'rewrite' ? 'The primary text, explicit UI selections, attached evidence and binding supporting context' : 'The selected tool purpose, explicit UI selections, attached evidence and binding supporting context'} are the complete authority. Preserve every stated detail, prohibition, uncertainty and intentional omission.`,
+    inputMode === 'rewrite'
+      ? `- Never invent or choose an unspecified subject, identity, trait, object, action, dialogue, onscreen text, setting, style, mood, colour, lighting, lens, camera move, timing, transition, sound, music, negative constraint or outcome. Missing or ambiguous information must remain unspecified.`
+      : `- The selected tool authorizes only the minimum task-specific choice stated under TASK-SPECIFIC SCOPE. Never invent unsupported source facts: subject identity, trait, object, event, dialogue, onscreen text, setting, style, mood, colour, lighting, sound, music or outcome. Missing or ambiguous source information must remain unspecified.`,
     `- Model adaptation may change wording, order and structure only. It never permits new facts, new scope or a stronger interpretation of the request.`,
     `- On repeated enhancement, refine clarity without escalating detail, length or creative scope.`,
     `- Before answering, silently audit every concrete detail in the result and remove anything not supported by the authority above.`,
@@ -296,10 +318,12 @@ export function buildEnhanceSystemMessage(
       ? `\nSTYLE: The user explicitly chose "${style}". Preserve that selection, but do not use it as permission to invent composition, lighting, colour, texture, story or objects.`
       : null,
     hasReferences
-      ? `\nREFERENCES: Treat attached stills and sampled video frames only as evidence for relevant visible facts. Never infer unseen action, identity, story, causality, dialogue, sound or timing; never let a reference override or broaden the primary request; and never claim the downstream model receives a source it does not receive.`
+      ? `\nREFERENCES: Treat attached stills and sampled video frames only as evidence for relevant visible facts. Names, roles, durations and notes are metadata—not proof of image, video or audio content. Never infer unseen action, identity, story, causality, dialogue, sound or timing; never let a reference broaden the selected task; and never claim either you or the downstream model received content it did not receive.`
       : null,
     supportingContext?.text.trim()
-      ? `\nSUPPORTING CONTEXT: The user message includes a read-only “${supportingContext.label}” section. Use only directly relevant facts to prevent contradictions. Improve only the primary text; never rewrite, quote, summarize, fill blanks from, or output the supporting fields. ${supportingContext.instruction ?? 'Never invent facts beyond the supporting context.'}`
+      ? inputMode === 'rewrite'
+        ? `\nSUPPORTING CONTEXT: The user message includes a read-only “${supportingContext.label}” section. Use only directly relevant facts to prevent contradictions. Improve only the primary text; never rewrite, quote, summarize, fill blanks from, or output the supporting fields. ${supportingContext.instruction ?? 'Never invent facts beyond the supporting context.'}`
+        : `\nSUPPORTING CONTEXT: The user message includes a read-only “${supportingContext.label}” section. Use only directly relevant supplied facts as evidence for the minimum task-valid auto draft. Do not output, broadly summarize or invent beyond the supporting fields. ${supportingContext.instruction ?? 'Never invent facts beyond the supporting context.'}`
       : null,
     ``,
     `TASK-SPECIFIC SCOPE: ${profile.purposeGuidance}`,
@@ -383,6 +407,9 @@ export async function enhancePrompt(opts: {
   supportingContext?: EnhanceSupportingContext
   signal?: AbortSignal
 }): Promise<EnhanceResult> {
+  if (!canEnhancePrompt(opts.rough, opts.references)) {
+    throw new ChatError('Write a prompt or attach a reference before using prompt enhancement.')
+  }
   const key = currentApiKey()
   if (!key) throw new ChatError('Connect your EasyField Cloud API key first (tap the credits badge on Home).')
 
@@ -391,6 +418,7 @@ export async function enhancePrompt(opts: {
   const { images, manifest } = await prepareVisualReferences(opts.references, opts.signal)
 
   const before = await fetchCredits(key)
+  const inputMode = resolveEnhancementInputMode(opts.rough)
   const system = buildEnhanceSystemMessage(
     opts.targetModel,
     opts.mediaKind,
@@ -399,6 +427,7 @@ export async function enhancePrompt(opts: {
     manifest.length > 0,
     opts.supportingContext,
     opts.purpose,
+    inputMode,
   )
   const user = buildEnhanceUserMessage(opts, manifest, images.length)
   let text = await chatComplete(key, opts.chatModel, system, user, images, {

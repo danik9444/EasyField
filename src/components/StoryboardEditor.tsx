@@ -43,7 +43,7 @@ interface StoryboardEditorProps {
   onSpend?: (credits: number) => void
 }
 
-const CONTEXT_INSTRUCTION = 'Treat this complete sequence, every ordered sibling shot, its timing and all source material as read-only context. Rewrite only the current field. Preserve subject identity, world, chronology, camera logic and visual continuity; never merge, reorder or silently rewrite other shots.'
+const CONTEXT_INSTRUCTION = 'Treat this complete sequence, every ordered sibling shot, its timing and all source material as read-only context. When the current field has text, rewrite only it. In reference-led Auto, draft only the current shot from its position and attached evidence. Preserve subject identity, world, chronology, camera logic and visual continuity; never merge, reorder or silently rewrite other shots.'
 
 export function StoryboardEditor({
   continuityDirection,

@@ -16,7 +16,7 @@ import {
 import { StoryboardTimingEditor } from '../components/StoryboardTimingEditor'
 import { Icon } from '../icons'
 import { host } from '../services/host'
-import { ChatError, enhancePrompt, planStoryboard, type EnhanceReference } from '../services/chat'
+import { ChatError, canEnhancePrompt, enhancePrompt, planStoryboard, type EnhanceReference } from '../services/chat'
 import { resolve } from '../services/resolve'
 import { renderStoryboardPng } from '../services/storyboardExport'
 import { isConnected, isGenerationExit, runImage, saveUrl } from '../services/run'
@@ -69,7 +69,7 @@ const STORYBOARD_DRAFT_KEY = 'default:storyboard-v1'
 const ENHANCER_PREF_KEY = 'enhancer-storyboard'
 const ENHANCE_MAX_LENGTH = 6_000
 const SCENE_PROMPT_MIN_LENGTH = 3
-const STORYBOARD_CONTEXT_INSTRUCTION = 'Use the complete story and every ordered scene row only to prevent contradictions and preserve explicitly established continuity. Treat attached references as authoritative visual evidence. Never copy an action or fill a missing detail from another scene unless the current primary text explicitly refers to it.'
+const STORYBOARD_CONTEXT_INSTRUCTION = 'Use the complete story and every ordered scene row only to prevent contradictions and preserve explicitly established continuity. Treat attached references as authoritative visual evidence. When the current field is blank, reference-led Auto may draft only that field for its selected Storyboard purpose. Never copy an action or fill a missing detail from another scene unless the current primary text explicitly refers to it.'
 
 type SaveState = 'loading' | 'saved' | 'saving' | 'error'
 type BriefRunState = 'idle' | 'enhancing' | 'planning' | 'error'
@@ -660,7 +660,8 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     const current = draftRef.current
     const briefSnapshot = current.storyBrief
     const contextSnapshot = buildStoryboardEnhancementContext(current)
-    if (briefSnapshot.trim().length < SCENE_PROMPT_MIN_LENGTH) return
+    const promptReferences = referencesForPrompting(referenceImagesRef.current)
+    if (!canEnhancePrompt(briefSnapshot, promptReferences, SCENE_PROMPT_MIN_LENGTH)) return
     const controller = new AbortController()
     controllersRef.current.set('brief:enhance', controller)
     setBriefRuntime({ state: 'enhancing' })
@@ -673,7 +674,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         chatModel: enhancerModel,
         maxLength: Math.min(ENHANCE_MAX_LENGTH, STORYBOARD_MAX_STORY_BRIEF_LENGTH),
         style: current.style || undefined,
-        references: referencesForPrompting(referenceImagesRef.current),
+        references: promptReferences,
         supportingContext: {
           label: 'current storyboard context',
           text: contextSnapshot,
@@ -707,7 +708,8 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     if (referencesBlocked || inFlightSceneIdsRef.current.has(sceneId)) return
     const currentDraft = draftRef.current
     const scene = currentDraft.scenes.find((item) => item.id === sceneId)
-    if (!scene || scene.prompt.trim().length < SCENE_PROMPT_MIN_LENGTH) return
+    const promptReferences = referencesForPrompting(referenceImagesRef.current)
+    if (!scene || !canEnhancePrompt(scene.prompt, promptReferences, SCENE_PROMPT_MIN_LENGTH)) return
     const promptSnapshot = scene.prompt
     const modelSnapshot = currentDraft.model
     const styleSnapshot = currentDraft.style
@@ -725,7 +727,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         chatModel: enhancerModel,
         maxLength: promptMaxSnapshot,
         style: styleSnapshot || undefined,
-        references: referencesForPrompting(referenceImagesRef.current),
+        references: promptReferences,
         supportingContext: {
           label: 'complete storyboard context',
           text: contextSnapshot,
@@ -1414,7 +1416,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
                 className={`ef-enhance-btn${briefRuntime.state === 'enhancing' ? ' loading' : ''}`}
                 aria-label={!connected ? 'Connect EasyField Cloud to improve the Story Brief' : `Improve the Story Brief using the current storyboard and references with ${enhancerModel}`}
                 title={!connected ? 'Connect EasyField Cloud to improve prompts' : `Uses the current scene plan and every attached reference · ${enhancerModel}`}
-                disabled={!connected || draft.storyBrief.trim().length < SCENE_PROMPT_MIN_LENGTH || referenceInputsLocked}
+                disabled={!connected || !canEnhancePrompt(draft.storyBrief, referencesForPrompting(referenceImages), SCENE_PROMPT_MIN_LENGTH) || referenceInputsLocked}
                 onClick={() => void enhanceStoryBrief()}
               >
                 <Icon glyph="spark" size={12} />
@@ -1570,6 +1572,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
                 batchRunning={referenceInputsLocked}
                 generationJob={sceneRuntime.jobId ? jobsById.get(sceneRuntime.jobId) ?? null : null}
                 enhancerModel={enhancerModel}
+                canEnhanceFromReferences={referenceImages.length > 0}
                 onEnhancerModelChange={changeEnhancerModel}
                 onTitleChange={(title) => updateScene(scene.id, (current) => ({ ...current, title }))}
                 onPromptChange={(prompt) => {

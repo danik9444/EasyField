@@ -307,6 +307,16 @@ export function Animation({ onBack, toast, onSpend }: AnimationProps) {
           ? 'Use this audio as the synchronized output track and design the motion around its rhythm.'
           : 'Use this audio reference only to guide rhythm and pacing; the final output remains silent.',
       })
+      else if (source.kind === 'document') references.push({
+        role: 'animation document reference',
+        label: source.name,
+        note: 'Extracted document content is supplied in the read-only animation context.',
+      })
+      else if (source.kind === 'url') references.push({
+        role: 'animation website reference',
+        label: source.name,
+        note: 'Safely extracted website content is supplied in the read-only animation context.',
+      })
     })
     return references.slice(0, 16)
   }, [soundMode, sources])
@@ -317,7 +327,7 @@ export function Animation({ onBack, toast, onSpend }: AnimationProps) {
   const supportingContext = useMemo<EnhanceSupportingContext>(() => ({
     label: 'Animation brief context',
     text: compiledPromptContext,
-    instruction: 'Treat the user prompt as the primary creative command. Use the selected format, sound decision and attached material only as binding evidence. Do not invent claims, copy, data, assets, motion, transitions or sound content that the prompt and evidence do not supply.',
+    instruction: 'When written direction exists, treat it as the primary creative command. In reference-led Auto, draft only the minimum animation direction authorized by the selected format, sound decision and attached evidence. Do not invent claims, copy, data, assets, motion, transitions or sound content that the prompt and evidence do not supply.',
   }), [compiledPromptContext])
   const contextKey = useMemo(() => `${recipe}|${soundMode}|${sources.map((source) => `${source.id}:${source.text?.length ?? 0}`).join('|')}`, [recipe, soundMode, sources])
 
@@ -594,7 +604,7 @@ export function Animation({ onBack, toast, onSpend }: AnimationProps) {
               <div className="ef-ref-header">
                 <span className="ef-field-label">{selectedRecipe.label.toUpperCase()} PROMPT</span>
                 <span className="ef-spacer" />
-                <span className="ef-ref-count">Prompt is always primary</span>
+                <span className="ef-ref-count">Prompt or attached sources</span>
               </div>
               <PromptCard
                 prompt={prompt}
@@ -613,7 +623,7 @@ export function Animation({ onBack, toast, onSpend }: AnimationProps) {
               />
             </div>
 
-            <div className="ef-animation-context-note"><Icon glyph="spark" size={13} /><span>{selectedRecipe.label}, {soundMode === 'with-sound' ? 'sound output' : 'silent output'} and {sources.length || 'no'} attached {sources.length === 1 ? 'source' : 'sources'} are included in enhancement context. The written prompt remains the creative command.</span></div>
+            <div className="ef-animation-context-note"><Icon glyph="spark" size={13} /><span>{selectedRecipe.label}, {soundMode === 'with-sound' ? 'sound output' : 'silent output'} and {sources.length || 'no'} attached {sources.length === 1 ? 'source' : 'sources'} are included in enhancement context. With no written prompt, Enhance creates a reference-led Auto draft.</span></div>
 
             <button type="button" id="animation-advanced-toggle" className="ef-advanced-toggle" aria-expanded={advancedOpen} aria-controls="animation-advanced-options" onClick={() => setAdvancedOpen((open) => !open)}>
               <span className="ef-advanced-toggle-label">Technical output</span>

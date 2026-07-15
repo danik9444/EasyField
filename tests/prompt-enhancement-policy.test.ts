@@ -4,6 +4,9 @@ import {
   PROMPT_ENHANCEMENT_TEMPERATURE,
   buildEnhanceSystemMessage,
   buildEnhanceUserMessage,
+  canEnhancePrompt,
+  resolveEnhancementInputMode,
+  type EnhanceReference,
   type EnhanceMediaKind,
   type EnhancePurpose,
 } from '../src/services/chat.ts'
@@ -110,4 +113,72 @@ test('short and detailed primary requests are sent in full as the authoritative 
 
 test('faithful enhancement uses low creativity without changing planner sampling', () => {
   assert.equal(PROMPT_ENHANCEMENT_TEMPERATURE, 0.2)
+})
+
+test('empty prompt enhancement is allowed by any attached reference kind', () => {
+  const references: EnhanceReference[] = [
+    { role: 'image reference', label: 'frame.png' },
+    { role: 'video reference', label: 'clip.mov', durationSeconds: 4 },
+    { role: 'audio reference', label: 'voice.wav', durationSeconds: 3 },
+    { role: 'document reference', label: 'brief.docx' },
+  ]
+  assert.equal(canEnhancePrompt('', []), false)
+  assert.equal(canEnhancePrompt('   ', []), false)
+  assert.equal(canEnhancePrompt('Direction', []), true)
+  for (const reference of references) assert.equal(canEnhancePrompt('', [reference]), true, reference.role)
+  assert.equal(canEnhancePrompt('x', [], 3), false)
+  assert.equal(canEnhancePrompt('x', [references[0]], 3), true)
+  assert.equal(resolveEnhancementInputMode(''), 'reference-draft')
+  assert.equal(resolveEnhancementInputMode('Keep this exact request'), 'rewrite')
+})
+
+test('reference-led Auto message never presents an empty string as a creative request', () => {
+  const message = buildEnhanceUserMessage({
+    rough: '   ',
+    targetModel: 'Seedance 2',
+    mediaKind: 'video',
+    purpose: 'transition',
+  }, [
+    '- outgoing shot end frame "out.png" [image attached]',
+    '- incoming shot start frame "in.png" [image attached]',
+    '- audio reference "guide.wav" · duration 3.0s',
+  ], 2)
+  assert.match(message, /REFERENCE-LED AUTO DRAFT/)
+  assert.match(message, /No written direction was supplied/i)
+  assert.match(message, /outgoing shot end frame/)
+  assert.match(message, /incoming shot start frame/)
+  assert.match(message, /guide\.wav/)
+  assert.doesNotMatch(message, /AUTHORITATIVE PRIMARY TEXT/)
+  assert.doesNotMatch(message, /complete creative request/i)
+  assert.doesNotMatch(message, /:\s*\n""/)
+})
+
+test('Transition is always an ordered endpoint bridge in Auto and normal enhancement', () => {
+  const normal = buildEnhanceSystemMessage('Seedance 2', 'video', 20_000, undefined, true, undefined, 'transition', 'rewrite')
+  assert.match(normal, /outgoing-shot end frame to the incoming-shot start frame/i)
+  assert.match(normal, /bridge between those exact endpoints/i)
+  assert.match(normal, /Preserve every transition method, motion or effect the user named/i)
+  assert.match(normal, /never a standalone shot/i)
+
+  const automatic = buildEnhanceSystemMessage('Seedance 2', 'video', 20_000, undefined, true, undefined, 'transition', 'reference-draft')
+  assert.match(automatic, /begins exactly on the ordered outgoing-shot end frame/i)
+  assert.match(automatic, /finishes exactly on the incoming-shot start frame/i)
+  assert.match(automatic, /minimum transition mechanism supported by their visible relationship/i)
+  assert.match(automatic, /never a standalone shot/i)
+  assert.match(automatic, /must not add a subject, event, object, location, text, dialogue or sound/i)
+  assert.match(automatic, /Names, roles, durations and notes are metadata/i)
+})
+
+test('every task purpose has a bounded reference-led Auto contract', () => {
+  const purposes: EnhancePurpose[] = [
+    'create', 'edit', 'extend', 'transition', 'angle', 'story-brief', 'story-scene',
+    'multi-shot-scene', 'character-notes', 'animation', 'music', 'single-sfx',
+    'foley-direction', 'avatar', 'broll', 'captions', 'transcribe', 'beat', 'culling', 'workflow',
+  ]
+  for (const purpose of purposes) {
+    const profile = resolvePromptEnhancementProfile('Generic target', 'workflow', purpose, 'reference-draft')
+    assert.equal(profile.inputMode, 'reference-draft', purpose)
+    assert.ok(profile.purposeGuidance.length > 80, purpose)
+    assert.doesNotMatch(profile.purposeGuidance, /Clarify only|Improve only the current/i, purpose)
+  }
 })
