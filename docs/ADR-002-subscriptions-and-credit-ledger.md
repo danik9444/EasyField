@@ -1,7 +1,7 @@
 # ADR-002: Subscriptions and credit-ledger domain
 
-**Status:** Accepted for implementation; live billing remains disabled until the production checklist is complete
-**Date:** 2026-07-14
+**Status:** Accepted domain model; payment-provider selection reopened and live billing disabled
+**Date:** 2026-07-15
 **Deciders:** Product owner, engineering, finance and legal
 
 ## Context
@@ -13,9 +13,10 @@ non-expiring purchased credits, model entitlements and administrative access.
 Those values must not be inferred from renderer state or floating-point numbers.
 
 This ADR defines the domain and trust boundary. Supabase Auth is the identity
-authority and Morning is the payment/document adapter. Plan-change behavior,
-tax configuration, reusable-card validation and production credentials remain
-launch gates; this decision does not authorize live billing by itself.
+authority. Morning remains an accounting/document system only; it is not the
+payment processor. The production payment provider, tax presentation,
+plan-change behavior and production credentials remain launch gates. This
+decision does not authorize live billing by itself.
 
 ## Decision
 
@@ -23,10 +24,10 @@ launch gates; this decision does not authorize live billing by itself.
 
 | Plan | Monthly | Annual billed upfront | Annual monthly equivalent | Monthly grant | Top-up rate |
 |---|---:|---:|---:|---:|---:|
-| Starter | $15 | $144 | $12 | 1,000 credits | $0.015/credit |
-| Creator | $30 | $300 | $25 | 2,500 credits | $0.012/credit |
-| Pro | $60 | $588 | $49 | 6,000 credits | $0.010/credit |
-| Studio | $129 | $1,188 | $99 | 15,000 credits | $0.008/credit |
+| Starter | $15 | $144 | $12 | 800 credits | $0.020/credit |
+| Creator | $30 | $300 | $25 | 2,000 credits | $0.015/credit |
+| Pro | $60 | $588 | $49 | 5,000 credits | $0.012/credit |
+| Studio | $129 | $1,188 | $99 | 12,000 credits | $0.010/credit |
 
 - The minimum top-up purchase is $10.
 - Auto-reload is optional and disabled unless the account explicitly enables a
@@ -89,22 +90,27 @@ remain the media data plane and do not move to cloud storage by this decision.
 
 ### Payment adapter
 
-- Morning creates hosted checkouts, documents and saved-token charges. It is not
-  treated as the subscription state machine.
-- EasyField owns renewal periods, monthly grants, saved-payment-method consent,
-  dunning, reconciliation and idempotency records.
-- Because the saved-token charge endpoint has no documented idempotency key, a
-  timeout or ambiguous response freezes that attempt for reconciliation and is
-  never automatically charged again.
+- No production payment adapter is selected. Morning must not create EasyField
+  checkouts, charge saved cards or receive payment webhooks.
+- Morning may be used downstream for the Israeli accounting documents approved
+  by the business's accountant. It never grants a subscription or credits.
+- A Merchant of Record is preferred for global tax registration, calculation,
+  filing and remittance. The selected provider must first approve EasyField's
+  avatar, human-face, voice and non-transferable usage-credit functionality in
+  writing.
+- If a direct PSP is selected instead, EasyField owns renewals, dunning, global
+  sales-tax compliance and document orchestration in addition to entitlements,
+  grants, reconciliation and idempotency records.
 
 ### Deployment boundary
 
 The repository's CI, desktop build and Resolve PKG packaging validate and ship
 only the local application/plugin artifacts. They do not apply the Supabase
-migration, deploy server functions, install secrets, register Morning webhooks,
-or schedule renewal and monthly-grant workers. Live authentication and billing
-must remain disabled until that cloud deployment is completed and verified in
-the target environment.
+migration, deploy server functions, install secrets, register payment webhooks,
+or schedule renewal and monthly-grant workers. The legacy Morning payment
+adapter scaffold is not a deployable billing path. Live authentication and
+billing must remain disabled until the selected provider's cloud deployment is
+completed and verified in the target environment.
 
 ## Plan-change defaults — proposed, not accepted
 
@@ -164,7 +170,8 @@ for refunds, retries, concurrent devices or administrator adjustments.
 
 ## Action items
 
-1. [x] Select the identity and payment providers and document webhook ownership.
+1. [ ] Select and obtain written product approval from the payment provider;
+   document webhook ownership.
 2. [x] Define append-only ledger, reservation, settlement and idempotency schemas.
 3. [ ] Decide account isolation for the local Library and Artifact Store.
 4. [ ] Resolve upgrade grant deltas, refunds, delinquency and cancellation policy.

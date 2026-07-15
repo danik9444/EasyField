@@ -155,10 +155,10 @@ const catalogRows = parseCatalogRows()
 
 test('the private server catalog owns the exact four plan prices, grants and top-up rates', () => {
   const expected = {
-    starter: ['15000000', '144000000', '1000000000', '15000'],
-    creator: ['30000000', '300000000', '2500000000', '12000'],
-    pro: ['60000000', '588000000', '6000000000', '10000'],
-    studio: ['129000000', '1188000000', '15000000000', '8000'],
+    starter: ['15000000', '144000000', '800000000', '20000'],
+    creator: ['30000000', '300000000', '2000000000', '15000'],
+    pro: ['60000000', '588000000', '5000000000', '12000'],
+    studio: ['129000000', '1188000000', '12000000000', '10000'],
   }
   assert.deepEqual([...catalogRows.keys()].sort(), Object.keys(expected).sort())
   for (const [planKey, values] of Object.entries(expected)) {
@@ -192,12 +192,12 @@ test('Starter blocks only the canonical regular Seedance 2 model by exact ID', (
 
 test('top-ups enforce the raw $10 minimum before upward whole-cent rounding', () => {
   const checkout = extractFunction('billing_private.apply_checkout_catalog_snapshot')
-  const creator = catalogRows.get('creator')
-  const rawCreator833 = 833n * BigInt(creator.top_up_currency_micros_per_credit)
-  const roundedCreator833 = ((rawCreator833 + 9999n) / 10000n) * 10000n
-  assert.equal(rawCreator833, 9996000n)
-  assert.equal(roundedCreator833, 10000000n)
-  assert.ok(rawCreator833 < BigInt(creator.minimum_top_up_currency_micros))
+  const pro = catalogRows.get('pro')
+  const rawPro833 = 833n * BigInt(pro.top_up_currency_micros_per_credit)
+  const roundedPro833 = ((rawPro833 + 9999n) / 10000n) * 10000n
+  assert.equal(rawPro833, 9996000n)
+  assert.equal(roundedPro833, 10000000n)
+  assert.ok(rawPro833 < BigInt(pro.minimum_top_up_currency_micros))
 
   const rawAmount = checkout.indexOf('v_raw_expected_amount := ceil(')
   const minimumCheck = checkout.indexOf(

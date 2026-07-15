@@ -44,10 +44,10 @@ insert into billing_private.plan_catalog (
   monthly_grant_microcredits, top_up_currency_micros_per_credit,
   minimum_top_up_currency_micros, blocked_model_ids
 ) values
-  ('starter', 'Starter', 'billing-2026-07-14', 'USD', 15000000, 144000000, 1000000000, 15000, 10000000, array['bytedance/seedance-2']::text[]),
-  ('creator', 'Creator', 'billing-2026-07-14', 'USD', 30000000, 300000000, 2500000000, 12000, 10000000, '{}'::text[]),
-  ('pro', 'Pro', 'billing-2026-07-14', 'USD', 60000000, 588000000, 6000000000, 10000, 10000000, '{}'::text[]),
-  ('studio', 'Studio', 'billing-2026-07-14', 'USD', 129000000, 1188000000, 15000000000, 8000, 10000000, '{}'::text[]);
+  ('starter', 'Starter', 'billing-2026-07-15', 'USD', 15000000, 144000000, 800000000, 20000, 10000000, array['bytedance/seedance-2']::text[]),
+  ('creator', 'Creator', 'billing-2026-07-15', 'USD', 30000000, 300000000, 2000000000, 15000, 10000000, '{}'::text[]),
+  ('pro', 'Pro', 'billing-2026-07-15', 'USD', 60000000, 588000000, 5000000000, 12000, 10000000, '{}'::text[]),
+  ('studio', 'Studio', 'billing-2026-07-15', 'USD', 129000000, 1188000000, 12000000000, 10000, 10000000, '{}'::text[]);
 
 create table public.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -972,7 +972,7 @@ begin
     );
     -- Enforce the product minimum on the nominal plan-rate amount. Payment-rail
     -- cent rounding must never turn an under-minimum purchase into an accepted
-    -- one (for example Creator 833 credits is $9.996, not a valid $10 top-up).
+    -- one (for example Pro 833 credits is $9.996, not a valid $10 top-up).
     if v_raw_expected_amount < v_plan.minimum_top_up_currency_micros then
       raise exception 'Top-up purchase is below the catalog minimum' using errcode = '22023';
     end if;

@@ -12,6 +12,11 @@ import type {
   VerifiedBillingWebhook,
 } from "./billing_contracts.ts";
 
+/**
+ * @deprecated Research scaffold only. Morning is document/accounting-only for
+ * EasyField and is not an approved payment processor. Do not deploy, import or
+ * call this adapter from a production billing flow.
+ */
 export const MORNING_PROVIDER_ID = "morning" as const;
 
 export type MorningPaidDocumentType = 320 | 400 | 405 | 600;

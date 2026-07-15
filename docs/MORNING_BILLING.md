@@ -1,11 +1,17 @@
-# Morning billing integration
+# Morning payment-adapter research (superseded)
 
-**Status:** hardened adapter scaffold; production orchestration still required
+**Status:** superseded on 2026-07-15; must not be deployed or called
 **Reviewed against public API:** 2026-07-14, OpenAPI 3.0.3 / API version 2.0.0
+
+> Morning is retained only for accounting/document workflows approved by the
+> business's accountant. EasyField will use a different payment provider. The
+> code described below is an isolated research scaffold, has no production
+> authorization, and must be retired or replaced when that provider is selected.
 
 ## Decision
 
-Morning is a payment/document adapter, not EasyField's subscription database.
+This document records the discarded payment-adapter investigation. It does not
+make Morning an EasyField payment provider or subscription database.
 The public API currently exposes:
 
 - OAuth 2.0 `client_credentials` access tokens;
