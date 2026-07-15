@@ -167,6 +167,11 @@ for refunds, retries, concurrent devices or administrator adjustments.
   control plane has been deployed.
 - Plan changes remain blocked from production behavior until the unresolved
   policy questions are accepted.
+- The 2026-07-15 forward price revision is intentionally pre-launch and
+  fail-closed: it will not rewrite active subscriptions, open payments or
+  pending grants. Once live billing exists, a later repricing requires an
+  append-only versioned catalog plus an explicit grandfathering/migration
+  policy rather than mutating paid-period snapshots.
 
 ## Action items
 

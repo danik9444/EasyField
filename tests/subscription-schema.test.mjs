@@ -12,11 +12,17 @@ const migrationPath = path.join(
   '202607140001_subscription_billing.sql',
 )
 const migration = readFileSync(migrationPath, 'utf8')
+const stateHardeningMigration = readFileSync(path.join(
+  projectRoot,
+  'supabase',
+  'migrations',
+  '202607150001_harden_billing_state_transitions.sql',
+), 'utf8')
 const pricingMigration = readFileSync(path.join(
   projectRoot,
   'supabase',
   'migrations',
-  '202607150001_update_subscription_pricing.sql',
+  '202607150002_update_subscription_pricing.sql',
 ), 'utf8')
 
 function escapeRegExp(value) {
@@ -98,6 +104,27 @@ function extractTable(qualifiedName) {
   assert.ok(match, `missing table ${qualifiedName}`)
   const openingIndex = match.index + match[0].lastIndexOf('(')
   return normalize(readBalanced(source, openingIndex).body)
+}
+
+function extractTableColumns(qualifiedName) {
+  const source = withoutComments(migration)
+  const pattern = new RegExp(
+    `create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?${escapeRegExp(qualifiedName)}\\s*\\(`,
+    'i',
+  )
+  const match = pattern.exec(source)
+  assert.ok(match, `missing table ${qualifiedName}`)
+  const openingIndex = match.index + match[0].lastIndexOf('(')
+  const definitions = splitTopLevel(readBalanced(source, openingIndex).body)
+  const columns = new Set()
+  for (const definition of definitions) {
+    const normalizedDefinition = normalize(definition)
+    if (/^(?:check|constraint|primary key|foreign key|unique)\b/.test(normalizedDefinition)) continue
+    const column = /^(?:"([^"]+)"|([a-z_][a-z0-9_]*))\b/.exec(normalizedDefinition)
+    assert.ok(column, `could not parse a column in ${qualifiedName}: ${definition}`)
+    columns.add(column[1] ?? column[2])
+  }
+  return columns
 }
 
 function extractFunction(qualifiedName) {
@@ -184,12 +211,107 @@ test('the private server catalog owns the exact four plan prices, grants and top
 })
 
 test('the pricing revision has a forward migration for already-installed catalogs', () => {
+  const normalizedPricingMigration = normalize(pricingMigration)
+  const normalizedStateHardeningMigration = normalize(stateHardeningMigration)
+  const planCatalogColumns = extractTableColumns('billing_private.plan_catalog')
   assert.match(pricingMigration, /billing-2026-07-15/g)
   assert.match(pricingMigration, /'starter'::text[^\n]+800000000::bigint[^\n]+20000::bigint/)
   assert.match(pricingMigration, /'creator'::text[^\n]+2000000000::bigint[^\n]+15000::bigint/)
   assert.match(pricingMigration, /'pro'::text[^\n]+5000000000::bigint[^\n]+12000::bigint/)
   assert.match(pricingMigration, /'studio'::text[^\n]+12000000000::bigint[^\n]+10000::bigint/)
+  assert.match(normalizedPricingMigration, /\bbegin;/)
+  assert.match(normalizedPricingMigration, /\bcommit;/)
+  assert.match(normalizedPricingMigration, /in access exclusive mode/)
+  assert.match(normalizedPricingMigration, /set pricing_version = revised\.pricing_version/)
+  assert.doesNotMatch(normalizedPricingMigration, /\bcatalog_version\b/)
+  assert.doesNotMatch(normalizedPricingMigration, /\bupdated_at\s*=/)
   assert.match(pricingMigration, /if v_updated <> 4 then/)
+
+  const catalogUpdateMatch =
+    /update\s+billing_private\.plan_catalog\s+as\s+catalog\s+set([\s\S]+?)from\s+\(values/i.exec(
+      withoutComments(pricingMigration),
+    )
+  assert.ok(catalogUpdateMatch, 'missing the forward catalog update')
+  for (const assignment of splitTopLevel(catalogUpdateMatch[1])) {
+    const column = /^\s*([a-z_][a-z0-9_]*)\s*=/i.exec(assignment)?.[1]?.toLowerCase()
+    assert.ok(column, `could not parse catalog assignment: ${assignment}`)
+    assert.ok(planCatalogColumns.has(column), `forward migration updates unknown catalog column ${column}`)
+  }
+
+  const disableTrigger = normalizedPricingMigration.indexOf(
+    'alter table billing_private.plan_catalog disable trigger plan_catalog_is_immutable',
+  )
+  const catalogUpdate = normalizedPricingMigration.indexOf(
+    'update billing_private.plan_catalog as catalog',
+  )
+  const enableTrigger = normalizedPricingMigration.indexOf(
+    'alter table billing_private.plan_catalog enable trigger plan_catalog_is_immutable',
+  )
+  assert.ok(disableTrigger >= 0 && disableTrigger < catalogUpdate)
+  assert.ok(catalogUpdate < enableTrigger)
+  assert.match(
+    normalizedPricingMigration,
+    /active_subscription\.status not in \('canceled', 'expired'\)/,
+  )
+  assert.match(normalizedPricingMigration, /checkout_intent\.status in \('created', 'open'\)/)
+  assert.match(normalizedPricingMigration, /paid_checkout\.status = 'completed'/)
+  assert.match(normalizedPricingMigration, /annual_subscription\.annual_checkout_intent_id = paid_checkout\.id/)
+  assert.match(normalizedPricingMigration, /initial_grant\.checkout_intent_id = paid_checkout\.id/)
+  assert.match(normalizedPricingMigration, /monthly_subscription\.pricing_version = paid_checkout\.pricing_version/)
+  assert.match(normalizedPricingMigration, /renewal_attempt\.state in \('scheduled', 'charging'\)/)
+  assert.match(normalizedPricingMigration, /auto_reload\.enabled/)
+  assert.match(normalizedPricingMigration, /grant_schedule\.status in \('pending', 'granting'\)/)
+
+  assert.match(
+    normalizedStateHardeningMigration,
+    /old\.status in \('expired', 'cancelled', 'failed'\)/,
+  )
+  assert.match(
+    normalizedStateHardeningMigration,
+    /old\.status in \('completed', 'reconciled_no_payment'\)/,
+  )
+  assert.match(normalizedStateHardeningMigration, /a terminal reconciled checkout is immutable/)
+  assert.match(
+    normalizedStateHardeningMigration,
+    /checkout_payment_event_is_verified\( new\.id, new\.provider/,
+  )
+  assert.match(
+    normalizedStateHardeningMigration,
+    /a closed checkout requires verified payment or no-payment evidence/,
+  )
+  assert.match(normalizedStateHardeningMigration, /old\.status in \('canceled', 'expired'\)/)
+  assert.match(normalizedStateHardeningMigration, /raise exception 'a terminal subscription is immutable'/)
+  assert.match(normalizedStateHardeningMigration, /old\.status in \('granted', 'skipped', 'cancelled'\)/)
+  assert.match(normalizedStateHardeningMigration, /checkout snapshot does not match the active catalog/)
+  assert.match(normalizedStateHardeningMigration, /subscription snapshot does not match the active catalog/)
+  assert.match(
+    normalizedPricingMigration,
+    /recoverable_checkout\.status in \('failed', 'expired', 'cancelled'\)/,
+  )
+  assert.match(
+    normalizedStateHardeningMigration,
+    /create table billing_private\.checkout_no_payment_reconciliations/,
+  )
+  assert.match(normalizedStateHardeningMigration, /unique \(provider, provider_reconciliation_ref\)/)
+  assert.match(normalizedStateHardeningMigration, /reconciliation\.provider = new\.provider/)
+  assert.match(
+    normalizedStateHardeningMigration,
+    /create or replace function billing_private\.reconcile_checkout_without_payment/,
+  )
+  assert.match(normalizedStateHardeningMigration, /evidence_sha256 ~ '\^\[0-9a-f\]\{64\}\$'/)
+  assert.match(normalizedStateHardeningMigration, /grant execute on function billing_private\.reconcile_checkout_without_payment/)
+  assert.match(
+    normalizedStateHardeningMigration,
+    /create trigger checkout_intents_state_guard before update on public\.checkout_intents/,
+  )
+  assert.match(
+    normalizedStateHardeningMigration,
+    /create trigger subscriptions_state_guard before update on public\.subscriptions/,
+  )
+  assert.match(
+    normalizedStateHardeningMigration,
+    /create trigger subscription_grants_state_guard before update on public\.subscription_grant_schedule/,
+  )
 })
 
 test('Starter blocks only the canonical regular Seedance 2 model by exact ID', () => {
