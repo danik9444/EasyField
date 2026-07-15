@@ -24,6 +24,12 @@ const pricingMigration = readFileSync(path.join(
   'migrations',
   '202607150002_update_subscription_pricing.sql',
 ), 'utf8')
+const partnerMigration = readFileSync(path.join(
+  projectRoot,
+  'supabase',
+  'migrations',
+  '202607150003_partner_lifetime_access.sql',
+), 'utf8')
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -143,6 +149,36 @@ function extractFunction(qualifiedName) {
   const contentEnd = tail.indexOf(delimiter, contentStart)
   assert.notEqual(contentEnd, -1, `unterminated function ${qualifiedName}`)
   return normalize(tail.slice(0, contentEnd + delimiter.length))
+}
+
+function extractFunctionFrom(source, qualifiedName) {
+  const uncommented = withoutComments(source)
+  const pattern = new RegExp(
+    `create\\s+or\\s+replace\\s+function\\s+${escapeRegExp(qualifiedName)}\\s*\\(`,
+    'i',
+  )
+  const match = pattern.exec(uncommented)
+  assert.ok(match, `missing function ${qualifiedName}`)
+  const tail = uncommented.slice(match.index)
+  const bodyStart = /\bas\s+(\$[a-z0-9_]*\$)/i.exec(tail)
+  assert.ok(bodyStart, `missing dollar-quoted body for ${qualifiedName}`)
+  const delimiter = bodyStart[1]
+  const contentStart = bodyStart.index + bodyStart[0].length
+  const contentEnd = tail.indexOf(delimiter, contentStart)
+  assert.notEqual(contentEnd, -1, `unterminated function ${qualifiedName}`)
+  return normalize(tail.slice(0, contentEnd + delimiter.length))
+}
+
+function extractTableFrom(source, qualifiedName) {
+  const uncommented = withoutComments(source)
+  const pattern = new RegExp(
+    `create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?${escapeRegExp(qualifiedName)}\\s*\\(`,
+    'i',
+  )
+  const match = pattern.exec(uncommented)
+  assert.ok(match, `missing table ${qualifiedName}`)
+  const openingIndex = match.index + match[0].lastIndexOf('(')
+  return normalize(readBalanced(uncommented, openingIndex).body)
 }
 
 function parseCatalogRows() {
@@ -732,6 +768,183 @@ test('all financial mutations are service-only and immutable records cannot be r
   assert.match(
     sql,
     /alter default privileges in schema billing_private revoke execute on functions from public, anon, authenticated;/,
+  )
+})
+
+test('Partner lifetime access is a private one-time offer, not a subscription plan or platform role', () => {
+  const sql = normalize(partnerMigration)
+  const offer = extractTableFrom(partnerMigration, 'billing_private.partner_offer_catalog')
+
+  assert.match(offer, /one_time_price_currency_micros bigint not null check \(one_time_price_currency_micros > 0\)/)
+  assert.match(offer, /included_microcredits bigint not null default 0 check \(included_microcredits = 0\)/)
+  assert.match(offer, /lifetime_access boolean not null default true check \(lifetime_access\)/)
+  assert.match(offer, /all_model_access boolean not null default true check \(all_model_access\)/)
+  assert.match(offer, /raw_provider_pricing_access boolean not null default true check \(raw_provider_pricing_access\)/)
+  assert.match(offer, /direct_provider_billing boolean not null default true check \(direct_provider_billing\)/)
+  assert.match(
+    sql,
+    /'partner_lifetime', 'partner-2026-07-15', 'usd', 999000000, 0, true, true, true, true/,
+  )
+  assert.match(sql, /create trigger partner_offer_catalog_is_immutable/)
+  assert.doesNotMatch(sql, /insert into billing_private\.plan_catalog/)
+  assert.doesNotMatch(sql, /alter table public\.profiles/)
+  assert.doesNotMatch(sql, /billing_private\.set_platform_role/)
+  assert.doesNotMatch(sql, /insert into public\.platform_role_audit/)
+})
+
+test('Partner purchase completion requires exact verified payment evidence and cannot fund credits', () => {
+  const sql = normalize(partnerMigration)
+  const purchase = extractTableFrom(partnerMigration, 'billing_private.partner_purchase_intents')
+  const snapshot = extractFunctionFrom(partnerMigration, 'billing_private.apply_partner_purchase_snapshot')
+  const activate = extractFunctionFrom(partnerMigration, 'billing_private.activate_partner_lifetime_entitlement')
+  const protectClaimedEvent = extractFunctionFrom(
+    partnerMigration,
+    'billing_private.protect_claimed_payment_event_terminal',
+  )
+  const paymentClaims = extractTableFrom(partnerMigration, 'billing_private.payment_entitlement_claims')
+
+  assert.match(purchase, /included_microcredits bigint not null check \(included_microcredits = 0\)/)
+  assert.match(purchase, /completed_payment_event_id uuid references public\.payment_events\(id\) on delete restrict/)
+  assert.match(purchase, /unique \(completed_payment_event_id\)/)
+  assert.match(purchase, /status = 'completed' and completed_at is not null and completed_payment_event_id is not null and provider_payment_ref is not null/)
+  assert.match(snapshot, /new\.amount_currency_micros := v_offer\.one_time_price_currency_micros/)
+  assert.match(snapshot, /new\.included_microcredits := v_offer\.included_microcredits/)
+  assert.match(snapshot, /billing_private\.checkout_payment_event_is_verified\(/)
+  assert.match(snapshot, /new\.id, new\.provider, new\.completed_payment_event_id, new\.provider_payment_ref/)
+  assert.match(snapshot, /new\.amount_currency_micros, new\.currency_code/)
+
+  assert.match(paymentClaims, /payment_event_id uuid primary key references public\.payment_events/)
+  assert.match(paymentClaims, /unique \(provider, provider_payment_ref\)/)
+  assert.match(paymentClaims, /claim_type in \('subscription', 'credit_pack', 'auto_reload', 'partner_lifetime'\)/)
+  assert.match(
+    sql,
+    /lock table public\.checkout_intents, public\.payment_events in share row exclusive mode/,
+  )
+  assert.match(sql, /insert into billing_private\.payment_entitlement_claims[^;]+from public\.checkout_intents as checkout where checkout\.status = 'completed'/)
+  assert.match(sql, /create trigger checkout_intents_claim_payment_event after insert or update on public\.checkout_intents/)
+  assert.match(sql, /create trigger a_partner_purchase_claim_payment_event after update on billing_private\.partner_purchase_intents/)
+  assert.match(activate, /claim\.claim_type = 'partner_lifetime'/)
+  assert.match(activate, /claim\.claim_id = new\.id/)
+  assert.match(sql, /create trigger b_partner_purchase_activate_entitlement/)
+  assert.match(protectClaimedEvent, /from billing_private\.payment_entitlement_claims as claim/)
+  assert.match(protectClaimedEvent, /claim\.payment_event_id = old\.id/)
+  assert.match(protectClaimedEvent, /new\.status <> 'processed'/)
+  assert.match(protectClaimedEvent, /new\.processed_at is distinct from old\.processed_at/)
+  assert.match(sql, /create trigger payment_events_claimed_event_is_terminal before update on public\.payment_events/)
+  assert.doesNotMatch(sql, /billing_private\.grant_credits\s*\(/)
+  assert.doesNotMatch(sql, /insert into public\.credit_grant_lots/)
+  assert.doesNotMatch(sql, /insert into public\.credit_ledger/)
+})
+
+test('Partner entitlement is own-readable but keeps purchase and provider evidence private', () => {
+  const sql = normalize(partnerMigration)
+  const entitlement = extractTableFrom(partnerMigration, 'public.partner_entitlements')
+  const revokeEntitlement = extractFunctionFrom(
+    partnerMigration,
+    'billing_private.revoke_partner_entitlement',
+  )
+
+  assert.match(entitlement, /customer_id uuid not null unique references public\.billing_customers/)
+  assert.match(entitlement, /purchase_intent_id uuid not null unique references billing_private\.partner_purchase_intents/)
+  assert.match(entitlement, /status in \('active', 'revoked', 'refunded', 'chargeback'\)/)
+  assert.match(entitlement, /included_microcredits bigint not null check \(included_microcredits = 0\)/)
+  assert.match(entitlement, /ends_at timestamptz check \(ends_at is null\)/)
+  assert.match(sql, /alter table public\.partner_entitlements enable row level security/)
+  assert.match(sql, /alter table public\.partner_entitlements force row level security/)
+  assert.match(
+    sql,
+    /create policy partner_entitlements_select_own on public\.partner_entitlements for select to authenticated using \(billing_private\.owns_customer\(customer_id\)\)/,
+  )
+
+  const grant = /grant select \(([^;]+)\) on public\.partner_entitlements to authenticated;/.exec(sql)
+  assert.ok(grant, 'missing safe authenticated Partner entitlement projection')
+  const visibleColumns = splitTopLevel(grant[1]).map((column) => normalize(column))
+  for (const column of [
+    'status',
+    'lifetime_access',
+    'all_model_access',
+    'raw_provider_pricing_access',
+    'direct_provider_billing',
+    'starts_at',
+    'ends_at',
+  ]) assert.ok(visibleColumns.includes(column), `${column} must be visible in the safe entitlement`)
+  for (const column of ['purchase_intent_id', 'revocation_reason']) {
+    assert.ok(!visibleColumns.includes(column), `${column} must stay server-only`)
+  }
+  assert.doesNotMatch(sql, /grant select[^;]+billing_private\.partner_purchase_intents[^;]+to authenticated/)
+  assert.match(sql, /create trigger partner_entitlements_protect_origin/)
+  assert.match(revokeEntitlement, /p_terminal_status not in \('revoked', 'refunded', 'chargeback'\)/)
+  assert.match(revokeEntitlement, /where entitlement\.customer_id = p_customer_id for update/)
+  assert.match(revokeEntitlement, /if v_entitlement\.status <> 'active'/)
+  assert.match(revokeEntitlement, /status = p_terminal_status, revoked_at = clock_timestamp\(\), revocation_reason = v_reason/)
+  assert.match(
+    sql,
+    /revoke all on function billing_private\.revoke_partner_entitlement\(uuid, text, text\) from public, anon, authenticated/,
+  )
+  assert.match(
+    sql,
+    /grant execute on function billing_private\.revoke_partner_entitlement\(uuid, text, text\) to service_role/,
+  )
+})
+
+test('Partner direct-provider billing is server-verified, all-model and skips the credit ledger', () => {
+  const sql = normalize(partnerMigration)
+  const activePartner = extractFunctionFrom(partnerMigration, 'billing_private.is_active_partner')
+  const canUseDirect = extractFunctionFrom(partnerMigration, 'billing_private.can_use_direct_provider_billing')
+  const directQuote = extractFunctionFrom(partnerMigration, 'billing_private.create_direct_provider_generation_quote')
+
+  assert.match(activePartner, /join public\.partner_entitlements as entitlement/)
+  assert.match(activePartner, /auth_user\.email_confirmed_at is not null/)
+  assert.match(activePartner, /auth_user\.deleted_at is null/)
+  assert.match(activePartner, /auth_user\.banned_until is null or auth_user\.banned_until <= statement_timestamp\(\)/)
+  assert.match(activePartner, /entitlement\.status = 'active'/)
+  assert.match(activePartner, /customer\.status in \('active', 'delinquent'\)/)
+  assert.match(activePartner, /entitlement\.included_microcredits = 0/)
+  assert.match(activePartner, /entitlement\.all_model_access/)
+  assert.match(activePartner, /entitlement\.raw_provider_pricing_access/)
+  assert.match(activePartner, /entitlement\.direct_provider_billing/)
+  assert.doesNotMatch(activePartner, /platform_role/)
+
+  assert.match(canUseDirect, /billing_private\.is_active_admin\(p_user_id\)/)
+  assert.match(canUseDirect, /billing_private\.is_active_partner\(p_user_id\)/)
+  assert.match(directQuote, /billing_private\.can_use_direct_provider_billing\(p_user_id\)/)
+  assert.match(directQuote, /plan_key, admin_bypass, expires_at/)
+  assert.match(directQuote, /btrim\(p_pricing_version\), null, true, p_expires_at/)
+  assert.doesNotMatch(directQuote, /blocked_model_ids/)
+  assert.doesNotMatch(directQuote, /billing_private\.plan_catalog/)
+  assert.doesNotMatch(directQuote, /from public\.subscriptions/)
+  assert.doesNotMatch(directQuote, /reserve_credits|capture_credits|grant_credits/)
+
+  assert.match(
+    sql,
+    /revoke all on function billing_private\.create_direct_provider_generation_quote\([^;]+\) from public, anon, authenticated/,
+  )
+  assert.match(
+    sql,
+    /grant execute on function billing_private\.create_direct_provider_generation_quote\([^;]+\) to service_role/,
+  )
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function billing_private\.(?:is_active_partner|can_use_direct_provider_billing|create_partner_purchase_intent|set_partner_purchase_intent_state|create_direct_provider_generation_quote)\([^;]+\) to authenticated/,
+  )
+})
+
+test('Partner checkout admits only a confirmed account and only one payable session', () => {
+  const sql = normalize(partnerMigration)
+  const createPurchase = extractFunctionFrom(
+    partnerMigration,
+    'billing_private.create_partner_purchase_intent',
+  )
+
+  assert.match(createPurchase, /from auth\.users as auth_user/)
+  assert.match(createPurchase, /auth_user\.email_confirmed_at is not null/)
+  assert.match(createPurchase, /auth_user\.deleted_at is null/)
+  assert.match(createPurchase, /auth_user\.banned_until is null or auth_user\.banned_until <= statement_timestamp\(\)/)
+  assert.match(createPurchase, /customer\.status = 'closed'/)
+  assert.match(createPurchase, /intent\.status in \('created', 'open'\)/)
+  assert.match(
+    sql,
+    /create unique index partner_purchase_intents_one_payable_session_per_customer on billing_private\.partner_purchase_intents \(customer_id\) where status in \('created', 'open'\)/,
   )
 })
 

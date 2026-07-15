@@ -40,6 +40,34 @@ decision does not authorize live billing by itself.
   is not bundled into the app, and an email check in a client is never
   authorization.
 
+### Partner lifetime access
+
+Partner is a separate one-time commercial entitlement, not a recurring plan or
+platform role:
+
+| Product | One-time price | Included credits | Credit source | Access |
+|---|---:|---:|---|---|
+| Partner | $999 | 0 | Customer-owned direct provider account | Lifetime; all verified models |
+
+- The current upstream base reference is **$0.005 per provider credit**. This is
+  raw upstream economics, not an EasyField top-up promise: upstream bonuses and
+  future price changes remain authoritative.
+- Partner receives no EasyField credit grant. Activating the entitlement must
+  never call `grant_credits` or create a subscription grant lot.
+- A Partner uses their own provider account and secret. An administrator uses
+  the operator account already assigned to that administrator. Keys, balances
+  and purchases are never shared between those accounts.
+- Partner and administrator accounts may see their own upstream balance, raw
+  price next to credits, and a Main-owned quick-purchase action. Customer and
+  support sessions receive only EasyField-credit values and no upstream link,
+  name, raw price, account identifier or secret.
+- Partner does not become an administrator. User management, platform-wide
+  diagnostics, role changes and another account's billing data remain denied.
+- Entitlement activation requires one verified, reconciled $999 payment event.
+  A redirect, renderer flag or local receipt cannot activate it. A verified
+  refund, chargeback, fraud decision or administrative revocation ends access;
+  otherwise `endsAt` is null.
+
 ### Integer authority
 
 One USD is `1,000,000` money micros and one credit is `1,000,000` credit micros.
@@ -84,9 +112,13 @@ remain the media data plane and do not move to cloud storage by this decision.
 - Platform roles come from the database. The first admin is bootstrapped once
   from a trusted server/SQL session; a client email comparison has no authority.
 - A server-asserted admin keeps the existing operator path: generation quotes
-  are marked as an admin bypass and do not debit the customer credit ledger.
+  use direct upstream billing and do not debit the customer credit ledger.
   The admin-only endpoint may return the live upstream balance and raw cost;
   customer and support sessions never receive those fields.
+- A paid, active Partner receives the same narrow `direct_upstream` billing
+  capability and all-model entitlement, but no other administrator capability.
+  The server rechecks the entitlement for every paid request; UI visibility is
+  never authorization.
 
 ### Payment adapter
 
@@ -165,6 +197,8 @@ for refunds, retries, concurrent devices or administrator adjustments.
   account information.
 - A successful PKG build or CI run is not evidence that the cloud billing
   control plane has been deployed.
+- The $999 Partner checkout remains disabled until the selected payment adapter
+  verifies one-time payments, reversals and reconciliation in production.
 - Plan changes remain blocked from production behavior until the unresolved
   policy questions are accepted.
 - The 2026-07-15 forward price revision is intentionally pre-launch and
@@ -182,3 +216,6 @@ for refunds, retries, concurrent devices or administrator adjustments.
 4. [ ] Resolve upgrade grant deltas, refunds, delinquency and cancellation policy.
 5. [ ] Add Main-owned account/session IPC that never exposes refresh tokens.
 6. [ ] Require the deployed server entitlement and balance preflight for every paid job.
+7. [ ] Obtain written upstream approval for customer-owned direct keys, in-app
+   raw-price display and the fixed quick-purchase deep link.
+8. [ ] Add verified refund/chargeback events before enabling Partner checkout.

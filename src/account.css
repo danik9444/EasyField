@@ -72,6 +72,7 @@
 .ef-account-autoreload-head > div > span,
 .ef-account-current > div > span,
 .ef-account-admin-head small,
+.ef-account-partner-copy > span,
 .ef-account-checkout-row small {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 11px;
@@ -194,7 +195,8 @@
 
 .ef-account-section-title h2,
 .ef-account-autoreload-head h2,
-.ef-account-admin-head h2 {
+.ef-account-admin-head h2,
+.ef-account-partner h2 {
   margin: 4px 0 0;
   font-size: clamp(17px, 3.1vw, 22px);
   line-height: 1.12;
@@ -203,7 +205,8 @@
 
 .ef-account-section-title p,
 .ef-account-autoreload-head p,
-.ef-account-admin-head p {
+.ef-account-admin-head p,
+.ef-account-partner p {
   margin: 6px 0 0;
   max-width: 610px;
   color: var(--account-muted);
@@ -530,6 +533,113 @@
 .ef-account-checkout-row > div { margin-right: auto; display: grid; gap: 2px; }
 .ef-account-checkout-row strong { font-size: 11px; }
 
+/* One-time Partner membership */
+
+.ef-account-partner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px 24px;
+  overflow: hidden;
+  position: relative;
+  border-color: color-mix(in srgb, var(--account-accent) 33%, var(--account-line));
+  background:
+    radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--account-accent) 18%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--account-accent) 8%, transparent), rgba(23, 23, 30, .95));
+}
+
+.ef-account-partner::after {
+  content: '';
+  width: 170px;
+  height: 170px;
+  position: absolute;
+  right: -90px;
+  bottom: -115px;
+  border: 1px solid color-mix(in srgb, var(--account-accent) 30%, transparent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.ef-account-partner.is-active {
+  border-color: rgba(80, 221, 176, .32);
+  background:
+    radial-gradient(circle at 92% 10%, rgba(80, 221, 176, .13), transparent 35%),
+    linear-gradient(145deg, rgba(80, 221, 176, .055), rgba(23, 23, 30, .95));
+}
+
+.ef-account-partner-copy,
+.ef-account-partner-purchase {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.ef-account-partner-title-row {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ef-account-partner-title-row h2 { margin: 0; }
+.ef-account-partner-title-row i {
+  padding: 4px 7px;
+  border: 1px solid rgba(80, 221, 176, .22);
+  border-radius: 6px;
+  background: rgba(80, 221, 176, .08);
+  color: var(--account-green);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: .08em;
+}
+
+.ef-account-partner-facts {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ef-account-partner-facts > span {
+  min-width: 0;
+  padding: 10px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--account-line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .15);
+}
+
+.ef-account-partner-facts b { color: #fff; font-size: 11px; }
+.ef-account-partner-facts small { color: var(--account-subtle); font-size: 11px; line-height: 1.35; }
+
+.ef-account-partner-purchase {
+  min-width: 170px;
+  display: grid;
+  justify-items: stretch;
+  gap: 13px;
+}
+
+.ef-account-partner-price { display: flex; align-items: baseline; justify-content: center; gap: 5px; }
+.ef-account-partner-price strong { color: #fff; font-size: 31px; line-height: 1; letter-spacing: -.045em; }
+.ef-account-partner-price small { color: var(--account-muted); font-size: 11px; }
+.ef-account-partner-owned {
+  min-height: 42px;
+  padding: 0 13px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(80, 221, 176, .24);
+  border-radius: 12px;
+  background: rgba(80, 221, 176, .07);
+  color: var(--account-green);
+  font-size: 11px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.ef-account-partner > .ef-account-feedback { grid-column: 1 / -1; }
+
 /* Top-up and reload */
 
 .ef-account-rate {
@@ -599,7 +709,9 @@
 }
 .ef-account-admin-head { display: flex; align-items: flex-start; gap: 11px; }
 .ef-account-admin-head > span { width: 37px; height: 37px; flex: none; display: grid; place-items: center; border: 1px solid rgba(255, 180, 84, .24); border-radius: 11px; background: rgba(255, 180, 84, .075); color: #ffca7a; }
-.ef-account-admin-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ef-account-admin-head > div { min-width: 0; flex: 1; }
+.ef-account-provider-topup { flex: none; align-self: center; }
+.ef-account-admin-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .ef-account-admin-grid > div { min-width: 0; padding: 11px; display: grid; gap: 4px; border: 1px solid var(--account-line); border-radius: 11px; background: rgba(0, 0, 0, .17); }
 .ef-account-admin-grid small { color: #d3b998; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .1em; }
 .ef-account-admin-grid strong { overflow: hidden; text-overflow: ellipsis; color: #fff; font-size: 12px; }
@@ -612,6 +724,10 @@
   .ef-account-topup-row > .ef-account-primary { grid-column: 1 / -1; width: 100%; }
   .ef-account-autoreload-controls { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
   .ef-account-autoreload-controls > button { grid-column: 1 / -1; }
+  .ef-account-partner { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-partner-purchase { min-width: 0; grid-template-columns: auto minmax(150px, auto); align-items: center; justify-content: end; }
+  .ef-account-partner-price { justify-content: flex-start; }
+  .ef-account-admin-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 460px) {
@@ -628,7 +744,8 @@
   .ef-account-section-title { display: grid; gap: 11px; }
   .ef-account-section-title h2,
   .ef-account-autoreload-head h2,
-  .ef-account-admin-head h2 { font-size: 17px; }
+  .ef-account-admin-head h2,
+  .ef-account-partner h2 { font-size: 17px; }
   .ef-account-section-title p { font-size: 11px; }
   .ef-account-total { width: 100%; min-width: 0; grid-template-columns: 1fr auto; align-items: baseline; text-align: left; }
   .ef-account-balance-grid { grid-template-columns: minmax(0, 1fr); }
@@ -639,6 +756,9 @@
   .ef-account-current p { grid-column: 1 / -1; grid-row: 2; }
   .ef-account-plan-grid { grid-template-columns: minmax(0, 1fr); }
   .ef-account-plan { min-height: 218px; }
+  .ef-account-partner-facts { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-partner-purchase { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
+  .ef-account-partner-price { justify-content: flex-start; }
   .ef-account-checkout-row { display: grid; }
   .ef-account-checkout-row > div { margin: 0; }
   .ef-account-checkout-row .ef-account-primary { width: 100%; }
@@ -651,6 +771,8 @@
   .ef-account-flow { display: none; }
   .ef-account-autoreload-controls > button { grid-column: auto; width: 100%; }
   .ef-account-admin-grid { grid-template-columns: minmax(0, 1fr); }
+  .ef-account-admin-head { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .ef-account-provider-topup { grid-column: 1 / -1; width: 100%; }
   .ef-account-verify { grid-template-columns: auto minmax(0, 1fr); }
   .ef-account-verify > button { grid-column: 1 / -1; width: 100%; }
   .ef-account-auth { padding: 16px 10px 60px; }

@@ -91,6 +91,9 @@ const PROVIDER_API_HOST = (process.env.EF_CLOUD_API_HOST || Buffer.from('YXBpLmt
 const PROVIDER_UPLOAD_HOST = (process.env.EF_CLOUD_UPLOAD_HOST || Buffer.from('a2llYWkucmVkcGFuZGFhaS5jbw==', 'base64').toString('utf8')).trim();
 const SECURE_PROVIDER_PROXY_TOKEN = '__easyfield_secure__';
 const CLOUD_GENERATION_CREDENTIAL = 'cloud-generation-api-key';
+// Credit purchases deliberately use one Main-owned destination. The renderer
+// can request this action, but it cannot choose or redirect the external URL.
+const CREDIT_PURCHASE_URL = Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8');
 // Compatibility with installations that predate the provider-neutral name.
 // Keep the legacy value out of source text while allowing a seamless upgrade.
 const LEGACY_CLOUD_GENERATION_CREDENTIAL = String.fromCharCode(107, 105, 101, 45, 97, 112, 105, 45, 107, 101, 121);
@@ -1915,6 +1918,12 @@ function registerHostIpc() {
         if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
         currentWindowMode = mode;
         applyWindowMode(mainWindow, screen, mode, { animate: true });
+    });
+    registerTrustedHandler('ef:billing:open-credit-purchase', () => {
+        if (!shell || typeof shell.openExternal !== 'function') {
+            throw new Error('External billing is unavailable');
+        }
+        return shell.openExternal(CREDIT_PURCHASE_URL);
     });
     // No renderer argument is accepted: Main owns the verified source and the
     // fixed Resolve destination, including administrator-authorized rollback.

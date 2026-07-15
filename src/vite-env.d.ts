@@ -17,6 +17,9 @@ interface Window {
     window?: {
       setMode: (mode: 'compact' | 'expanded') => Promise<void>
     }
+    billing?: {
+      openCreditPurchase: () => Promise<void>
+    }
     updates?: {
       check: () => Promise<import('./services/host').PluginUpdateStatus>
       install: () => Promise<import('./services/host').PluginUpdateInstallResult>

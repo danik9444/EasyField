@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import '../account.css'
 import {
+  PARTNER_MEMBERSHIP,
   SUBSCRIPTION_PLAN_IDS,
   SUBSCRIPTION_PLANS,
   minimumTopUpCreditMicros,
@@ -12,10 +13,11 @@ import {
   type SubscriptionPlanId,
 } from '../data/subscriptions'
 import {
-  canShowAdminBilling,
+  canShowPrivilegedBilling,
   formatAccountDate,
   formatCreditMicros,
   formatMoneyMicros,
+  hasActivePartnerEntitlement,
   parseWholeCreditInput,
   subscriptionAllowsTopUps,
   totalCreditMicros,
@@ -23,12 +25,16 @@ import {
   type AccountAdminBillingSnapshot,
   type AccountAuthMode,
   type AccountCreditBalanceSnapshot,
+  type AccountPartnerEntitlementSnapshot,
+  type AccountPrivilegedBillingSnapshot,
   type AccountSession,
   type AccountSubscriptionSnapshot,
   type EmailPasswordAuthRequest,
+  type PartnerCheckoutRequest,
   type PlanCheckoutRequest,
   type TopUpCheckoutRequest,
 } from '../core/account'
+import { host } from '../services/host'
 
 export interface AccountFeedback {
   tone: 'neutral' | 'success' | 'error'
@@ -66,6 +72,12 @@ export interface AccountProps {
   onRequestPlanCheckout: (request: PlanCheckoutRequest) => void | Promise<void>
   onRequestBillingPortal?: () => void | Promise<void>
 
+  /** Commercial entitlement supplied by the trusted account service. */
+  partnerEntitlement?: AccountPartnerEntitlementSnapshot | null
+  partnerCheckoutPending?: boolean
+  partnerFeedback?: AccountFeedback | null
+  onRequestPartnerCheckout?: (request: PartnerCheckoutRequest) => void | Promise<void>
+
   topUpCredits: string
   topUpPending?: boolean
   topUpFeedback?: AccountFeedback | null
@@ -78,8 +90,13 @@ export interface AccountProps {
   onAutoReloadPolicyChange: (policy: AutoReloadPolicy) => void
   onRequestSaveAutoReload: (policy: AutoReloadPolicy) => void | Promise<void>
 
-  /** Returned only by an authenticated admin endpoint; hidden unless the session role is admin. */
+  /** Returned only by a privileged endpoint for an admin or active Partner. */
+  privilegedBilling?: AccountPrivilegedBillingSnapshot | null
+  /** @deprecated Compatibility alias for existing admin integrations. */
   adminBilling?: AccountAdminBillingSnapshot | null
+  upstreamTopUpPending?: boolean
+  upstreamTopUpFeedback?: AccountFeedback | null
+  onRequestUpstreamTopUp?: () => void | Promise<void>
 }
 
 const STATUS_LABELS: Record<AccountSubscriptionSnapshot['status'], string> = {
@@ -302,6 +319,46 @@ function PlansSection(props: AccountProps & { billingLocked: boolean }) {
   )
 }
 
+function PartnerMembershipSection(props: AccountProps & { billingLocked: boolean; activePartner: boolean }) {
+  const product = PARTNER_MEMBERSHIP
+  const checkoutUnavailable = !props.onRequestPartnerCheckout
+
+  return (
+    <section className={`ef-account-section ef-account-partner${props.activePartner ? ' is-active' : ''}`} aria-labelledby="ef-account-partner-title">
+      <div className="ef-account-partner-copy">
+        <span>ONE-TIME MEMBERSHIP</span>
+        <div className="ef-account-partner-title-row">
+          <h2 id="ef-account-partner-title">Partner</h2>
+          {props.activePartner && <i>ACTIVE · LIFETIME</i>}
+        </div>
+        <p>Own lifetime access to EasyField and work with every verified model. Credits are purchased separately and no credits are included in the membership.</p>
+        <div className="ef-account-partner-facts" aria-label="Partner membership benefits">
+          <span><b>All models</b><small>Every verified model family is available.</small></span>
+          <span><b>{formatMoneyMicros(product.directCreditMoneyMicrosPerCredit, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} / credit</b><small>Direct credit reference rate.</small></span>
+          <span><b>No monthly fee</b><small>One payment, lifetime access.</small></span>
+        </div>
+      </div>
+      <div className="ef-account-partner-purchase">
+        <span className="ef-account-partner-price"><strong>{formatMoneyMicros(product.oneTimeChargeMoneyMicros)}</strong><small>one time</small></span>
+        {props.activePartner ? (
+          <span className="ef-account-partner-owned" role="status">Partner access is active</span>
+        ) : (
+          <button
+            type="button"
+            className="ef-account-primary"
+            disabled={props.partnerCheckoutPending || props.billingLocked || checkoutUnavailable}
+            title={checkoutUnavailable ? 'Partner checkout is not connected yet.' : undefined}
+            onClick={() => void props.onRequestPartnerCheckout?.({ productId: product.id })}
+          >
+            {props.partnerCheckoutPending ? 'Opening checkout…' : 'Get lifetime access'}
+          </button>
+        )}
+      </div>
+      <Feedback value={props.partnerFeedback} />
+    </section>
+  )
+}
+
 function TopUpSection(props: AccountProps & { billingLocked: boolean; pricingPlanId: SubscriptionPlanId; hasEligiblePlan: boolean }) {
   const parsed = parseWholeCreditInput(props.topUpCredits)
   const quote = parsed.ok ? quoteTopUp(props.pricingPlanId, parsed.amountCreditMicros) : null
@@ -390,16 +447,48 @@ function AutoReloadSection(props: AccountProps & { billingLocked: boolean; prici
   )
 }
 
-function AdminSection({ session, adminBilling }: Pick<AccountProps, 'session' | 'adminBilling'>) {
-  if (!canShowAdminBilling(session, adminBilling)) return null
+function PrivilegedBillingSection({
+  session,
+  partnerEntitlement,
+  privilegedBilling,
+  adminBilling,
+  upstreamTopUpPending,
+  upstreamTopUpFeedback,
+  onRequestUpstreamTopUp,
+}: Pick<AccountProps, 'session' | 'partnerEntitlement' | 'privilegedBilling' | 'adminBilling' | 'upstreamTopUpPending' | 'upstreamTopUpFeedback' | 'onRequestUpstreamTopUp'>) {
+  const snapshot = privilegedBilling ?? adminBilling
+  if (!canShowPrivilegedBilling(session, partnerEntitlement, snapshot)) return null
+  const admin = session.status === 'signed-in' && session.platformRole === 'admin'
+  const canOpenUpstreamTopUp = Boolean(onRequestUpstreamTopUp) || host.isPlugin()
+  const requestUpstreamTopUp = () => {
+    if (onRequestUpstreamTopUp) return onRequestUpstreamTopUp()
+    return host.openCreditPurchase()
+  }
   return (
     <section className="ef-account-section ef-account-admin" aria-labelledby="ef-account-admin-title">
-      <div className="ef-account-admin-head"><span aria-hidden="true">◆</span><div><small>ADMIN ONLY</small><h2 id="ef-account-admin-title">Platform billing diagnostics</h2><p>Visible only because the authenticated server session asserts the admin role.</p></div></div>
-      <div className="ef-account-admin-grid">
-        <div><small>UPSTREAM BALANCE</small><strong>{adminBilling.upstreamBalanceCreditMicros == null ? 'Unavailable' : `${formatCreditMicros(adminBilling.upstreamBalanceCreditMicros)} credits`}</strong></div>
-        <div><small>LATEST RAW COST</small><strong>{adminBilling.latestRawCostMoneyMicros == null || !adminBilling.latestRawCostCurrencyCode ? 'Unavailable' : formatMoneyMicros(adminBilling.latestRawCostMoneyMicros, { currency: adminBilling.latestRawCostCurrencyCode, minimumFractionDigits: 2, maximumFractionDigits: 6 })}</strong></div>
-        <div><small>MEASURED</small><strong>{formatAccountDate(adminBilling.measuredAtMs)}</strong></div>
+      <div className="ef-account-admin-head">
+        <span aria-hidden="true">◆</span>
+        <div>
+          <small>{admin ? 'ADMIN DIRECT ACCESS' : 'PARTNER DIRECT ACCESS'}</small>
+          <h2 id="ef-account-admin-title">Direct provider billing</h2>
+          <p>Raw provider balance and cost are visible only to this privileged account.</p>
+        </div>
+        {canOpenUpstreamTopUp && (
+          <button
+            type="button"
+            className="ef-account-primary ef-account-provider-topup"
+            disabled={upstreamTopUpPending}
+            onClick={() => void requestUpstreamTopUp()}
+          >{upstreamTopUpPending ? 'Opening…' : 'Buy provider credits'}</button>
+        )}
       </div>
+      <div className="ef-account-admin-grid">
+        <div><small>PROVIDER BALANCE</small><strong>{snapshot.upstreamBalanceCreditMicros == null ? 'Unavailable' : `${formatCreditMicros(snapshot.upstreamBalanceCreditMicros)} credits`}</strong></div>
+        <div><small>LATEST RAW COST</small><strong>{snapshot.latestRawCostMoneyMicros == null || !snapshot.latestRawCostCurrencyCode ? 'Unavailable' : formatMoneyMicros(snapshot.latestRawCostMoneyMicros, { currency: snapshot.latestRawCostCurrencyCode, minimumFractionDigits: 2, maximumFractionDigits: 6 })}</strong></div>
+        <div><small>DIRECT RATE</small><strong>{formatMoneyMicros(PARTNER_MEMBERSHIP.directCreditMoneyMicrosPerCredit, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} / credit</strong></div>
+        <div><small>MEASURED</small><strong>{formatAccountDate(snapshot.measuredAtMs)}</strong></div>
+      </div>
+      <Feedback value={upstreamTopUpFeedback} />
     </section>
   )
 }
@@ -411,6 +500,7 @@ export function Account(props: AccountProps) {
   const pricingPlanId = eligibleSubscription?.planId ?? props.selectedPlanId
   const billingLocked = signedInSession != null && !signedInSession.emailVerified
   const topUpLocked = billingLocked || !hasEligiblePlan
+  const activePartner = hasActivePartnerEntitlement(props.partnerEntitlement)
 
   return (
     <div className="ef-screen ef-account-screen">
@@ -424,11 +514,20 @@ export function Account(props: AccountProps) {
               {props.onRequestResendVerification && <button type="button" disabled={props.verificationPending} onClick={() => void props.onRequestResendVerification?.()}>{props.verificationPending ? 'Sending…' : 'Resend verification'}</button>}
             </section>
           )}
-          <BalanceSection balances={props.balances} subscription={props.subscription} />
-          <PlansSection {...props} billingLocked={billingLocked} />
-          <TopUpSection {...props} billingLocked={topUpLocked} pricingPlanId={pricingPlanId} hasEligiblePlan={hasEligiblePlan} />
-          <AutoReloadSection {...props} billingLocked={topUpLocked} pricingPlanId={pricingPlanId} hasEligiblePlan={hasEligiblePlan} />
-          <AdminSection session={props.session} adminBilling={props.adminBilling} />
+          {!activePartner && <BalanceSection balances={props.balances} subscription={props.subscription} />}
+          {!activePartner && <PlansSection {...props} billingLocked={billingLocked} />}
+          <PartnerMembershipSection {...props} billingLocked={billingLocked} activePartner={activePartner} />
+          {!activePartner && <TopUpSection {...props} billingLocked={topUpLocked} pricingPlanId={pricingPlanId} hasEligiblePlan={hasEligiblePlan} />}
+          {!activePartner && <AutoReloadSection {...props} billingLocked={topUpLocked} pricingPlanId={pricingPlanId} hasEligiblePlan={hasEligiblePlan} />}
+          <PrivilegedBillingSection
+            session={props.session}
+            partnerEntitlement={props.partnerEntitlement}
+            privilegedBilling={props.privilegedBilling}
+            adminBilling={props.adminBilling}
+            upstreamTopUpPending={props.upstreamTopUpPending}
+            upstreamTopUpFeedback={props.upstreamTopUpFeedback}
+            onRequestUpstreamTopUp={props.onRequestUpstreamTopUp}
+          />
         </main>
       )}
     </div>

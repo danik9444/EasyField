@@ -10,11 +10,37 @@ export type MoneyMicros = number
 export type CreditMicros = number
 export type SubscriptionPlanId = 'starter' | 'creator' | 'pro' | 'studio'
 export type BillingInterval = 'monthly' | 'annual'
+export type LifetimeProductId = 'partner_lifetime'
 
 export const MONEY_MICROS_PER_USD = 1_000_000
 export const MONEY_MICROS_PER_USD_CENT = 10_000
 export const CREDIT_MICROS_PER_CREDIT = 1_000_000
 export const MINIMUM_TOP_UP_MONEY_MICROS: MoneyMicros = 10 * MONEY_MICROS_PER_USD
+
+export interface PartnerMembershipProduct {
+  id: LifetimeProductId
+  name: 'Partner'
+  oneTimeChargeMoneyMicros: MoneyMicros
+  includedCreditMicros: 0
+  directCreditMoneyMicrosPerCredit: MoneyMicros
+  lifetimeAccess: true
+  allModelsIncluded: true
+}
+
+/**
+ * Partner is a one-time access product, not a recurring subscription plan.
+ * Credits are bought directly outside EasyField, so this product must never
+ * create a subscription grant or enter the regular top-up calculator.
+ */
+export const PARTNER_MEMBERSHIP: Readonly<PartnerMembershipProduct> = Object.freeze({
+  id: 'partner_lifetime',
+  name: 'Partner',
+  oneTimeChargeMoneyMicros: 999 * MONEY_MICROS_PER_USD,
+  includedCreditMicros: 0,
+  directCreditMoneyMicrosPerCredit: 5_000,
+  lifetimeAccess: true,
+  allModelsIncluded: true,
+})
 
 export interface SubscriptionPlan {
   id: SubscriptionPlanId

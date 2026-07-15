@@ -2,15 +2,19 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
+  accountHasAllModelAccess,
   canShowAdminBilling,
+  canShowPrivilegedBilling,
   formatCreditMicros,
   formatMoneyMicros,
+  hasActivePartnerEntitlement,
   mapAccountSubscriptionStatus,
   parseWholeCreditInput,
   subscriptionAllowsTopUps,
   totalCreditMicros,
   type AccountAdminBillingSnapshot,
   type AccountCreditBalanceSnapshot,
+  type AccountPartnerEntitlementSnapshot,
   type AccountSession,
 } from '../src/core/account.ts'
 import { CREDIT_MICROS_PER_CREDIT, MONEY_MICROS_PER_USD } from '../src/data/subscriptions.ts'
@@ -18,6 +22,7 @@ import { CREDIT_MICROS_PER_CREDIT, MONEY_MICROS_PER_USD } from '../src/data/subs
 const measuredAtMs = Date.UTC(2026, 6, 15)
 const accountScreenSource = readFileSync(new URL('../src/screens/Account.tsx', import.meta.url), 'utf8')
 const accountStylesSource = readFileSync(new URL('../src/account.css', import.meta.url), 'utf8')
+const homeScreenSource = readFileSync(new URL('../src/screens/Home.tsx', import.meta.url), 'utf8')
 
 test('account balance keeps expiring and purchased credits separate while deriving the total', () => {
   const balance: AccountCreditBalanceSnapshot = {
@@ -82,6 +87,47 @@ test('raw platform billing is gated only by the server-asserted admin role', () 
   assert.equal(snapshot.latestRawCostMoneyMicros, 0.035 * MONEY_MICROS_PER_USD)
 })
 
+test('privileged provider billing is available to admin or an active server-asserted Partner', () => {
+  const snapshot: AccountAdminBillingSnapshot = {
+    upstreamBalanceCreditMicros: 12_000 * CREDIT_MICROS_PER_CREDIT,
+    latestRawCostMoneyMicros: 25_000,
+    latestRawCostCurrencyCode: 'USD',
+    measuredAtMs,
+  }
+  const customer: AccountSession = {
+    status: 'signed-in',
+    accountId: 'partner-account',
+    email: 'partner@example.com',
+    emailVerified: true,
+    platformRole: 'customer',
+  }
+  const support: AccountSession = { ...customer, accountId: 'support-account', platformRole: 'support' }
+  const admin: AccountSession = { ...customer, accountId: 'admin-account', platformRole: 'admin' }
+  const unverifiedPartner: AccountSession = { ...customer, accountId: 'unverified-account', emailVerified: false }
+  const activePartner: AccountPartnerEntitlementSnapshot = {
+    productId: 'partner_lifetime',
+    status: 'active',
+    lifetime: true,
+    allModelsIncluded: true,
+    assertedByServer: true,
+    activatedAtMs: measuredAtMs,
+  }
+  const revokedPartner: AccountPartnerEntitlementSnapshot = { ...activePartner, status: 'revoked' }
+
+  assert.equal(hasActivePartnerEntitlement(activePartner), true)
+  assert.equal(hasActivePartnerEntitlement(revokedPartner), false)
+  assert.equal(canShowPrivilegedBilling(customer, activePartner, snapshot), true)
+  assert.equal(canShowPrivilegedBilling(unverifiedPartner, activePartner, snapshot), false)
+  assert.equal(canShowPrivilegedBilling(customer, revokedPartner, snapshot), false)
+  assert.equal(canShowPrivilegedBilling(support, null, snapshot), false)
+  assert.equal(canShowPrivilegedBilling(admin, null, snapshot), true)
+  assert.equal(canShowPrivilegedBilling(admin, null, null), false)
+  assert.equal(accountHasAllModelAccess(customer, activePartner), true)
+  assert.equal(accountHasAllModelAccess(unverifiedPartner, activePartner), false)
+  assert.equal(accountHasAllModelAccess(customer, revokedPartner), false)
+  assert.equal(accountHasAllModelAccess(admin, null), true)
+})
+
 test('invalid authoritative balances throw instead of being silently clamped', () => {
   assert.throws(() => totalCreditMicros({
     subscriptionCreditMicros: -1,
@@ -125,6 +171,14 @@ test('account controls keep their semantic names and persist auto-reload disable
   assert.match(accountScreenSource, /aria-label=\{policy\.enabled \? 'Turn off auto-reload' : 'Turn on auto-reload'\}/)
   assert.match(accountScreenSource, /onRequestSaveAutoReload\(disabledPolicy\)/)
   assert.match(accountScreenSource, /balances\.otherCreditMicros > 0/)
+  assert.match(accountScreenSource, /ONE-TIME MEMBERSHIP/)
+  assert.match(accountScreenSource, /Get lifetime access/)
+  assert.match(accountScreenSource, /Buy provider credits/)
+  assert.match(accountScreenSource, /host\.openCreditPurchase\(\)/)
+  assert.match(accountScreenSource, /!activePartner && <TopUpSection/)
+  assert.match(accountScreenSource, /!activePartner && <AutoReloadSection/)
+  assert.match(homeScreenSource, /creditsLive && host\.isPlugin\(\)/)
+  assert.match(homeScreenSource, /host\.openCreditPurchase\(\)/)
 })
 
 test('account stylesheet does not render supporting text below 11px', () => {

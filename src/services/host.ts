@@ -108,6 +108,12 @@ export const host = {
     await nativeHost()?.window?.setMode(mode)
   },
 
+  async openCreditPurchase(): Promise<void> {
+    const api = nativeHost()
+    if (!api?.billing) throw new Error('Open EasyField inside DaVinci Resolve to purchase credits.')
+    await api.billing.openCreditPurchase()
+  },
+
   async checkForUpdates(): Promise<PluginUpdateStatus> {
     const api = nativeHost()
     if (api?.updates) return api.updates.check()

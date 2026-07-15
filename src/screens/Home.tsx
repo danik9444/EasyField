@@ -83,6 +83,7 @@ export function Home({
   onOpenTool,
   onToggleWindowMode,
   windowMode,
+  toast,
   searchFocusSignal,
 }: HomeProps) {
   const [query, setQuery] = useState('')
@@ -356,6 +357,15 @@ export function Home({
               {apiStatus === 'connecting' && 'Checking your balance…'}
               {apiStatus === 'idle' && (!keyToValidate ? 'Enter an API key to enable cloud actions.' : 'The key stays on this Mac.')}
             </div>
+            {creditsLive && host.isPlugin() && (
+              <button
+                type="button"
+                className="ef-credit-purchase-btn"
+                onClick={() => void host.openCreditPurchase().catch(() => toast('Could not open credit purchase.'))}
+              >
+                <span>Buy credits</span><span aria-hidden="true">↗</span>
+              </button>
+            )}
           </div>
         </>
       )}

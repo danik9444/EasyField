@@ -132,11 +132,15 @@ version is immutable and an update always requires a higher SemVer.
 
 ## API key and local security
 
-Enter the EasyField Cloud key from Settings or the credits badge on Home. In the Electron
-plugin it is encrypted with Electron `safeStorage` (macOS Keychain-backed). The
-renderer receives only an internal proxy token; the cloud gateway adds the real key
-inside the main process. Browser development keeps the key in `sessionStorage`
-only and must not be treated as a production credential store.
+The current development/operator build can accept an EasyField Cloud key from
+Settings or the credits badge on Home. In the Electron plugin it is encrypted
+with Electron `safeStorage` (macOS Keychain-backed). The renderer receives only
+an internal proxy token; the cloud gateway adds the real key inside the main
+process. Browser development keeps the key in `sessionStorage` only and must not
+be treated as a production credential store. Before customer billing launches,
+this direct-key path must require a short-lived server capability belonging to
+an administrator or active Partner; a normal customer must use the EasyField
+credit control plane and must not receive a direct-key form.
 
 The Resolve bridge listens only on `127.0.0.1` and protects privileged endpoints
 with a per-process secret plus origin checks. Keep port `18832` local and do not
@@ -164,11 +168,18 @@ state machine:
   versioned migration and subscription-transition policy, never by mutating the
   row beneath a paid period.
 - A paid-generation quote requires an active, unexpired plan entitlement unless
-  the target account is an administrator. The Starter restriction matches only
+  the target account has the server-issued direct-upstream capability. The
+  Starter restriction matches only
   the exact regular Seedance 2 model ID; similarly named Fast and Mini models
-  are not accidentally blocked. Administrator-bypass quotes intentionally skip
+  are not accidentally blocked. Direct-upstream quotes intentionally skip
   `reserve_credits`; the trusted backend goes directly from the approved quote
-  to provider execution so an operator is never accidentally debited.
+  to provider execution so an administrator or active Partner is never
+  accidentally debited from the EasyField ledger.
+- Partner is a separate $999 one-time lifetime entitlement with zero included
+  EasyField credits, all verified models and a customer-owned upstream account.
+  It is never represented as a subscription plan or administrator role. Only a
+  reconciled payment event can activate it; regular customers never receive raw
+  upstream prices, balances, purchase links or provider account data.
 - Subscription and purchased credits remain separate lots. Reservations consume
   the soonest-expiring lots first, settlement is append-only and every grant,
   capture and release retry is bound to a canonical SHA-256 request snapshot.

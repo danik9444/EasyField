@@ -5,6 +5,7 @@ import {
   CREDIT_MICROS_PER_CREDIT,
   MINIMUM_TOP_UP_MONEY_MICROS,
   MONEY_MICROS_PER_USD,
+  PARTNER_MEMBERSHIP,
   PROPOSED_PLAN_CHANGE_DEFAULTS,
   SUBSCRIPTION_PLAN_IDS,
   SUBSCRIPTION_PLANS,
@@ -17,6 +18,19 @@ import {
   quoteTopUp,
   validateAutoReloadPolicy,
 } from '../src/data/subscriptions.ts'
+
+test('Partner is a separate one-time lifetime product with no included credits', () => {
+  assert.deepEqual(PARTNER_MEMBERSHIP, {
+    id: 'partner_lifetime',
+    name: 'Partner',
+    oneTimeChargeMoneyMicros: 999_000_000,
+    includedCreditMicros: 0,
+    directCreditMoneyMicrosPerCredit: 5_000,
+    lifetimeAccess: true,
+    allModelsIncluded: true,
+  })
+  assert.equal(Object.hasOwn(SUBSCRIPTION_PLANS, PARTNER_MEMBERSHIP.id), false)
+})
 
 test('the four plans use exact integer-micro prices, grants and top-up rates', () => {
   assert.deepEqual(SUBSCRIPTION_PLAN_IDS, ['starter', 'creator', 'pro', 'studio'])

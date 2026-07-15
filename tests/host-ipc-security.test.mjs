@@ -39,6 +39,7 @@ const realDns = require('node:dns')
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
 let capturedProxyAuthorization = ''
 let capturedProxyBridgeToken = ''
+const openedExternalUrls = []
 const fakeHttps = {
   ...realHttps,
   get: (_options, callback) => {
@@ -80,6 +81,9 @@ const safeStorage = {
   isEncryptionAvailable: () => true,
   encryptString: (value) => Buffer.from('encrypted:' + Buffer.from(value).toString('base64')),
   decryptString: (bytes) => Buffer.from(String(Buffer.from(bytes)).slice('encrypted:'.length), 'base64').toString(),
+}
+const shell = {
+  openExternal: async (url) => { openedExternalUrls.push(url) },
 }
 
 class FakeWebContents extends EventEmitter {
@@ -130,7 +134,7 @@ screen.getDisplayMatching = () => screen.getPrimaryDisplay()
 
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
-  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage, screen }
+  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage, screen, shell }
   if (request === 'https' || request === 'node:https') return fakeHttps
   if (request === 'dns' || request === 'node:dns') return fakeDns
   if (request.endsWith('WorkflowIntegration.node')) throw new Error('native Resolve bridge disabled by the IPC test')
@@ -141,7 +145,7 @@ require(process.argv[1])
 
 async function waitForReady() {
   for (let i = 0; i < 100; i += 1) {
-    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url')) return
+    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url') && handlers.has('ef:billing:open-credit-purchase')) return
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('Main IPC did not become ready')
@@ -152,6 +156,15 @@ void (async () => {
   const win = FakeBrowserWindow.last
   const trusted = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
   const secret = 'synthetic-ipc-test-secret'
+
+  await handlers.get('ef:billing:open-credit-purchase')(trusted, 'https://attacker.invalid/checkout')
+  let untrustedBillingRejected = false
+  try {
+    await handlers.get('ef:billing:open-credit-purchase')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+      'https://attacker.invalid/checkout',
+    )
+  } catch { untrustedBillingRejected = true }
 
   await handlers.get('ef:window:set-mode')(trusted, 'expanded')
   let arbitraryWindowModeRejected = false
@@ -233,6 +246,10 @@ void (async () => {
     plaintextOnDisk: stored.includes(Buffer.from(secret)),
     credentialMode,
     untrustedRejected,
+    untrustedBillingRejected,
+    billingOpenedFixedUrl: openedExternalUrls.length === 1
+      && openedExternalUrls[0] === Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8'),
+    rendererBillingUrlIgnored: !openedExternalUrls.includes('https://attacker.invalid/checkout'),
     artifactNamespaceRejected,
     navigationPrevented,
     webviewPrevented,
@@ -307,6 +324,9 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     plaintextOnDisk: false,
     credentialMode: 0o600,
     untrustedRejected: true,
+    untrustedBillingRejected: true,
+    billingOpenedFixedUrl: true,
+    rendererBillingUrlIgnored: true,
     artifactNamespaceRejected: true,
     navigationPrevented: true,
     webviewPrevented: true,
@@ -342,25 +362,29 @@ test('the sandboxed preload does not expose the Main-only bridge token', async (
   const bootstrap = String.raw`
 const Module = require('node:module')
 let exposed
+const calls = []
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
   if (request === 'electron') {
     return {
       contextBridge: { exposeInMainWorld: (_name, value) => { exposed = value } },
-      ipcRenderer: { invoke: async () => null },
+      ipcRenderer: { invoke: async (...args) => { calls.push(args); return null } },
     }
   }
   return originalLoad.call(this, request, parent, isMain)
 }
 process.argv.push('--ef-bridge-token=synthetic-token-that-must-stay-hidden')
 require(process.argv[1])
-console.log(JSON.stringify({
-  keys: Object.keys(exposed).sort(),
-  frozen: Object.isFrozen(exposed),
-  hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
-  hasCredentials: typeof exposed.credentials?.get === 'function',
-  hasArtifactBytes: typeof exposed.artifacts?.ingestBytes === 'function',
-}))
+void exposed.billing.openCreditPurchase('https://attacker.invalid/checkout').then(() => {
+  console.log(JSON.stringify({
+    keys: Object.keys(exposed).sort(),
+    frozen: Object.isFrozen(exposed),
+    hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
+    hasCredentials: typeof exposed.credentials?.get === 'function',
+    hasArtifactBytes: typeof exposed.artifacts?.ingestBytes === 'function',
+    billingCall: calls.at(-1),
+  }))
+})
 `
   const child = spawn(process.execPath, ['-e', bootstrap, pluginPreload], {
     cwd: projectRoot,
@@ -378,5 +402,6 @@ console.log(JSON.stringify({
   assert.equal(result.hasBridgeToken, false)
   assert.equal(result.hasCredentials, true)
   assert.equal(result.hasArtifactBytes, true)
-  assert.deepEqual(result.keys, ['artifacts', 'credentials', 'plugin', 'state', 'updates', 'window'])
+  assert.deepEqual(result.billingCall, ['ef:billing:open-credit-purchase'])
+  assert.deepEqual(result.keys, ['artifacts', 'billing', 'credentials', 'plugin', 'state', 'updates', 'window'])
 })

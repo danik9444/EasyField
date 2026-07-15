@@ -3,6 +3,7 @@ import {
   MONEY_MICROS_PER_USD,
   type BillingInterval,
   type CreditMicros,
+  type LifetimeProductId,
   type MoneyMicros,
   type SubscriptionPlanId,
 } from '../data/subscriptions.ts'
@@ -44,15 +45,33 @@ export interface AccountCreditBalanceSnapshot {
 }
 
 /**
+ * Commercial entitlement returned by the trusted account service. It is kept
+ * separate from platformRole so buying Partner can never grant operator/admin
+ * privileges. Renderer state is display-only; the backend must re-check this
+ * entitlement before permitting direct provider work.
+ */
+export interface AccountPartnerEntitlementSnapshot {
+  productId: 'partner_lifetime'
+  status: 'active' | 'revoked'
+  lifetime: true
+  allModelsIncluded: true
+  assertedByServer: true
+  activatedAtMs: number | null
+}
+
+/**
  * Diagnostic billing values that are never intended for a regular account.
  * The caller must obtain this snapshot from an authenticated admin endpoint.
  */
-export interface AccountAdminBillingSnapshot {
+export interface AccountPrivilegedBillingSnapshot {
   upstreamBalanceCreditMicros: CreditMicros | null
   latestRawCostMoneyMicros: MoneyMicros | null
   latestRawCostCurrencyCode: string | null
   measuredAtMs: number
 }
+
+/** @deprecated Prefer AccountPrivilegedBillingSnapshot for admin + Partner UI. */
+export type AccountAdminBillingSnapshot = AccountPrivilegedBillingSnapshot
 
 export interface EmailPasswordAuthRequest {
   mode: AccountAuthMode
@@ -63,6 +82,10 @@ export interface EmailPasswordAuthRequest {
 export interface PlanCheckoutRequest {
   planId: SubscriptionPlanId
   billingInterval: BillingInterval
+}
+
+export interface PartnerCheckoutRequest {
+  productId: LifetimeProductId
 }
 
 export interface TopUpCheckoutRequest {
@@ -155,6 +178,38 @@ export function canShowAdminBilling(
   snapshot: AccountAdminBillingSnapshot | null | undefined,
 ): snapshot is AccountAdminBillingSnapshot {
   return session.status === 'signed-in' && session.platformRole === 'admin' && snapshot != null
+}
+
+export function hasActivePartnerEntitlement(
+  entitlement: AccountPartnerEntitlementSnapshot | null | undefined,
+): entitlement is AccountPartnerEntitlementSnapshot & { status: 'active' } {
+  return entitlement?.assertedByServer === true
+    && entitlement.productId === 'partner_lifetime'
+    && entitlement.status === 'active'
+    && entitlement.lifetime === true
+    && entitlement.allModelsIncluded === true
+}
+
+/**
+ * Raw provider economics are privileged for either a server-asserted admin or
+ * an active paid Partner. Support/customer roles never qualify on their own.
+ */
+export function canShowPrivilegedBilling(
+  session: AccountSession,
+  partnerEntitlement: AccountPartnerEntitlementSnapshot | null | undefined,
+  snapshot: AccountPrivilegedBillingSnapshot | null | undefined,
+): snapshot is AccountPrivilegedBillingSnapshot {
+  if (session.status !== 'signed-in' || !session.emailVerified || snapshot == null) return false
+  return session.platformRole === 'admin' || hasActivePartnerEntitlement(partnerEntitlement)
+}
+
+export function accountHasAllModelAccess(
+  session: AccountSession,
+  partnerEntitlement: AccountPartnerEntitlementSnapshot | null | undefined,
+): boolean {
+  return session.status === 'signed-in'
+    && session.emailVerified
+    && (session.platformRole === 'admin' || hasActivePartnerEntitlement(partnerEntitlement))
 }
 
 /** Extra-credit pricing belongs to an active paid plan, never a plan-card preview. */
