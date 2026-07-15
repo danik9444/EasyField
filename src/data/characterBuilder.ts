@@ -354,7 +354,7 @@ function compileStructuredTraits(draft: CharacterDraft): string[] {
         .filter((region): region is string => Boolean(region))
       return [placements.length > 0
         ? `tasteful, intentional tattoos placed on the ${joinNaturalLanguage(placements)}`
-        : 'tasteful, intentional tattoos with placement chosen to suit the character design']
+        : 'tasteful, intentional tattoos with placement left unspecified']
     }
     const prompt = selectedPrompt(group, value)
     return prompt ? [prompt] : []

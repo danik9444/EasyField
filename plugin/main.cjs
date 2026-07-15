@@ -6,7 +6,7 @@
 //   2. Embedded HTTP server: static UI + streaming cloud-provider proxies + /bridge.
 //   3. BrowserWindow that loads the UI from the embedded server.
 
-const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -30,6 +30,12 @@ const { createAudioCapture } = require('./audio-capture.cjs');
 const { createBeatMarkerService } = require('./beat-markers.cjs');
 const { loadWorkflowIntegration } = require('./workflow-integration.cjs');
 const { timecodeToFrames, timelineFrameToTimecode, timelinePlayheadToSourceFrame } = require('./timecode.cjs');
+const {
+    applyWindowMode,
+    clampWindowToWorkArea,
+    createResolveAwareFloatingController,
+    windowBoundsForMode,
+} = require('./window-policy.cjs');
 
 const PLUGIN_ID = 'com.easyfield.panel';
 const PORT = parseInt(process.env.EF_PORT, 10) || 18832;
@@ -85,6 +91,9 @@ const PROVIDER_API_HOST = (process.env.EF_CLOUD_API_HOST || Buffer.from('YXBpLmt
 const PROVIDER_UPLOAD_HOST = (process.env.EF_CLOUD_UPLOAD_HOST || Buffer.from('a2llYWkucmVkcGFuZGFhaS5jbw==', 'base64').toString('utf8')).trim();
 const SECURE_PROVIDER_PROXY_TOKEN = '__easyfield_secure__';
 const CLOUD_GENERATION_CREDENTIAL = 'cloud-generation-api-key';
+// Credit purchases deliberately use one Main-owned destination. The renderer
+// can request this action, but it cannot choose or redirect the external URL.
+const CREDIT_PURCHASE_URL = Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8');
 // Compatibility with installations that predate the provider-neutral name.
 // Keep the legacy value out of source text while allowing a seamless upgrade.
 const LEGACY_CLOUD_GENERATION_CREDENTIAL = String.fromCharCode(107, 105, 101, 45, 97, 112, 105, 45, 107, 101, 121);
@@ -950,18 +959,20 @@ async function grabClip(req, res) {
     const out = path.join(tmpDir, 'out.mp4');
     const cleanup = () => setTimeout(() => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {} }, 15000);
 
-    // 1) fast stream-copy of the used subrange.
+    // Always transcode the exact used range to Chromium's broadly supported
+    // MP4 profile. Stream-copy can preserve ProRes, HEVC, DNxHR or an unusual
+    // audio codec inside an .mp4 container; the upload may be valid media while
+    // still being impossible to preview in the sandboxed plugin renderer.
+    // Explicit maps keep source audio when present without rejecting silent
+    // clips, and the scale expression makes odd source dimensions legal for
+    // yuv420p/libx264.
     try {
         await runFfmpeg(['-y', '-ss', String(ss), '-i', filePath, '-t', String(dur),
-            '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', out]);
-        sendFile(res, out, 'video/mp4', headers); cleanup(); return;
-    } catch (e) { /* fall through to re-encode */ }
-
-    // 2) re-encode the subrange (copy failed on this codec/keyframe layout).
-    try {
-        await runFfmpeg(['-y', '-ss', String(ss), '-i', filePath, '-t', String(dur),
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'aac',
-            '-movflags', '+faststart', out]);
+            '-map', '0:v:0', '-map', '0:a:0?',
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
+            '-c:a', 'aac', '-avoid_negative_ts', 'make_zero',
+            '-movflags', '+faststart', out], res);
         sendFile(res, out, 'video/mp4', headers); cleanup(); return;
     } catch (e) { /* fail honestly below */ }
 
@@ -1522,6 +1533,9 @@ const animationRender = createAnimationRenderService({
     origin: 'http://127.0.0.1:' + PORT,
     ffmpegPath: FFMPEG,
     authorizeRequest: authorizeBridge,
+    // Packaged renders are committed before the temporary render directory is
+    // removed or a success response is exposed to the renderer.
+    commitArtifactFile,
 });
 
 // Beat analysis is intentionally a separate local/read-only boundary. It
@@ -1635,7 +1649,7 @@ const server = http.createServer((req, res) => {
         if (pathname === '/bridge/grab/edit-video-source' && req.method === 'GET') return void run(grabEditVideoSource, 120000, expectedEditVideoCodes);
         if (pathname === '/bridge/grab/shot-start-frame' && req.method === 'GET') return void run(grabShotStartFrame, 20000, expectedBoundaryCodes);
         if (pathname === '/bridge/grab/shot-end-frame' && req.method === 'GET') return void run(grabShotEndFrame, 20000, expectedBoundaryCodes);
-        if (pathname === '/bridge/grab/clip' && req.method === 'GET') return void run((request, response) => withTimelineOperationLock(() => grabClip(request, response)), 30000, expectedGrabCodes);
+        if (pathname === '/bridge/grab/clip' && req.method === 'GET') return void run((request, response) => withTimelineOperationLock(() => grabClip(request, response)), 15 * 60 * 1000, expectedGrabCodes);
         if (pathname === '/bridge/grab/audio' && req.method === 'GET') return void run(grabAudio, 30000, expectedEditVideoCodes);
         if (pathname === '/bridge/place' && req.method === 'POST') return void run(place, 115000);
         if (pathname === '/bridge/beat/apply-markers' && req.method === 'POST') return void run(applyBeatMarkers, 30000);
@@ -1648,11 +1662,12 @@ const server = http.createServer((req, res) => {
     serveStatic(req, res, pathname);
 });
 
-// Bound idle/slow clients. The longest legitimate operation is media placement,
-// which the renderer itself caps at 120 seconds.
+// Bound idle/slow clients. Exact timeline clip grabs may legitimately need a
+// full transcode on Intel Macs; the renderer keeps the same finite 15-minute
+// deadline and closing the response aborts ffmpeg.
 server.headersTimeout = 10 * 1000;
-server.requestTimeout = 125 * 1000;
-server.timeout = 130 * 1000;
+server.requestTimeout = 15 * 60 * 1000 + 5000;
+server.timeout = 15 * 60 * 1000 + 10000;
 
 function startServer() {
     return new Promise((resolve2) => {
@@ -1667,6 +1682,9 @@ function startServer() {
 
 let mainWindow = null;
 let stateStore = null;
+let currentWindowMode = 'compact';
+let floatingController = null;
+let displayChangeHandler = null;
 
 // Artifact rows contain absolute paths and are Main-owned. They deliberately do
 // not participate in the renderer's generic state IPC surface.
@@ -1771,6 +1789,84 @@ async function sha256File(filePath) {
     return hash.digest('hex');
 }
 
+function normalizeArtifactInput(input) {
+    if (!input || !['image', 'video', 'audio'].includes(input.kind)) {
+        throw new Error('Invalid artifact input');
+    }
+    const name = typeof input.name === 'string'
+        ? input.name.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 240)
+        : 'EasyField artifact';
+    return { kind: input.kind, name: name || 'EasyField artifact' };
+}
+
+function artifactKindForExtension(extension) {
+    if (['.jpg', '.png', '.gif', '.webp'].includes(extension)) return 'image';
+    if (['.wav', '.m4a', '.mp3'].includes(extension)) return 'audio';
+    if (['.mp4', '.mov', '.webm'].includes(extension)) return 'video';
+    return null;
+}
+
+async function finalizeArtifactTemporary(temporary, id, input) {
+    if (!stateStore) throw new Error('Artifact Store is unavailable');
+    const normalized = normalizeArtifactInput(input);
+    let localPath = '';
+    try {
+        const extension = sniffExt(readHead(temporary));
+        if (!extension) throw new Error('Unsupported artifact media');
+        const verifiedKind = artifactKindForExtension(extension);
+        if (!verifiedKind || verifiedKind !== normalized.kind) {
+            throw new Error(`Artifact media does not match the declared ${normalized.kind} kind`);
+        }
+        const checksum = await sha256File(temporary);
+        localPath = path.join(ARTIFACT_DIR, id + extension);
+        fs.renameSync(temporary, localPath);
+        const bytes = fs.statSync(localPath).size;
+        stateStore.set('artifacts', id, {
+            id,
+            name: normalized.name,
+            kind: verifiedKind,
+            localPath,
+            checksum,
+            bytes,
+            createdAt: Date.now(),
+            referenced: true,
+        });
+        return { id, url: `/artifacts/${id}`, checksum, localPath, bytes };
+    } catch (error) {
+        removePartial(temporary);
+        if (localPath) removePartial(localPath);
+        throw error;
+    }
+}
+
+async function commitArtifactFile(sourcePath, input) {
+    const normalized = normalizeArtifactInput(input);
+    const stat = fs.statSync(sourcePath);
+    if (!stat.isFile() || stat.size < 1) throw new Error('The local artifact is empty');
+    if (stat.size > MAX_MEDIA_BYTES) throw new Error('The local artifact is too large');
+    fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+    const id = crypto.randomUUID();
+    const temporary = path.join(ARTIFACT_DIR, id + '.download');
+    try {
+        await fs.promises.copyFile(sourcePath, temporary, fs.constants.COPYFILE_EXCL);
+        return await finalizeArtifactTemporary(temporary, id, normalized);
+    } catch (error) {
+        removePartial(temporary);
+        throw error;
+    }
+}
+
+function artifactBytesFromIpc(value) {
+    let bytes = null;
+    if (value instanceof ArrayBuffer) bytes = Buffer.from(value);
+    else if (ArrayBuffer.isView(value)) bytes = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    if (!bytes || bytes.length < 1) throw new Error('Artifact bytes are empty');
+    if (bytes.length > Math.min(MAX_MEDIA_BYTES, 256 * 1024 * 1024)) {
+        throw new Error('Local artifact is too large for secure import');
+    }
+    return bytes;
+}
+
 function registerHostIpc() {
     if (!ipcMain || typeof ipcMain.handle !== 'function') return;
     stateStore = createStateStore(app.getPath('userData'));
@@ -1820,56 +1916,59 @@ function registerHostIpc() {
     registerTrustedHandler('ef:window:set-mode', (mode) => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
-        const expanded = mode === 'expanded';
-        mainWindow.setContentSize(expanded ? 900 : 400, expanded ? 860 : 820, true);
+        currentWindowMode = mode;
+        applyWindowMode(mainWindow, screen, mode, { animate: true });
+    });
+    registerTrustedHandler('ef:billing:open-credit-purchase', () => {
+        if (!shell || typeof shell.openExternal !== 'function') {
+            throw new Error('External billing is unavailable');
+        }
+        return shell.openExternal(CREDIT_PURCHASE_URL);
     });
     // No renderer argument is accepted: Main owns the verified source and the
     // fixed Resolve destination, including administrator-authorized rollback.
     registerTrustedHandler('ef:updates:check', () => pluginUpdater.check());
     registerTrustedHandler('ef:updates:install', () => pluginUpdater.install());
     registerTrustedHandler('ef:artifacts:ingest-url', async (input) => {
-        if (!input || typeof input.url !== 'string' || !['image', 'video', 'audio'].includes(input.kind)) throw new Error('Invalid artifact input');
+        if (!input || typeof input.url !== 'string') throw new Error('Invalid artifact input');
+        const normalized = normalizeArtifactInput(input);
         fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
         const id = crypto.randomUUID();
-        const stem = path.join(ARTIFACT_DIR, id);
-        const temporary = stem + '.download';
-        let localPath = '';
+        const temporary = path.join(ARTIFACT_DIR, id + '.download');
         try {
             await downloadTo(input.url, temporary);
-            const extension = sniffExt(readHead(temporary));
-            if (!extension) throw new Error('Unsupported artifact media');
-            // Hash the completed temporary file before the atomic rename. If
-            // hashing or metadata persistence fails, neither a partial nor an
-            // orphaned final artifact is left behind.
-            const checksum = await sha256File(temporary);
-            localPath = stem + extension;
-            fs.renameSync(temporary, localPath);
-            stateStore.set('artifacts', id, {
-                id,
-                name: typeof input.name === 'string' ? input.name.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 240) : 'EasyField artifact',
-                kind: input.kind,
-                localPath,
-                checksum,
-                bytes: fs.statSync(localPath).size,
-                createdAt: Date.now(),
-                referenced: true,
-            });
-            return { id, url: `/artifacts/${id}`, checksum };
+            const artifact = await finalizeArtifactTemporary(temporary, id, normalized);
+            return { id: artifact.id, url: artifact.url, checksum: artifact.checksum };
         } catch (error) {
             removePartial(temporary);
-            if (localPath) removePartial(localPath);
+            throw error;
+        }
+    });
+    registerTrustedHandler('ef:artifacts:ingest-bytes', async (input) => {
+        const normalized = normalizeArtifactInput(input);
+        const bytes = artifactBytesFromIpc(input.bytes);
+        fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+        const id = crypto.randomUUID();
+        const temporary = path.join(ARTIFACT_DIR, id + '.download');
+        try {
+            await fs.promises.writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
+            const artifact = await finalizeArtifactTemporary(temporary, id, normalized);
+            return { id: artifact.id, url: artifact.url, checksum: artifact.checksum };
+        } catch (error) {
+            removePartial(temporary);
             throw error;
         }
     });
 }
 
 function createWindow() {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const initialBounds = windowBoundsForMode('compact', primaryDisplay.workArea);
     mainWindow = new BrowserWindow({
-        width: 400,
-        height: 820,
-        minWidth: 340,
-        minHeight: 520,
-        useContentSize: true,
+        ...initialBounds,
+        // Bounds are outer-window bounds so titlebar height is included when
+        // clamping the panel to a display work area.
+        useContentSize: false,
         // Match the panel background so resizing never reveals black/white gaps.
         backgroundColor: '#101015',
         webPreferences: {
@@ -1882,6 +1981,19 @@ function createWindow() {
         },
     });
     mainWindow.setMenu(null);
+    applyWindowMode(mainWindow, screen, currentWindowMode, { initial: true });
+    floatingController = createResolveAwareFloatingController(mainWindow);
+
+    // Re-clamp on resolution, work-area, scale-factor and monitor changes. The
+    // matching display is derived from the current window, so a panel moved to
+    // another monitor stays there rather than jumping back to the primary one.
+    displayChangeHandler = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        clampWindowToWorkArea(mainWindow, screen, currentWindowMode);
+    };
+    screen.on('display-metrics-changed', displayChangeHandler);
+    screen.on('display-removed', displayChangeHandler);
+    mainWindow.on('moved', displayChangeHandler);
 
     // EF_DEV=1 -> vite dev server (HMR); otherwise the embedded static UI.
     const url = trustedPanelOrigin();
@@ -1936,7 +2048,17 @@ function createWindow() {
     mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
     mainWindow.loadURL(url);
 
-    mainWindow.on('close', () => app.quit());
+    mainWindow.on('close', () => {
+        floatingController?.dispose();
+        floatingController = null;
+        if (displayChangeHandler) {
+            screen.removeListener('display-metrics-changed', displayChangeHandler);
+            screen.removeListener('display-removed', displayChangeHandler);
+            mainWindow?.removeListener('moved', displayChangeHandler);
+            displayChangeHandler = null;
+        }
+        app.quit();
+    });
 }
 
 app.whenReady().then(async () => {

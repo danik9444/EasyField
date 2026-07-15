@@ -7,6 +7,7 @@ import { ModelBrowser } from '../components/ModelBrowser'
 import { PromptCard } from '../components/PromptCard'
 import { BeatAnalysisResult } from '../components/BeatAnalysisResult'
 import { LibraryPickerButton } from '../components/LibraryPicker'
+import { WorkspaceSourcePreviewList } from '../components/WorkspaceSourcePreviewList'
 import { host } from '../services/host'
 import { resolve } from '../services/resolve'
 import { prepareJobLedger, startJob } from '../services/jobCenter'
@@ -21,6 +22,7 @@ import type { Creation, CreationKind } from '../data/creations'
 import { copyLibraryCreationForWorkspace } from '../services/librarySelection'
 import { transcriptFileName, type EasyFieldTranscriptDocument } from '../data/transcript'
 import { promptCharacterCount } from '../data/promptLimits'
+import type { EnhancePurpose, EnhanceReference } from '../services/chat'
 
 interface ToolWorkspaceProps {
   toolId: ToolId
@@ -124,6 +126,21 @@ function requiredDirectionLabel(toolId: ToolId, recipeId: string): string | unde
   if (toolId === 'sfx' && recipeId === 'single') return 'Describe the sound effect'
   if (toolId === 'angles' && recipeId === 'custom') return 'Describe the camera angle'
   return undefined
+}
+
+function promptPurposeForTool(toolId: ToolId, recipeId: string): EnhancePurpose {
+  if (toolId === 'transition') return 'transition'
+  if (toolId === 'extend') return 'extend'
+  if (toolId === 'angles') return 'angle'
+  if (toolId === 'storyboard') return 'story-brief'
+  if (toolId === 'avatar') return 'avatar'
+  if (toolId === 'sfx') return recipeId === 'single' ? 'single-sfx' : 'foley-direction'
+  if (toolId === 'broll') return 'broll'
+  if (toolId === 'captions') return 'captions'
+  if (toolId === 'transcribe') return 'transcribe'
+  if (toolId === 'beat') return 'beat'
+  if (toolId === 'culling') return 'culling'
+  return 'workflow'
 }
 
 function recipeUnavailableReason(toolId: ToolId, recipeId: string): string | undefined {
@@ -237,6 +254,23 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
     if (toolId === 'sfx' && draft.recipeId === 'single') return true
     return sources.length > 0
   }, [draft.prompt, draft.recipeId, sources, toolId])
+  const enhancementReferences = useMemo<EnhanceReference[]>(() => sources.map((source, index) => {
+    const role = toolId === 'transition'
+      ? index === 0 ? 'outgoing shot end frame' : index === 1 ? 'incoming shot start frame' : 'additional transition reference'
+      : `${source.kind} source for ${tool.name}`
+    const visualUrl = source.blobUrl
+    return {
+      role,
+      label: source.name,
+      imageUrl: source.kind === 'image' ? visualUrl : undefined,
+      videoUrl: source.kind === 'video' ? visualUrl : undefined,
+      note: source.kind === 'audio'
+        ? 'Attached audio source; prompt enhancement receives its role and filename metadata only.'
+        : source.kind === 'document' || source.kind === 'transcript'
+          ? `Attached ${source.kind}; this generic workspace exposes its role and filename to prompt enhancement.`
+          : undefined,
+    }
+  }), [sources, tool.name, toolId])
   const directionRequirement = requiredDirectionLabel(toolId, draft.recipeId)
   const directionReady = !directionRequirement || !!draft.prompt.trim()
   const rightsReady = toolId !== 'avatar' || !!draft.rightsConfirmed
@@ -343,16 +377,24 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
 
   const addFiles = (files: FileList | File[] | null) => {
     if (!files?.length) return
-    const accepted = Array.from(files).flatMap((file) => {
+    const compatible = Array.from(files).flatMap((file) => {
       const kind = inferFileKind(file, acceptedKinds)
       return kind ? [{ name: file.name, kind, file }] : []
     })
-    const rejectedCount = files.length - accepted.length
+    const capacity = toolId === 'beat' ? 1 : Math.max(0, 12 - sources.length)
+    const accepted = compatible.slice(0, capacity).map((source): WorkspaceSource => {
+      if (source.kind !== 'image' && source.kind !== 'video') return source
+      const blobUrl = URL.createObjectURL(source.file)
+      capturedBlobUrlsRef.current.add(blobUrl)
+      return { ...source, blobUrl }
+    })
+    const rejectedCount = files.length - compatible.length
     if (accepted.length) {
-      if (toolId === 'beat') replaceSources([accepted[0]])
+      if (toolId === 'beat') replaceSources([accepted[0]!])
       else setSources((current) => [...current, ...accepted].slice(0, 12))
     }
     if (rejectedCount) toast(`${rejectedCount} file${rejectedCount === 1 ? '' : 's'} skipped — choose ${sourceRequirement.toLowerCase()}`)
+    if (compatible.length > accepted.length) toast(`Only ${accepted.length} added · this workspace accepts up to ${toolId === 'beat' ? 1 : 12} sources.`)
   }
 
   const addLibrarySources = async (selected: Creation[]) => {
@@ -361,9 +403,19 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
   }
 
   const addTimelineSource = (source: WorkspaceSource) => {
-    if (source.blobUrl) capturedBlobUrlsRef.current.add(source.blobUrl)
-    if (toolId === 'beat') replaceSources([source])
-    else setSources((current) => [...current, source].slice(0, 12))
+    if (toolId === 'beat') {
+      if (source.blobUrl) capturedBlobUrlsRef.current.add(source.blobUrl)
+      replaceSources([source])
+      return
+    }
+    setSources((current) => {
+      if (current.length >= 12) {
+        if (source.blobUrl) URL.revokeObjectURL(source.blobUrl)
+        return current
+      }
+      if (source.blobUrl) capturedBlobUrlsRef.current.add(source.blobUrl)
+      return [...current, source]
+    })
   }
 
   const removeSource = (index: number) => {
@@ -582,6 +634,8 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
                 enhancerKey={`enhancer-${toolId}`}
                 targetModel={selectedModel?.name ?? tool.name}
                 mediaKind={promptMediaKind}
+                purpose={promptPurposeForTool(toolId, draft.recipeId)}
+                references={enhancementReferences}
               />
             ) : (
               <div className="ef-anim-hint" role="note">
@@ -655,16 +709,7 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
                 <span>{acceptedKinds.length === 0 ? 'Generate directly from the prompt; no media will be uploaded.' : sources.length ? 'Review the selected media below. Source files must be selected again after a restart.' : dragActive ? 'Release to add these files.' : 'Drop media here, choose files, or capture the current Resolve context.'}</span>
               </div>
               {sources.length > 0 && (
-                <div className="ef-workspace-source-list" aria-label="Selected source media">
-                  {sources.map((source, index) => (
-                    <span className="ef-workspace-source-chip" key={`${source.kind}-${source.name}-${index}`}>
-                      <small>{source.kind}</small>
-                      <strong title={source.name}>{source.name}</strong>
-                      <button type="button" aria-label={`Remove source ${source.name}`} onClick={() => removeSource(index)}>×</button>
-                    </span>
-                  ))}
-                  {sources.length > 1 && <button type="button" className="ef-workspace-source-clear" onClick={clearSources}>Clear all</button>}
-                </div>
+                <WorkspaceSourcePreviewList sources={sources} onRemove={removeSource} onClear={clearSources} />
               )}
               {acceptedKinds.length > 0 && (
                 <div className="ef-source-actions">

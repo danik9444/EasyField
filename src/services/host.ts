@@ -108,6 +108,12 @@ export const host = {
     await nativeHost()?.window?.setMode(mode)
   },
 
+  async openCreditPurchase(): Promise<void> {
+    const api = nativeHost()
+    if (!api?.billing) throw new Error('Open EasyField inside DaVinci Resolve to purchase credits.')
+    await api.billing.openCreditPurchase()
+  },
+
   async checkForUpdates(): Promise<PluginUpdateStatus> {
     const api = nativeHost()
     if (api?.updates) return api.updates.check()
@@ -131,7 +137,18 @@ export const host = {
 
   async ingestArtifact(input: { url: string; name: string; kind: 'image' | 'video' | 'audio' }): Promise<{ id: string; url: string; checksum: string } | null> {
     const api = nativeHost()
-    if (!api?.artifacts || !/^https:\/\//i.test(input.url)) return null
-    return api.artifacts.ingestUrl(input)
+    if (!api?.artifacts) return null
+    if (/^https:\/\//i.test(input.url)) return api.artifacts.ingestUrl(input)
+    if (!/^(?:blob:|data:)/i.test(input.url) || !api.artifacts.ingestBytes) return null
+
+    const response = await fetch(input.url)
+    if (!response.ok) throw new Error('The local result could not be read before saving.')
+    const bytes = await response.arrayBuffer()
+    if (!bytes.byteLength) throw new Error('The local result was empty.')
+    return api.artifacts.ingestBytes({
+      bytes,
+      name: input.name,
+      kind: input.kind,
+    })
   },
 }

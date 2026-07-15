@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Home } from './screens/Home'
+import { Home, type HomeNavigationMemory } from './screens/Home'
 import { CreateImage } from './screens/CreateImage'
 import { CreateVideo } from './screens/CreateVideo'
 import { ExtendVideo } from './screens/ExtendVideo'
@@ -75,6 +75,14 @@ export default function App() {
   const settingsHydratedRef = useRef(false)
   const screenRef = useRef<Screen>('home')
   const navigationHistoryRef = useRef<Screen[]>([])
+  const homeNavigationMemoryRef = useRef<HomeNavigationMemory>({
+    query: '',
+    activeCategory: 'all',
+    scrollTop: 0,
+    windowMode: settings.windowMode,
+    anchorToolId: null,
+    anchorOffset: 0,
+  })
   const updateCheckInFlightRef = useRef(false)
 
   const navigate = useCallback((next: Screen) => {
@@ -379,6 +387,7 @@ export default function App() {
     <div className={`ef-panel ef-panel--${settings.windowMode}`}>
       {screen === 'home' && (
         <Home
+          navigationMemory={homeNavigationMemoryRef.current}
           settings={settings}
           credits={apiCredits ?? credits}
           creditsLive={apiCredits != null}

@@ -129,7 +129,7 @@ export function normalizeAnimSoundMode(value: unknown): AnimSoundMode {
 
 export function animationSoundInstruction(value: unknown): string {
   return normalizeAnimSoundMode(value) === 'with-sound'
-    ? 'Design synchronized sound or music as part of the animation. Use an attached audio reference when supplied; otherwise include the intended sound direction in the composition plan.'
+    ? 'The final animation includes sound. Use attached audio or sound direction from the user when supplied; otherwise leave the sound content unspecified instead of inventing it during prompt enhancement.'
     : 'The final animation must be silent. Attached audio may inform rhythm and timing, but it must not be included in the output.'
 }
 

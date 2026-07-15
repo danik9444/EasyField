@@ -45,3 +45,18 @@ test('enhancer message preserves complete supporting context and reference manif
   assert.match(message, /Location wide/)
   assert.match(message, /2 visual reference frame\(s\) are attached/)
 })
+
+test('reference-led transition manifest preserves ordered endpoints without an empty primary prompt', () => {
+  const message = buildEnhanceUserMessage({
+    rough: '',
+    targetModel: 'Veo 3.1 Quality',
+    mediaKind: 'video',
+    purpose: 'transition',
+  }, [
+    '- outgoing shot end frame "outgoing.png" [image attached]',
+    '- incoming shot start frame "incoming.png" [image attached]',
+  ], 2)
+  assert.ok(message.indexOf('outgoing shot end frame') < message.indexOf('incoming shot start frame'))
+  assert.match(message, /REFERENCE-LED AUTO DRAFT/)
+  assert.doesNotMatch(message, /PRIMARY TEXT TO IMPROVE/)
+})

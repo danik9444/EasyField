@@ -20,6 +20,11 @@ interface MediaFileGridProps {
   locked?: boolean
   lockedHint?: string
   onChooseLibrary?: (creations: Creation[]) => void | Promise<void>
+  /**
+   * Overrides the preview inferred from `accept`. `none` is useful for a
+   * file-shaped input that should stay compact even when it accepts media.
+   */
+  previewKind?: 'video' | 'audio' | 'none'
 }
 
 export function MediaFileGrid({
@@ -36,6 +41,7 @@ export function MediaFileGrid({
   locked = false,
   lockedHint,
   onChooseLibrary,
+  previewKind,
 }: MediaFileGridProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const labelId = useId()
@@ -48,6 +54,12 @@ export function MediaFileGrid({
   }
 
   const libraryKinds = inferLibraryKindsFromAccept(accept) as CreationKind[]
+  // Only infer a player when this input accepts exactly one playable medium.
+  // Mixed accept lists stay as compact file rows unless the caller opts in.
+  const inferredPreviewKind = libraryKinds.length === 1 && (libraryKinds[0] === 'video' || libraryKinds[0] === 'audio')
+    ? libraryKinds[0]
+    : null
+  const playableKind = previewKind === 'none' ? null : previewKind ?? inferredPreviewKind
   const chooseLibrary = async (creations: Creation[]) => {
     if (onChooseLibrary) {
       await onChooseLibrary(creations)
@@ -87,17 +99,33 @@ export function MediaFileGrid({
         )}
       </div>
       <div className={'ef-media-list' + (locked ? ' locked' : '')}>
-        {items.map((item) => (
-          <div className="ef-media-file" key={item.id}>
-            <span className="ef-media-file-icon">
-              <Icon glyph={item.kind === 'playhead' ? 'playhead' : glyph} size={13} />
-            </span>
-            <span className="ef-media-file-name">{item.name}</span>
-            <button type="button" className="ef-media-file-remove" aria-label={`Remove ${addLabel} ${item.name}`} disabled={locked} onClick={() => onRemove(item.id)}>
-              ✕
-            </button>
-          </div>
-        ))}
+        {items.map((item) => {
+          const previewUrl = item.kind === 'upload' ? item.url : null
+          const hasPreview = !!previewUrl && !!playableKind
+          return (
+            <div className={`ef-media-file${hasPreview ? ` has-preview is-${playableKind}` : ''}`} key={item.id}>
+              <div className="ef-media-file-summary">
+                <span className="ef-media-file-icon">
+                  <Icon glyph={item.kind === 'playhead' ? 'playhead' : glyph} size={13} />
+                </span>
+                <span className="ef-media-file-name" title={item.name}>{item.name}</span>
+                <button type="button" className="ef-media-file-remove" aria-label={`Remove ${addLabel} ${item.name}`} disabled={locked} onClick={() => onRemove(item.id)}>
+                  ✕
+                </button>
+              </div>
+              {previewUrl && playableKind === 'video' && (
+                <div className="ef-media-file-preview is-video">
+                  <video src={previewUrl} controls playsInline preload="metadata" aria-label={`Preview ${item.name}`} />
+                </div>
+              )}
+              {previewUrl && playableKind === 'audio' && (
+                <div className="ef-media-file-preview is-audio">
+                  <audio src={previewUrl} controls preload="metadata" aria-label={`Preview ${item.name}`} />
+                </div>
+              )}
+            </div>
+          )
+        })}
         {items.length < max && (
           <button type="button" className="ef-media-add" aria-label={`Upload ${addLabel}`} disabled={locked} onClick={() => fileInputRef.current?.click()}>
             <Icon glyph="up" size={12} /> Add {addLabel}

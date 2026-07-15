@@ -914,7 +914,53 @@ test('failed A/V linking rolls back both placed timeline items', async (t) => {
   })
 })
 
-test('generic timeline clip Grab fails closed when both exact-trim exports fail', async (t) => {
+test('generic timeline clip Grab always transcodes to Chromium-compatible H.264/AAC MP4', async (t) => {
+  const fixtureDirectory = await mkdtemp(path.join(tmpdir(), 'easyfield-compatible-grab-'))
+  t.after(() => rm(fixtureDirectory, { force: true, recursive: true }))
+  const sourcePath = path.join(fixtureDirectory, 'camera-original.mov')
+  const fakeFfmpeg = path.join(fixtureDirectory, 'ffmpeg-capture')
+  const argsPath = path.join(fixtureDirectory, 'ffmpeg-args.txt')
+  await writeFile(sourcePath, Buffer.from('synthetic source codec'))
+  await writeFile(fakeFfmpeg, [
+    '#!/bin/sh',
+    'printf "%s\\n" "$@" > "$EF_TEST_FFMPEG_ARGS"',
+    'for arg in "$@"; do output="$arg"; done',
+    'printf "chromium compatible mp4" > "$output"',
+    '',
+  ].join('\n'))
+  await chmod(fakeFfmpeg, 0o755)
+
+  const server = await startBridgeServer({
+    EF_TEST_RESOLVE_PLACEMENT: '1',
+    EF_TEST_GRAB_CLIP: '1',
+    EF_TEST_SOURCE_FILE: sourcePath,
+    EF_FFMPEG_PATH: fakeFfmpeg,
+    EF_TEST_FFMPEG_ARGS: argsPath,
+  })
+  t.after(server.stop)
+
+  const response = await fetch(`${server.baseUrl}/bridge/grab/clip`, {
+    headers: { Origin: server.baseUrl, 'X-EF-Bridge-Token': TEST_TOKEN },
+  })
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type') ?? '', /^video\/mp4/i)
+  assert.equal(Buffer.from(await response.arrayBuffer()).toString(), 'chromium compatible mp4')
+
+  const args = (await readFile(argsPath, 'utf8')).trim().split('\n')
+  assert.equal(args.includes('copy'), false)
+  assert.equal(args[args.indexOf('-ss') + 1], '1')
+  assert.equal(args[args.indexOf('-t') + 1], '1')
+  assert.deepEqual(
+    args.flatMap((arg, index) => arg === '-map' ? [args[index + 1]] : []),
+    ['0:v:0', '0:a:0?'],
+  )
+  assert.equal(args[args.indexOf('-vf') + 1], 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p')
+  assert.equal(args[args.indexOf('-c:v') + 1], 'libx264')
+  assert.equal(args[args.indexOf('-c:a') + 1], 'aac')
+  assert.equal(args[args.indexOf('-movflags') + 1], '+faststart')
+})
+
+test('generic timeline clip Grab fails closed when the compatible exact-trim transcode fails', async (t) => {
   const fixtureDirectory = await mkdtemp(path.join(tmpdir(), 'easyfield-exact-trim-'))
   t.after(() => rm(fixtureDirectory, { force: true, recursive: true }))
   const sourcePath = path.join(fixtureDirectory, 'whole-source.mp4')

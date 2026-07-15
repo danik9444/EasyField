@@ -19,11 +19,15 @@ contextBridge.exposeInMainWorld('easyfield', Object.freeze({
     window: Object.freeze({
         setMode: (mode) => ipcRenderer.invoke('ef:window:set-mode', mode),
     }),
+    billing: Object.freeze({
+        openCreditPurchase: () => ipcRenderer.invoke('ef:billing:open-credit-purchase'),
+    }),
     updates: Object.freeze({
         check: () => ipcRenderer.invoke('ef:updates:check'),
         install: () => ipcRenderer.invoke('ef:updates:install'),
     }),
     artifacts: Object.freeze({
         ingestUrl: (input) => ipcRenderer.invoke('ef:artifacts:ingest-url', input),
+        ingestBytes: (input) => ipcRenderer.invoke('ef:artifacts:ingest-bytes', input),
     }),
 }));

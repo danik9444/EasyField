@@ -1,4 +1,4 @@
-// Chat models via EasyField Cloud turn a rough idea into a director-grade,
+// Chat models via EasyField Cloud turn a rough idea into a faithful,
 // model-tailored generation prompt. The gateway supports several native protocols,
 // there are three protocols (all verified live 2026-07-08):
 //   Anthropic (Claude)  POST /claude/v1/messages            → content[].text
@@ -19,6 +19,12 @@ import {
   type BrainModeId,
 } from '../data/superBrainModes.ts'
 import { promptCharacterCount, truncatePrompt } from '../data/promptLimits.ts'
+import {
+  resolvePromptEnhancementProfile,
+  type PromptEnhancementInputMode,
+  type PromptEnhancementMediaKind,
+  type PromptEnhancementPurpose,
+} from '../data/promptEnhancementProfiles.ts'
 
 // Always relative: the serving origin provides the provider proxy — the Vite dev
 // server in development, the plugin's embedded server inside DaVinci Resolve in
@@ -52,6 +58,20 @@ export interface EnhanceSupportingContext {
   text: string
   /** Trusted product instruction describing how this read-only context should influence the primary text. */
   instruction?: string
+}
+
+export type EnhanceInputMode = PromptEnhancementInputMode
+
+export function canEnhancePrompt(
+  rough: string,
+  references: readonly EnhanceReference[] = [],
+  minimumTextLength = 1,
+): boolean {
+  return rough.trim().length >= Math.max(1, minimumTextLength) || references.length > 0
+}
+
+export function resolveEnhancementInputMode(rough: string): EnhanceInputMode {
+  return rough.trim() ? 'rewrite' : 'reference-draft'
 }
 
 // The largest verified image-model quota in the UI is 16 (GPT Image 2).
@@ -116,7 +136,7 @@ function cleanPrompt(s: string): string {
 
 const bearer = (key: string) => ({ Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' })
 
-async function anthropic(key: string, model: string, system: string, user: string, images: InlineImage[], signal?: AbortSignal): Promise<string> {
+async function anthropic(key: string, model: string, system: string, user: string, images: InlineImage[], signal?: AbortSignal, temperature = 1): Promise<string> {
   const content = images.length
     ? [
         ...images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.dataB64 } })),
@@ -130,7 +150,7 @@ async function anthropic(key: string, model: string, system: string, user: strin
     // The Anthropic-compatible route requires max_tokens in the request.
     // This is a protocol bound, not a spend ceiling; use a generous value and
     // let the provider/model enforce its own actual context/output limits.
-    body: JSON.stringify({ model, max_tokens: 16384, temperature: 1, system, messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({ model, max_tokens: 16384, temperature, system, messages: [{ role: 'user', content }] }),
   })
   const j = (await r.json().catch(() => null)) as { content?: Array<{ type?: string; text?: string }>; error?: { message?: string }; msg?: string } | null
   const text = Array.isArray(j?.content) ? j!.content!.filter((c) => c.type === 'text').map((c) => c.text ?? '').join('') : ''
@@ -138,7 +158,7 @@ async function anthropic(key: string, model: string, system: string, user: strin
   return text
 }
 
-async function openaiChat(key: string, path: string, model: string, system: string, user: string, images: InlineImage[], signal?: AbortSignal): Promise<string> {
+async function openaiChat(key: string, path: string, model: string, system: string, user: string, images: InlineImage[], signal?: AbortSignal, temperature = 0.9): Promise<string> {
   const userContent = images.length
     ? [
         { type: 'text', text: user },
@@ -149,7 +169,7 @@ async function openaiChat(key: string, path: string, model: string, system: stri
     method: 'POST',
     headers: bearer(key),
     signal,
-    body: JSON.stringify({ model, temperature: 0.9, messages: [{ role: 'system', content: system }, { role: 'user', content: userContent }] }),
+    body: JSON.stringify({ model, temperature, messages: [{ role: 'system', content: system }, { role: 'user', content: userContent }] }),
   })
   const j = (await r.json().catch(() => null)) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string }; msg?: string } | null
   const text = j?.choices?.[0]?.message?.content
@@ -202,23 +222,32 @@ async function responses(
   return text
 }
 
-async function chatComplete(key: string, appModel: string, system: string, user: string, images: InlineImage[], signal?: AbortSignal): Promise<string> {
+interface ChatCompletionOptions {
+  signal?: AbortSignal
+  /** Leave undefined for the existing planning behavior. */
+  temperature?: number
+}
+
+async function chatComplete(key: string, appModel: string, system: string, user: string, images: InlineImage[], options: ChatCompletionOptions = {}): Promise<string> {
   const m = CHAT_MODELS[appModel] ?? CHAT_MODELS['Opus 4.8']
   const raw =
     m.family === 'anthropic'
-      ? await anthropic(key, m.model, system, user, images, signal)
+      ? await anthropic(key, m.model, system, user, images, options.signal, options.temperature)
       : m.family === 'openai'
-        ? await openaiChat(key, m.path ?? m.model, m.model, system, user, images, signal)
-        : await responses(key, m.path ?? 'codex', m.model, system, user, images, m.reasoningEffort ?? 'medium', signal)
+        ? await openaiChat(key, m.path ?? m.model, m.model, system, user, images, options.signal, options.temperature)
+        : await responses(key, m.path ?? 'codex', m.model, system, user, images, m.reasoningEffort ?? 'medium', options.signal)
   return cleanPrompt(raw)
 }
 
-export type EnhanceMediaKind = 'image' | 'video' | 'audio' | 'workflow'
+export type EnhanceMediaKind = PromptEnhancementMediaKind
+export type EnhancePurpose = PromptEnhancementPurpose
+export const PROMPT_ENHANCEMENT_TEMPERATURE = 0.2
 
 export interface EnhanceUserMessageInput {
   rough: string
   targetModel: string
   mediaKind: EnhanceMediaKind
+  purpose?: EnhancePurpose
   style?: string
   supportingContext?: EnhanceSupportingContext
 }
@@ -229,7 +258,10 @@ export function buildEnhanceUserMessage(
   attachedImageCount = 0,
 ): string {
   const styleNote = input.style && input.style.toLowerCase() !== 'none' ? ` in a ${input.style} style` : ''
-  let user = `PRIMARY TEXT TO IMPROVE for a ${input.mediaKind}${styleNote} (for the ${input.targetModel} model):\n"${input.rough.trim()}"`
+  const inputMode = resolveEnhancementInputMode(input.rough)
+  let user = inputMode === 'rewrite'
+    ? `AUTHORITATIVE PRIMARY TEXT TO IMPROVE for a ${input.mediaKind}${styleNote} (for the ${input.targetModel} model):\n"${input.rough.trim()}"\n\nTreat the primary text as the complete creative request: clarify it without adding unrequested facts or scope.`
+    : `REFERENCE-LED AUTO DRAFT for a ${input.mediaKind}${styleNote} (for the ${input.targetModel} model):\nNo written direction was supplied. Create the shortest task-valid prompt from the selected tool purpose and attached reference roles/evidence only. Leave every unavailable or ambiguous source detail unspecified.`
   if (input.supportingContext?.text.trim()) {
     user += `\n\nREAD-ONLY ${input.supportingContext.label.toUpperCase()}:\n${input.supportingContext.text.trim()}`
   }
@@ -240,16 +272,17 @@ export function buildEnhanceUserMessage(
   return user
 }
 
-// The enhancer works across every EasyField workspace. Visual generation keeps
-// its director language, audio gets production language, and analysis/editing
-// tools get a precise non-destructive workflow brief.
-function buildSystem(
+// One faithful policy serves every workspace; the explicit purpose profile
+// narrows what may be rewritten before model-specific wording is applied.
+export function buildEnhanceSystemMessage(
   targetModel: string,
   mediaKind: EnhanceMediaKind,
   maxLength: number,
   style?: string,
   hasReferences?: boolean,
   supportingContext?: EnhanceSupportingContext,
+  purpose?: EnhancePurpose,
+  inputMode: EnhanceInputMode = 'rewrite',
 ): string {
   const video = mediaKind === 'video'
   const image = mediaKind === 'image'
@@ -257,42 +290,55 @@ function buildSystem(
   const workflow = mediaKind === 'workflow'
   const styled = style && style.toLowerCase() !== 'none'
   const taskLabel = workflow ? 'editing or analysis workflow' : `${mediaKind}-generation task`
-  const role = audio ? 'audio director and prompt writer' : workflow ? 'senior film editor and workflow designer' : `creative ${video ? 'director and ' : ''}prompt writer`
-  const craftGuidance = audio
-    ? 'Cover, as relevant: the exact sound source or musical idea; performance and emotion; tempo, rhythm and timing; instrumentation or Foley events; texture, dynamics, spatial perspective, ambience, transitions, mix priorities and a clear ending.'
-    : workflow
-      ? 'Cover, as relevant: the editorial objective; source scope; selection or analysis criteria; timing and ordering; what must be preserved; the expected output; review checkpoints; and any safety constraints. Never invent a destructive operation.'
-      : `Cover, as relevant: the subject and its appearance; composition and framing; ${video ? 'camera movement, lens choice, subject motion, pacing, and how the shot evolves across its duration; ' : 'lens/optics, focal length and depth of field; '}lighting (source, direction, quality, colour temperature); colour palette and grade; environment and background; mood and atmosphere; textures and materials; and rendering/quality cues.`
+  const role = audio ? 'audio prompt editor' : workflow ? 'post-production instruction editor' : `${video ? 'video' : image ? 'image' : 'creative'} prompt editor`
+  const profile = resolvePromptEnhancementProfile(targetModel, mediaKind, purpose, inputMode)
   const modelGuidance = video
-    ? 'as a video model — favour clear, describable motion and temporal beats'
+    ? 'as a video model — organize only motion and temporal beats the user actually supplied'
     : image
-      ? 'as an image model — favour concrete visual detail and precise composition; avoid camera-motion or temporal language'
+      ? 'as an image model — keep supplied visual facts concrete and avoid adding camera-motion or temporal language'
       : audio
-        ? 'as an audio model — use audible, producible detail and explicit timing instead of visual-only adjectives'
-        : 'for this editing workflow — make every instruction reviewable, scoped and non-destructive'
+        ? 'as an audio model — express only supplied audible and timing facts in producible language'
+        : 'for this editing workflow — keep every supplied instruction reviewable, scoped and non-destructive'
   return [
-    `You are a helpful ${role} inside a professional post-production app. The user gives a rough idea or note; expand it into one precise, useful brief for the ${taskLabel}, tailored to "${targetModel}". Reply with just the finished brief.`,
+    inputMode === 'rewrite'
+      ? `You are a faithful ${role} inside a professional post-production app. Rewrite the user’s request into a clear, model-compatible brief for the ${taskLabel}, tailored to "${targetModel}". Enhancement means clarification, organization and compatible wording — never creative expansion. Reply with just the finished brief.`
+      : `You are a faithful ${role} inside a professional post-production app. No written prompt was supplied. Create the shortest model-compatible auto draft for the selected ${taskLabel}, tailored to "${targetModel}", using the selected tool purpose and attached references as the complete authority. Reply with just the finished brief.`,
     ``,
-    `LANGUAGE: Write the prompt in English. If the idea is in Hebrew or another language, understand it and express it as natural English.`,
+    `AUTHORITY AND FIDELITY — NON-NEGOTIABLE:`,
+    `- ${inputMode === 'rewrite' ? 'The primary text, explicit UI selections, attached evidence and binding supporting context' : 'The selected tool purpose, explicit UI selections, attached evidence and binding supporting context'} are the complete authority. Preserve every stated detail, prohibition, uncertainty and intentional omission.`,
+    inputMode === 'rewrite'
+      ? `- Never invent or choose an unspecified subject, identity, trait, object, action, dialogue, onscreen text, setting, style, mood, colour, lighting, lens, camera move, timing, transition, sound, music, negative constraint or outcome. Missing or ambiguous information must remain unspecified.`
+      : `- The selected tool authorizes only the minimum task-specific choice stated under TASK-SPECIFIC SCOPE. Never invent unsupported source facts: subject identity, trait, object, event, dialogue, onscreen text, setting, style, mood, colour, lighting, sound, music or outcome. Missing or ambiguous source information must remain unspecified.`,
+    `- Model adaptation may change wording, order and structure only. It never permits new facts, new scope or a stronger interpretation of the request.`,
+    `- On repeated enhancement, refine clarity without escalating detail, length or creative scope.`,
+    `- Before answering, silently audit every concrete detail in the result and remove anything not supported by the authority above.`,
+    ``,
+    `LANGUAGE: Write the instruction in natural English unless the user explicitly requests the prompt itself in another language. Preserve names, quoted dialogue, onscreen text and any explicitly requested spoken/output language verbatim unless the user asks to translate them.`,
     styled
-      ? `\nSTYLE: The user chose a "${style}" style — let it guide the whole aesthetic (visual treatment, composition, lighting, colour, texture, rendering), not just a tacked-on label.`
+      ? `\nSTYLE: The user explicitly chose "${style}". Preserve that selection, but do not use it as permission to invent composition, lighting, colour, texture, story or objects.`
       : null,
     hasReferences
-      ? `\nREFERENCES: The user attached reference material (listed, with visual frames shown, in their message). Use attached stills and timestamped video frames as real visual evidence. Video frames are ordered chronologically: infer only actions and timing visibly supported by them, preserve the user's written intent, and never claim that the downstream generation model receives the source video directly.`
+      ? `\nREFERENCES: Treat attached stills and sampled video frames only as evidence for relevant visible facts. Names, roles, durations and notes are metadata—not proof of image, video or audio content. Never infer unseen action, identity, story, causality, dialogue, sound or timing; never let a reference broaden the selected task; and never claim either you or the downstream model received content it did not receive.`
       : null,
     supportingContext?.text.trim()
-      ? `\nSUPPORTING CONTEXT: The user message includes a read-only “${supportingContext.label}” section. Use it to keep the primary text consistent, but improve only the primary text and never rewrite, quote, summarize or output the supporting fields. ${supportingContext.instruction ?? 'Do not invent facts that contradict the supporting context.'}`
+      ? inputMode === 'rewrite'
+        ? `\nSUPPORTING CONTEXT: The user message includes a read-only “${supportingContext.label}” section. Use only directly relevant facts to prevent contradictions. Improve only the primary text; never rewrite, quote, summarize, fill blanks from, or output the supporting fields. ${supportingContext.instruction ?? 'Never invent facts beyond the supporting context.'}`
+        : `\nSUPPORTING CONTEXT: The user message includes a read-only “${supportingContext.label}” section. Use only directly relevant supplied facts as evidence for the minimum task-valid auto draft. Do not output, broadly summarize or invent beyond the supporting fields. ${supportingContext.instruction ?? 'Never invent facts beyond the supporting context.'}`
       : null,
     ``,
-    `Write with rich, production-ready specificity. ${craftGuidance}`,
+    `TASK-SPECIFIC SCOPE: ${profile.purposeGuidance}`,
     ``,
-    `Tailor the wording to how "${targetModel}" performs best ${modelGuidance}.`,
+    `MODEL FIT: Tailor the presentation to how "${targetModel}" performs best ${modelGuidance}. ${profile.modelGuidance}`,
     ``,
-    `Guidelines:`,
+    `PROPORTIONAL LENGTH:`,
+    `- Use the shortest prompt that expresses the request accurately. A simple request should usually remain a few concise sentences or lines.`,
+    `- Use more detail only when the user supplied more detail, the evidence contains relevant requested detail, or the user explicitly asked for a long or detailed prompt.`,
+    `- ${maxLength} characters is a hard ceiling, never a target. There is no minimum length and no padding.`,
+    ``,
+    `OUTPUT RULES:`,
     `- Reply with only the final prompt text — no preamble, explanation, lists, quotes, markdown, or labels.`,
-    `- One flowing, coherent, richly detailed description an artist could execute for a precise result.`,
-    `- Keep the user's core intent and every specific detail they gave; enrich, don't contradict.`,
-    `- Stay under ${maxLength} characters.`,
+    `- Keep the result coherent and directly usable. Use multiple plain paragraphs only when the supplied request genuinely needs them.`,
+    `- Stay at or below ${maxLength} characters without cutting a sentence.`,
   ]
     .filter((l) => l !== null)
     .join('\n')
@@ -353,6 +399,7 @@ export async function enhancePrompt(opts: {
   rough: string
   targetModel: string
   mediaKind: EnhanceMediaKind
+  purpose?: EnhancePurpose
   chatModel: string
   maxLength: number
   style?: string
@@ -360,6 +407,9 @@ export async function enhancePrompt(opts: {
   supportingContext?: EnhanceSupportingContext
   signal?: AbortSignal
 }): Promise<EnhanceResult> {
+  if (!canEnhancePrompt(opts.rough, opts.references)) {
+    throw new ChatError('Write a prompt or attach a reference before using prompt enhancement.')
+  }
   const key = currentApiKey()
   if (!key) throw new ChatError('Connect your EasyField Cloud API key first (tap the credits badge on Home).')
 
@@ -368,16 +418,22 @@ export async function enhancePrompt(opts: {
   const { images, manifest } = await prepareVisualReferences(opts.references, opts.signal)
 
   const before = await fetchCredits(key)
-  const system = buildSystem(
+  const inputMode = resolveEnhancementInputMode(opts.rough)
+  const system = buildEnhanceSystemMessage(
     opts.targetModel,
     opts.mediaKind,
     opts.maxLength,
     opts.style,
     manifest.length > 0,
     opts.supportingContext,
+    opts.purpose,
+    inputMode,
   )
   const user = buildEnhanceUserMessage(opts, manifest, images.length)
-  let text = await chatComplete(key, opts.chatModel, system, user, images, opts.signal)
+  let text = await chatComplete(key, opts.chatModel, system, user, images, {
+    signal: opts.signal,
+    temperature: PROMPT_ENHANCEMENT_TEMPERATURE,
+  })
   // A safety net: if the model returned a refusal/apology instead of a prompt,
   // surface it as an error rather than pasting non-prompt text into the box.
   if (/^\s*(i (can'?t|cannot|can not|won'?t|am unable|'?m unable|am not able|'?m not able)|i'?m sorry|sorry[,.]|as an ai|unfortunately,? i)/i.test(text)) {
@@ -548,7 +604,7 @@ export async function planStoryboard(opts: {
 
   const before = await fetchCredits(key)
   try {
-    const raw = await chatComplete(key, opts.chatModel, system, user, images, opts.signal)
+    const raw = await chatComplete(key, opts.chatModel, system, user, images, { signal: opts.signal })
     let parsed: unknown
     try {
       parsed = parseJsonObject(raw)
@@ -692,7 +748,7 @@ export async function planFoleyEvents(opts: {
 
   const before = await fetchCredits(key)
   try {
-    const raw = await chatComplete(key, opts.chatModel, system, user, images, opts.signal)
+    const raw = await chatComplete(key, opts.chatModel, system, user, images, { signal: opts.signal })
     const result = validateFoleyPlan(parseJsonObject(raw), durationSeconds, maximumEvents)
     const after = await fetchCredits(key)
     const chatCredits = before.ok && after.ok && before.credits != null && after.credits != null
@@ -841,7 +897,7 @@ export async function planTimelineWorkflow(opts: {
   const history = historyText ? `\nConversation so far:\n${historyText}` : ''
   const user = `Resolve context: ${opts.timelineContext.slice(0, 2000)}\nCurrent request: ${opts.request.trim().slice(0, 32000)}${history}`
   const before = await fetchCredits(key)
-  const raw = await chatComplete(key, opts.chatModel, system, user, [], opts.signal)
+  const raw = await chatComplete(key, opts.chatModel, system, user, [], { signal: opts.signal })
   const result = validateBrainPlan(parseJsonObject(raw), questionLimit)
   const after = await fetchCredits(key)
   const chatCredits = before.ok && after.ok && before.credits != null && after.credits != null

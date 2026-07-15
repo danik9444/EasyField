@@ -132,15 +132,86 @@ version is immutable and an update always requires a higher SemVer.
 
 ## API key and local security
 
-Enter the EasyField Cloud key from Settings or the credits badge on Home. In the Electron
-plugin it is encrypted with Electron `safeStorage` (macOS Keychain-backed). The
-renderer receives only an internal proxy token; the cloud gateway adds the real key
-inside the main process. Browser development keeps the key in `sessionStorage`
-only and must not be treated as a production credential store.
+The current development/operator build can accept an EasyField Cloud key from
+Settings or the credits badge on Home. In the Electron plugin it is encrypted
+with Electron `safeStorage` (macOS Keychain-backed). The renderer receives only
+an internal proxy token; the cloud gateway adds the real key inside the main
+process. Browser development keeps the key in `sessionStorage` only and must not
+be treated as a production credential store. Before customer billing launches,
+this direct-key path must require a short-lived server capability belonging to
+an administrator or active Partner; a normal customer must use the EasyField
+credit control plane and must not receive a direct-key form.
 
 The Resolve bridge listens only on `127.0.0.1` and protects privileged endpoints
 with a per-process secret plus origin checks. Keep port `18832` local and do not
 remove those checks: the bridge can read timeline media and mutate a project.
+
+## Billing and credit safety
+
+The Supabase migration at
+[`supabase/migrations/202607140001_subscription_billing.sql`](supabase/migrations/202607140001_subscription_billing.sql)
+is the server-side billing foundation. It is intentionally not a signal that
+live billing is enabled. Production still requires the provider orchestration,
+tax/document decisions, sandbox verification, reconciliation and launch gates
+described in the billing ADR and runbook.
+
+The database, not the renderer or an external payment adapter, owns the billing
+state machine:
+
+- `billing_private.plan_catalog` is the sole authority for plan prices, monthly
+  grants, top-up rates, the $10 minimum and exact model entitlements. Checkout
+  rows and subscription rows receive immutable catalog snapshots in database
+  triggers. Top-up charges use integer arithmetic and round upward to a USD
+  cent, but the $10 minimum is checked against the nominal pre-rounding amount;
+  clients cannot submit a cheaper amount or a larger grant. Catalog rows are
+  append-only. A future price revision must be introduced by an explicit
+  versioned migration and subscription-transition policy, never by mutating the
+  row beneath a paid period.
+- A paid-generation quote requires an active, unexpired plan entitlement unless
+  the target account has the server-issued direct-upstream capability. The
+  Starter restriction matches only
+  the exact regular Seedance 2 model ID; similarly named Fast and Mini models
+  are not accidentally blocked. Direct-upstream quotes intentionally skip
+  `reserve_credits`; the trusted backend goes directly from the approved quote
+  to provider execution so an administrator or active Partner is never
+  accidentally debited from the EasyField ledger.
+- Partner is a separate $999 one-time lifetime entitlement with zero included
+  EasyField credits, all verified models and a customer-owned upstream account.
+  It is never represented as a subscription plan or administrator role. Only a
+  reconciled payment event can activate it; regular customers never receive raw
+  upstream prices, balances, purchase links or provider account data.
+- Subscription and purchased credits remain separate lots. Reservations consume
+  the soonest-expiring lots first, settlement is append-only and every grant,
+  capture and release retry is bound to a canonical SHA-256 request snapshot.
+  Public account snapshots and column grants exclude provider costs, raw source
+  references, idempotency keys, payment tokens and webhook evidence.
+- An annual subscription schedules exactly 12 monthly grant windows. Each lot
+  expires at the next calendar-month boundary, preserving month-end cadence;
+  obsolete schedules are cancelled when the authoritative subscription period
+  changes. A schedule uses the immutable subscription pricing/grant snapshot,
+  so a later catalog version or deactivation cannot cancel credits from an
+  annual period that was already paid.
+- Auto-reload is also catalog-derived in a database trigger. Enabling it requires
+  an active matching plan and a private saved payment method belonging to the
+  same customer and supporting the plan currency. The trigger derives the rate,
+  minimum, cent-rounded price and currency; the optional monthly ceiling is a
+  user safety setting, while `NULL` means that the user chose no ceiling.
+- Saved payment method identifiers and renewal evidence live only in
+  `billing_private`. A due renewal is persisted and claimed before network I/O.
+  Claiming commits permission for exactly one provider call: even a retry with
+  the same claim ID is rejected, so a lost or ambiguous response must be
+  reconciled rather than charged again.
+- Webhook ingestion deduplicates both the signed provider event ID and the
+  transport delivery ID, and binds each to the SHA-256 of the exact signed body.
+  Processing uses explicit claim/finish functions, allowing a stale processing
+  lease to be reclaimed without mutating the original evidence.
+
+Only trusted backend workers receive the private function surface. Their direct
+table privileges are deliberately narrow: balances, lots, reservations,
+allocations, quotes, webhook evidence, schedules, roles and the ledger are
+mutated through audited `SECURITY DEFINER` functions. The first administrator
+can be bootstrapped once from a trusted database session; every later role
+change requires a current administrator actor and cannot remove the last admin.
 
 ## Troubleshooting
 

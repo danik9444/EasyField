@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import type { Settings } from '../settings'
-import { ACCENT_OPTIONS, SECURE_API_KEY_TOKEN } from '../settings'
+import { SECURE_API_KEY_TOKEN } from '../settings'
 import { resolve } from '../services/resolve'
 import { host, type PluginUpdateStatus } from '../services/host'
 import { Dropdown, type DropdownOptionMeta } from '../components/Dropdown'
@@ -167,14 +167,11 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
             <span className={`ef-settings-section-status ${sectionStatus.tone}`}><i aria-hidden="true" />{sectionStatus.label}</span>
           </header>
           {section === 'general' && (
-            <SettingsGroup title="Appearance" description="The same controls are available in Compact and Expanded mode.">
+            <SettingsGroup title="Window & motion" description="Set the workspace size and motion behavior used across every tool.">
               <SettingRow label="Window mode" hint="One adaptive window; state never resets when resizing.">
                 <div className="ef-setting-segmented">
                   {(['compact', 'expanded'] as const).map((mode) => <button type="button" aria-pressed={settings.windowMode === mode} className={settings.windowMode === mode ? 'is-selected' : ''} key={mode} onClick={() => onChange({ windowMode: mode })}>{mode}</button>)}
                 </div>
-              </SettingRow>
-              <SettingRow label="Accent" hint="Category colors stay semantic; this controls the personal accent.">
-                <div className="ef-accent-options">{ACCENT_OPTIONS.map((color) => <button type="button" key={color} aria-pressed={settings.accent === color} className={settings.accent === color ? 'is-selected' : ''} style={{ background: color }} aria-label={`Use ${color} accent`} onClick={() => onChange({ accent: color })} />)}</div>
               </SettingRow>
               <SettingRow label="Ambient glow" hint="Respects Reduce Motion and remains decorative."><Toggle label="Ambient glow" checked={settings.glow} onChange={(glow) => onChange({ glow })} /></SettingRow>
             </SettingsGroup>

@@ -17,12 +17,16 @@ interface Window {
     window?: {
       setMode: (mode: 'compact' | 'expanded') => Promise<void>
     }
+    billing?: {
+      openCreditPurchase: () => Promise<void>
+    }
     updates?: {
       check: () => Promise<import('./services/host').PluginUpdateStatus>
       install: () => Promise<import('./services/host').PluginUpdateInstallResult>
     }
     artifacts?: {
       ingestUrl: (input: { url: string; name: string; kind: 'image' | 'video' | 'audio' }) => Promise<{ id: string; url: string; checksum: string }>
+      ingestBytes: (input: { bytes: ArrayBuffer; name: string; kind: 'image' | 'video' | 'audio' }) => Promise<{ id: string; url: string; checksum: string }>
     }
   }
 }

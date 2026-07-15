@@ -212,6 +212,7 @@ export function CreateMusic({ onBack, toast, onSpend }: CreateMusicProps) {
             enhancerKey="enhancer-music"
             targetModel={`Suno ${versionLabel(version)}`}
             mediaKind="audio"
+            purpose="music"
             onSpend={onSpend}
           />
         </div>

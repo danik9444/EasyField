@@ -39,6 +39,7 @@ const realDns = require('node:dns')
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
 let capturedProxyAuthorization = ''
 let capturedProxyBridgeToken = ''
+const openedExternalUrls = []
 const fakeHttps = {
   ...realHttps,
   get: (_options, callback) => {
@@ -81,6 +82,9 @@ const safeStorage = {
   encryptString: (value) => Buffer.from('encrypted:' + Buffer.from(value).toString('base64')),
   decryptString: (bytes) => Buffer.from(String(Buffer.from(bytes)).slice('encrypted:'.length), 'base64').toString(),
 }
+const shell = {
+  openExternal: async (url) => { openedExternalUrls.push(url) },
+}
 
 class FakeWebContents extends EventEmitter {
   constructor() {
@@ -100,10 +104,21 @@ class FakeBrowserWindow extends EventEmitter {
     this.options = options
     this.webContents = new FakeWebContents()
     this.destroyed = false
+    this.focused = false
+    this.bounds = { x: options.x, y: options.y, width: options.width, height: options.height }
+    this.minimumSize = null
+    this.maximumSize = null
+    this.alwaysOnTopCalls = []
     FakeBrowserWindow.last = this
   }
   setMenu() {}
-  setContentSize() {}
+  getBounds() { return { ...this.bounds } }
+  setBounds(bounds) { this.bounds = { ...bounds } }
+  setMinimumSize(width, height) { this.minimumSize = [width, height] }
+  setMaximumSize(width, height) { this.maximumSize = [width, height] }
+  setAlwaysOnTop(...args) { this.alwaysOnTopCalls.push(args) }
+  setVisibleOnAllWorkspaces() {}
+  isFocused() { return this.focused }
   isDestroyed() { return this.destroyed }
   loadURL(url) { this.webContents.mainFrame.url = url; return Promise.resolve() }
   destroy() { this.destroyed = true }
@@ -113,10 +128,13 @@ const app = new EventEmitter()
 app.whenReady = () => Promise.resolve()
 app.quit = () => {}
 app.getPath = () => process.env.EF_TEST_USER_DATA
+const screen = new EventEmitter()
+screen.getPrimaryDisplay = () => ({ id: 1, workArea: { x: 0, y: 25, width: 1440, height: 875 } })
+screen.getDisplayMatching = () => screen.getPrimaryDisplay()
 
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
-  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage }
+  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage, screen, shell }
   if (request === 'https' || request === 'node:https') return fakeHttps
   if (request === 'dns' || request === 'node:dns') return fakeDns
   if (request.endsWith('WorkflowIntegration.node')) throw new Error('native Resolve bridge disabled by the IPC test')
@@ -127,7 +145,7 @@ require(process.argv[1])
 
 async function waitForReady() {
   for (let i = 0; i < 100; i += 1) {
-    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url')) return
+    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url') && handlers.has('ef:billing:open-credit-purchase')) return
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('Main IPC did not become ready')
@@ -138,6 +156,20 @@ void (async () => {
   const win = FakeBrowserWindow.last
   const trusted = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
   const secret = 'synthetic-ipc-test-secret'
+
+  await handlers.get('ef:billing:open-credit-purchase')(trusted, 'https://attacker.invalid/checkout')
+  let untrustedBillingRejected = false
+  try {
+    await handlers.get('ef:billing:open-credit-purchase')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+      'https://attacker.invalid/checkout',
+    )
+  } catch { untrustedBillingRejected = true }
+
+  await handlers.get('ef:window:set-mode')(trusted, 'expanded')
+  let arbitraryWindowModeRejected = false
+  try { await handlers.get('ef:window:set-mode')(trusted, { width: 10000, height: 10000 }) }
+  catch { arbitraryWindowModeRejected = true }
 
   const legacyCredentialName = Buffer.from('a2llLWFwaS1rZXk=', 'base64').toString()
   const legacyCredentialPath = path.join(process.env.EF_TEST_USER_DATA, legacyCredentialName + '.safe')
@@ -188,6 +220,21 @@ void (async () => {
   })
   const response = await fetch('http://127.0.0.1:' + process.env.EF_PORT + artifact.url)
   const bytes = Buffer.from(await response.arrayBuffer())
+  const byteArtifact = await handlers.get('ef:artifacts:ingest-bytes')(trusted, {
+    bytes: png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+    name: 'Local storyboard',
+    kind: 'image',
+  })
+  const byteResponse = await fetch('http://127.0.0.1:' + process.env.EF_PORT + byteArtifact.url)
+  const committedBytes = Buffer.from(await byteResponse.arrayBuffer())
+  let mismatchedArtifactRejected = false
+  try {
+    await handlers.get('ef:artifacts:ingest-bytes')(trusted, {
+      bytes: png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+      name: 'Mislabeled output',
+      kind: 'video',
+    })
+  } catch { mismatchedArtifactRejected = true }
   const artifactDir = path.join(process.env.HOME, 'Movies', 'EasyField', '_Artifacts')
   const partials = fs.readdirSync(artifactDir).filter((name) => name.endsWith('.download') || name.endsWith('.tmp'))
 
@@ -199,6 +246,10 @@ void (async () => {
     plaintextOnDisk: stored.includes(Buffer.from(secret)),
     credentialMode,
     untrustedRejected,
+    untrustedBillingRejected,
+    billingOpenedFixedUrl: openedExternalUrls.length === 1
+      && openedExternalUrls[0] === Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8'),
+    rendererBillingUrlIgnored: !openedExternalUrls.includes('https://attacker.invalid/checkout'),
     artifactNamespaceRejected,
     navigationPrevented,
     webviewPrevented,
@@ -215,8 +266,16 @@ void (async () => {
     secureProxyForwardedSentinel: capturedProxyAuthorization === 'Bearer __easyfield_secure__',
     secureProxyForwardedBridgeToken: capturedProxyBridgeToken !== '',
     bridgeTokenArgumentExposed: Array.isArray(win.options.webPreferences.additionalArguments),
+    expandedWindowBounds: win.bounds,
+    expandedWindowMinimum: win.minimumSize,
+    expandedWindowMaximum: win.maximumSize,
+    arbitraryWindowModeRejected,
     artifactStatus: response.status,
     artifactMatches: bytes.equals(png),
+    localArtifactStatus: byteResponse.status,
+    localArtifactMatches: committedBytes.equals(png),
+    mismatchedArtifactRejected,
+    localChecksumLength: byteArtifact.checksum.length,
     checksumLength: artifact.checksum.length,
     partialCount: partials.length,
   }))
@@ -265,6 +324,9 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     plaintextOnDisk: false,
     credentialMode: 0o600,
     untrustedRejected: true,
+    untrustedBillingRejected: true,
+    billingOpenedFixedUrl: true,
+    rendererBillingUrlIgnored: true,
     artifactNamespaceRejected: true,
     navigationPrevented: true,
     webviewPrevented: true,
@@ -281,8 +343,16 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     secureProxyForwardedSentinel: false,
     secureProxyForwardedBridgeToken: false,
     bridgeTokenArgumentExposed: false,
+    expandedWindowBounds: { x: 464, y: 41, width: 960, height: 800 },
+    expandedWindowMinimum: [720, 560],
+    expandedWindowMaximum: [1200, 843],
+    arbitraryWindowModeRejected: true,
     artifactStatus: 200,
     artifactMatches: true,
+    localArtifactStatus: 200,
+    localArtifactMatches: true,
+    mismatchedArtifactRejected: true,
+    localChecksumLength: 64,
     checksumLength: 64,
     partialCount: 0,
   })
@@ -292,24 +362,29 @@ test('the sandboxed preload does not expose the Main-only bridge token', async (
   const bootstrap = String.raw`
 const Module = require('node:module')
 let exposed
+const calls = []
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
   if (request === 'electron') {
     return {
       contextBridge: { exposeInMainWorld: (_name, value) => { exposed = value } },
-      ipcRenderer: { invoke: async () => null },
+      ipcRenderer: { invoke: async (...args) => { calls.push(args); return null } },
     }
   }
   return originalLoad.call(this, request, parent, isMain)
 }
 process.argv.push('--ef-bridge-token=synthetic-token-that-must-stay-hidden')
 require(process.argv[1])
-console.log(JSON.stringify({
-  keys: Object.keys(exposed).sort(),
-  frozen: Object.isFrozen(exposed),
-  hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
-  hasCredentials: typeof exposed.credentials?.get === 'function',
-}))
+void exposed.billing.openCreditPurchase('https://attacker.invalid/checkout').then(() => {
+  console.log(JSON.stringify({
+    keys: Object.keys(exposed).sort(),
+    frozen: Object.isFrozen(exposed),
+    hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
+    hasCredentials: typeof exposed.credentials?.get === 'function',
+    hasArtifactBytes: typeof exposed.artifacts?.ingestBytes === 'function',
+    billingCall: calls.at(-1),
+  }))
+})
 `
   const child = spawn(process.execPath, ['-e', bootstrap, pluginPreload], {
     cwd: projectRoot,
@@ -326,5 +401,7 @@ console.log(JSON.stringify({
   assert.equal(result.frozen, true)
   assert.equal(result.hasBridgeToken, false)
   assert.equal(result.hasCredentials, true)
-  assert.deepEqual(result.keys, ['artifacts', 'credentials', 'plugin', 'state', 'updates', 'window'])
+  assert.equal(result.hasArtifactBytes, true)
+  assert.deepEqual(result.billingCall, ['ef:billing:open-credit-purchase'])
+  assert.deepEqual(result.keys, ['artifacts', 'billing', 'credentials', 'plugin', 'state', 'updates', 'window'])
 })

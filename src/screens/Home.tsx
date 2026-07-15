@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Icon } from '../icons'
 import { CATALOG } from '../data/catalog'
 import { TOOL_BY_ID } from '../data/toolDefinitions'
@@ -35,7 +35,17 @@ const HOME_TOOL_COUNT = HOME_WORKSPACES.reduce((total, workspace) => total + wor
 const HOME_CATEGORY_IDS = ['all', ...HOME_WORKSPACES.map((workspace) => workspace.id)]
 const HOME_OVERVIEW_STATE_KEY = 'home-overview'
 
+export interface HomeNavigationMemory {
+  query: string
+  activeCategory: string
+  scrollTop: number
+  windowMode: Settings['windowMode']
+  anchorToolId: ToolId | null
+  anchorOffset: number
+}
+
 interface HomeProps {
+  navigationMemory: HomeNavigationMemory
   settings: Settings
   credits: number
   creditsLive: boolean
@@ -62,6 +72,7 @@ interface HomeProps {
 }
 
 export function Home({
+  navigationMemory,
   settings,
   credits,
   creditsLive,
@@ -83,16 +94,20 @@ export function Home({
   onOpenTool,
   onToggleWindowMode,
   windowMode,
+  toast,
   searchFocusSignal,
 }: HomeProps) {
-  const [query, setQuery] = useState('')
-  const [activeCategory, setActiveCategory] = useState('all')
+  const [query, setQueryState] = useState(() => navigationMemory.query)
+  const [activeCategory, setActiveCategoryState] = useState(() => (
+    HOME_CATEGORY_IDS.includes(navigationMemory.activeCategory) ? navigationMemory.activeCategory : 'all'
+  ))
   const [overviewExpanded, setOverviewExpanded] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [keyDraft, setKeyDraft] = useState(() => settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey)
   const [bridgeChecking, setBridgeChecking] = useState(false)
   const [bridgeCheckFailed, setBridgeCheckFailed] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const homeScrollRef = useRef<HTMLDivElement>(null)
   const pendingSearchFocusRef = useRef(false)
   const keyInputRef = useRef<HTMLInputElement>(null)
   const settingsDialogRef = useRef<HTMLDivElement>(null)
@@ -100,6 +115,51 @@ export function Home({
   const creations = useCreations()
   // Live DaVinci bridge status — polls every 5s while this component is mounted.
   const bridge = useSyncExternalStore(resolve.subscribe, resolve.getStatus)
+
+  const setQuery = (nextQuery: string) => {
+    navigationMemory.query = nextQuery
+    setQueryState(nextQuery)
+  }
+
+  const setActiveCategory = (nextCategory: string) => {
+    navigationMemory.activeCategory = nextCategory
+    setActiveCategoryState(nextCategory)
+  }
+
+  // Home is unmounted while a tool is open. Restore the list viewport before
+  // paint, then once more on the next frame after responsive layout settles.
+  // A semantic card anchor keeps the same work area visible if a tool changes
+  // the plugin between compact and expanded mode while Home is unmounted.
+  useLayoutEffect(() => {
+    const scrollViewport = homeScrollRef.current
+    if (!scrollViewport) return
+    const restore = () => {
+      scrollViewport.scrollTop = navigationMemory.scrollTop
+      if (navigationMemory.windowMode === windowMode || !navigationMemory.anchorToolId) return
+      const anchor = Array.from(scrollViewport.querySelectorAll<HTMLElement>('[data-home-scroll-anchor]'))
+        .find((element) => element.dataset.homeScrollAnchor === navigationMemory.anchorToolId)
+      if (!anchor) return
+      const viewportTop = scrollViewport.getBoundingClientRect().top
+      const anchorTop = anchor.getBoundingClientRect().top
+      scrollViewport.scrollTop += anchorTop - viewportTop - navigationMemory.anchorOffset
+    }
+    const capture = () => {
+      navigationMemory.scrollTop = scrollViewport.scrollTop
+      navigationMemory.windowMode = windowMode
+      const viewportTop = scrollViewport.getBoundingClientRect().top
+      const anchors = Array.from(scrollViewport.querySelectorAll<HTMLElement>('[data-home-scroll-anchor]'))
+      const anchor = anchors.find((element) => element.getBoundingClientRect().bottom > viewportTop)
+        ?? anchors.at(-1)
+      navigationMemory.anchorToolId = (anchor?.dataset.homeScrollAnchor as ToolId | undefined) ?? null
+      navigationMemory.anchorOffset = anchor ? anchor.getBoundingClientRect().top - viewportTop : 0
+    }
+    restore()
+    const frame = requestAnimationFrame(restore)
+    return () => {
+      cancelAnimationFrame(frame)
+      capture()
+    }
+  }, [navigationMemory, windowMode])
 
   const onCategoryKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -356,6 +416,15 @@ export function Home({
               {apiStatus === 'connecting' && 'Checking your balance…'}
               {apiStatus === 'idle' && (!keyToValidate ? 'Enter an API key to enable cloud actions.' : 'The key stays on this Mac.')}
             </div>
+            {creditsLive && host.isPlugin() && (
+              <button
+                type="button"
+                className="ef-credit-purchase-btn"
+                onClick={() => void host.openCreditPurchase().catch(() => toast('Could not open credit purchase.'))}
+              >
+                <span>Buy credits</span><span aria-hidden="true">↗</span>
+              </button>
+            )}
           </div>
         </>
       )}
@@ -545,7 +614,11 @@ export function Home({
         </div>
       </section>
 
-      <div className="ef-scroll ef-home-scroll">
+      <div
+        ref={homeScrollRef}
+        className="ef-scroll ef-home-scroll"
+        onScroll={(event) => { navigationMemory.scrollTop = event.currentTarget.scrollTop }}
+      >
         {searching && visibleToolCount > 0 && (
           <div className="ef-search-summary" role="status">
             {visibleToolCount === 1 ? '1 tool found' : `${visibleToolCount} tools found`}
@@ -580,6 +653,7 @@ export function Home({
                     type="button"
                     className="ef-tool-card"
                     key={tool.id}
+                    data-home-scroll-anchor={tool.id}
                     style={{ '--ef-category-color': group.color, '--ef-media-color': tool.mediaColor, '--ef-tool-order': index } as CSSProperties}
                     aria-label={`${tool.name}. ${tool.desc}. ${tool.media} tool.`}
                     onClick={() => openTool(tool.id)}

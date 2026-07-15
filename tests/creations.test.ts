@@ -97,6 +97,103 @@ test('a failed Artifact Store verification creates no Library record', async (t)
   assert.equal(getCreations().some((creation) => creation.prompt === 'Must not appear'), false)
 })
 
+test('locally rendered Blob/data output is copied into Main before Library accepts it', async (t) => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  let receivedBytes = 0
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      easyfield: {
+        plugin: true,
+        artifacts: {
+          ingestUrl: async () => { throw new Error('remote ingestion must not be used') },
+          ingestBytes: async ({ bytes }: { bytes: ArrayBuffer }) => {
+            receivedBytes = bytes.byteLength
+            return {
+              id: '9af1218d-606f-4f0e-993d-4944678346da',
+              url: '/artifacts/9af1218d-606f-4f0e-993d-4944678346da',
+              checksum: 'b'.repeat(64),
+            }
+          },
+        },
+      },
+    },
+  })
+  t.after(() => {
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else delete (globalThis as { window?: unknown }).window
+  })
+
+  const [creation] = await addCreationsDurably([{
+    kind: 'image',
+    url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
+    prompt: 'Local storyboard export',
+  }])
+  try {
+    assert.ok(receivedBytes > 0)
+    assert.equal(creation.url, '/artifacts/9af1218d-606f-4f0e-993d-4944678346da')
+    assert.equal(creation.durability, 'local')
+  } finally {
+    removeCreations([creation.id])
+  }
+})
+
+test('packaged Library commit fails closed when its local index cannot be opened', async (t) => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      easyfield: {
+        plugin: true,
+        artifacts: {
+          ingestUrl: async () => ({
+            id: '2c70d740-0f78-485e-a814-477be521c510',
+            url: '/artifacts/2c70d740-0f78-485e-a814-477be521c510',
+            checksum: 'c'.repeat(64),
+          }),
+        },
+      },
+    },
+  })
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: {} })
+  Object.defineProperty(globalThis, 'indexedDB', {
+    configurable: true,
+    value: {
+      open: () => {
+        const request: { onerror?: () => void } = {}
+        queueMicrotask(() => request.onerror?.())
+        return request
+      },
+    },
+  })
+  t.after(() => {
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else delete (globalThis as { window?: unknown }).window
+    if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument)
+    else delete (globalThis as { document?: unknown }).document
+    if (originalIndexedDb) Object.defineProperty(globalThis, 'indexedDB', originalIndexedDb)
+    else delete (globalThis as { indexedDB?: unknown }).indexedDB
+  })
+
+  const prompt = 'Index failure must remain recoverable'
+  let securedBeforeIndexFailure: readonly { url: string }[] = []
+  await assert.rejects(
+    addCreationsDurably([{
+      kind: 'video',
+      url: 'https://cdn.example.test/result-without-index.mp4',
+      prompt,
+    }], {
+      onSecured: (items) => { securedBeforeIndexFailure = items },
+    }),
+    /local Library index is unavailable/i,
+  )
+  assert.deepEqual(securedBeforeIndexFailure.map((item) => item.url), ['/artifacts/2c70d740-0f78-485e-a814-477be521c510'])
+  const record = getCreations().find((creation) => creation.prompt === prompt)
+  if (record) removeCreations([record.id])
+})
+
 test('creation helpers return stable records without changing newest-first Library order', () => {
   const added = addCreations([
     { kind: 'image', url: 'https://media.example.test/scene-one.png', prompt: 'Scene one' },

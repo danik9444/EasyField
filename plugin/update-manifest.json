@@ -9,13 +9,13 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.2.0",
-  "createdAt": "2026-07-14T13:30:51.000Z",
-  "buildId": "19d5c920aa1c69f1a632bdb8598d53dd20c26e905a0d5d88bc7a4de3f396407f",
+  "createdAt": "2026-07-15T07:17:58.552Z",
+  "buildId": "79a294c74950d7013a6ca17706e5c630e826749827a8921fecd86816e55dec53",
   "files": [
     {
       "path": "animation-render.cjs",
-      "size": 33083,
-      "sha256": "bddf5a78bd425e5d8194046ea0dad16b9d389eb76212aba2ceb80e785b836ef2"
+      "size": 34100,
+      "sha256": "3e2896dea08e9505ed546fdbb9ba814261b4cbde4c514e9ab978a606feeb257e"
     },
     {
       "path": "audio-capture.cjs",
@@ -44,8 +44,8 @@
     },
     {
       "path": "main.cjs",
-      "size": 94513,
-      "sha256": "319569eff139bc0ec38e90caadb2e9f1d9fa80ab7ae8600731e8758106be894e"
+      "size": 100155,
+      "sha256": "c83a7a936fa7a8719872ce0f33f1af75e2eb324bf91def88312eb6c2a681b3cc"
     },
     {
       "path": "manifest.xml",
@@ -59,13 +59,13 @@
     },
     {
       "path": "plugin-updater.cjs",
-      "size": 43340,
-      "sha256": "783442355f016519db36d01de14fae9ac702e52918ccc1075b091409acc60cc0"
+      "size": 43365,
+      "sha256": "375cf8b44e908657d109131383a674c5d7684200787cb61f747350097fc5ee74"
     },
     {
       "path": "preload.cjs",
-      "size": 1399,
-      "sha256": "9170b40d71dc5150d0ba23291846e0c6cfc68d814ce0785f304cfaf210708e09"
+      "size": 1613,
+      "sha256": "f4b83321cea32e2f5a8fce58f923e2c0f2fcea6928b9dfd2b2ab5e3a64ce2b1d"
     },
     {
       "path": "python/beat_detect.py",
@@ -108,14 +108,14 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-BTkwwyXE.js",
+      "path": "ui/assets/AnimationRenderHost-DwmDbD-v.js",
       "size": 247271,
-      "sha256": "a503f2cebdf4a16e0743c4075054b8ed0a3e4587dd2ca1544e1a0cdc8eab9f60"
+      "sha256": "9913dbfcdb741133fd13d6689373e292a35ed8df9b4fb7c1d602027f22c5ad93"
     },
     {
-      "path": "ui/assets/App-BNoyLtjm.js",
-      "size": 939324,
-      "sha256": "b5cd7806f85cc97768b467cc0287a1acbddd5c05328ff750770aaab57cef6791"
+      "path": "ui/assets/App-B9IweeRh.js",
+      "size": 945002,
+      "sha256": "b5e752a30b793cbbfab517aa4193955c8ce3366af9e6ad42ce3cbfa760743933"
     },
     {
       "path": "ui/assets/body-type-atlas-NP73N7QF.jpg",
@@ -158,19 +158,19 @@
       "sha256": "5b3391f991449172eb3d91264615b3f7020cb4edb2c565e4fb44010f5e1f4b39"
     },
     {
-      "path": "ui/assets/index--vjYjRqO.css",
-      "size": 491480,
-      "sha256": "145656ee57053b9da69d3ccc42f72c9ec58dd4ed68ff55849241e06f67744176"
+      "path": "ui/assets/index-Dc6gPNTd.css",
+      "size": 493731,
+      "sha256": "f78d28be2301625ee1712833394e492185486cdc09851d060e7bf96618dff224"
     },
     {
-      "path": "ui/assets/index-DD5pFm74.js",
+      "path": "ui/assets/index-DWjeTVoF.js",
       "size": 196577,
-      "sha256": "30d68da1dd49de4e0eaea4cbc6dbc53dc80e2fb664efc1675e37c573033cd4a1"
+      "sha256": "acd0b44f484a5dc23f4b0ffe62581b9540946a840acacdc6b0fa3ee8c066ef48"
     },
     {
-      "path": "ui/assets/index-NNWr-pMk.js",
+      "path": "ui/assets/index-qlvjPQD0.js",
       "size": 66,
-      "sha256": "4cc7f0ec64a6d1b288e8e9f56f897547e01ca5f1a6b3c2f3b86a8b0d3ec66224"
+      "sha256": "3137a0b85f359926826ae9f7f69e5e81f2de68be824da0ed012e8f5a505b2e71"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -240,7 +240,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "8ef9bf39bfaf55fc61571f64e46bc85409a8028dc504ac85d71cbfeb3141d104"
+      "sha256": "e9e9543a6f551253eae56fb0962999a8e3ef098ac732857bd7bd244860ebbf06"
     },
     {
       "path": "url-context.cjs",
@@ -251,6 +251,11 @@
       "path": "whisper-transcription.cjs",
       "size": 36702,
       "sha256": "08113b9bf378aea7aa1969a01b3ac4fe9e52bcc14922deb5bf735e962895d120"
+    },
+    {
+      "path": "window-policy.cjs",
+      "size": 11120,
+      "sha256": "f905af6600ee19adeedc911020823188c5e52cbfcf2307dd49dbb04fa9900ceb"
     },
     {
       "path": "workflow-integration.cjs",
