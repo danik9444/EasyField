@@ -1677,7 +1677,7 @@ body::before {
 @media (max-width: 699px) {
   .ef-panel--expanded { width: 100%; max-width: 560px; }
   .ef-panel--expanded .ef-model-sheet { inset: 8px; width: auto; max-height: none; border-radius: 18px; }
-  .ef-edit-image-screen .ef-edit-canvas {
+  :is(.ef-edit-image-screen, .ef-angles-screen) .ef-edit-canvas {
     height: clamp(220px,36vh,300px);
     max-height: 300px;
     aspect-ratio: auto !important;
@@ -7540,7 +7540,7 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
 }
 .ef-panel--expanded .ef-angles-screen .ef-angles-workbench {
   display: grid;
-  grid-template-columns: minmax(0,1.5fr) minmax(290px,.74fr);
+  grid-template-columns: minmax(0,1fr) 314px;
   align-items: start;
   gap: 22px;
 }
@@ -7548,14 +7548,22 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   position: sticky;
   top: 0;
 }
-.ef-panel--expanded .ef-angles-screen .ef-angles-source-card .ef-edit-canvas {
-  min-height: 390px;
-  max-height: 570px;
-}
 .ef-panel--expanded .ef-angles-screen .ef-angles-controls-column .ef-prompt-card .ef-billing-copy { display: none; }
 .ef-panel--expanded .ef-angles-screen .ef-angles-generation,
 .ef-panel--expanded .ef-angles-screen .ef-angles-results,
 .ef-panel--expanded .ef-angles-screen .ef-generation-exit { width: min(100%,800px); margin-inline: auto; }
+
+@media (min-width:700px) {
+  .ef-panel--expanded .ef-angles-screen .ef-angles-source-card {
+    min-height: 420px;
+    max-height: 560px;
+  }
+  .ef-panel--expanded .ef-angles-screen .ef-angles-source-card .ef-edit-canvas {
+    height: 100%;
+    min-height: inherit;
+    max-height: inherit;
+  }
+}
 
 @media (max-width:760px) {
   .ef-panel--expanded .ef-angles-screen .ef-angles-workbench { grid-template-columns: 1fr; }
