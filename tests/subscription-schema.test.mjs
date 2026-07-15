@@ -12,6 +12,12 @@ const migrationPath = path.join(
   '202607140001_subscription_billing.sql',
 )
 const migration = readFileSync(migrationPath, 'utf8')
+const pricingMigration = readFileSync(path.join(
+  projectRoot,
+  'supabase',
+  'migrations',
+  '202607150001_update_subscription_pricing.sql',
+), 'utf8')
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -175,6 +181,15 @@ test('the private server catalog owns the exact four plan prices, grants and top
     )
     assert.equal(row.minimum_top_up_currency_micros, '10000000')
   }
+})
+
+test('the pricing revision has a forward migration for already-installed catalogs', () => {
+  assert.match(pricingMigration, /billing-2026-07-15/g)
+  assert.match(pricingMigration, /'starter'::text[^\n]+800000000::bigint[^\n]+20000::bigint/)
+  assert.match(pricingMigration, /'creator'::text[^\n]+2000000000::bigint[^\n]+15000::bigint/)
+  assert.match(pricingMigration, /'pro'::text[^\n]+5000000000::bigint[^\n]+12000::bigint/)
+  assert.match(pricingMigration, /'studio'::text[^\n]+12000000000::bigint[^\n]+10000::bigint/)
+  assert.match(pricingMigration, /if v_updated <> 4 then/)
 })
 
 test('Starter blocks only the canonical regular Seedance 2 model by exact ID', () => {
