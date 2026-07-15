@@ -584,12 +584,13 @@ export function CharacterBuilderPanel({
           enhancerKey="enhancer-character"
           targetModel={targetModel}
           mediaKind="image"
+          purpose="character-notes"
           style="Character design"
           references={enhanceReferences}
           supportingContext={selectionContext ? {
             label: 'Locked character selections',
             text: selectionContext,
-            instruction: 'Preserve these structured character choices exactly. Improve only the user’s additional direction and resolve it consistently with every selected trait and attached sample.',
+            instruction: 'Preserve these structured character choices exactly. Improve only the user’s additional direction. Do not infer or fill any trait, placement or design choice that was not selected or written.',
           } : undefined}
           contextKey={enhanceContextKey}
           onSpend={onSpend}

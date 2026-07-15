@@ -437,6 +437,7 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
                   enhancerKey="enhancer-angles-custom"
                   targetModel={model}
                   mediaKind="image"
+                  purpose="angle"
                   placeholder="Describe camera position, elevation, lens or framing…"
                   references={enhanceReferences}
                   contextKey={promptContextKey}

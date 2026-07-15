@@ -97,7 +97,8 @@ test('compiles format, sound and attached sources into prompt context', () => {
   )
   assert.match(context, /SELECTED FORMAT · Product Video/)
   assert.match(context, /SOUND OUTPUT · With sound/)
-  assert.match(context, /synchronized sound or music/i)
+  assert.match(context, /final animation includes sound/i)
+  assert.match(context, /leave the sound content unspecified instead of inventing it/i)
   assert.match(context, /ATTACHED MATERIAL\nIMAGE REFERENCE/)
 
   const migrated = buildAnimationPromptContext('template-video', 'invalid')

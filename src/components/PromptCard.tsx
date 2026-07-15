@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Icon } from '../icons'
 import { Dropdown } from './Dropdown'
-import { enhancePrompt, type EnhanceMediaKind, type EnhanceReference, type EnhanceSupportingContext } from '../services/chat'
+import { enhancePrompt, type EnhanceMediaKind, type EnhancePurpose, type EnhanceReference, type EnhanceSupportingContext } from '../services/chat'
 import { isConnected } from '../services/run'
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from '../data/models'
 import { AGENT_MODEL_META } from '../data/modelPresentation'
@@ -18,6 +18,8 @@ interface PromptCardProps {
   // the enhancer can tailor its output to it.
   targetModel: string
   mediaKind: EnhanceMediaKind
+  /** The concrete task being improved; prevents create-style invention in edit/angle/Foley prompts. */
+  purpose: EnhancePurpose
   ariaLabel?: string
   placeholder?: string
   // The selected style chip (Create Image) so the enhancer builds around it.
@@ -33,7 +35,7 @@ interface PromptCardProps {
   onEnhanced?: (result: { text: string; enhancerModel: string }) => void
 }
 
-export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'enhancer-model', targetModel, mediaKind, ariaLabel, placeholder, style, references, supportingContext, onSpend, contextKey = '', onEnhanced }: PromptCardProps) {
+export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'enhancer-model', targetModel, mediaKind, purpose, ariaLabel, placeholder, style, references, supportingContext, onSpend, contextKey = '', onEnhanced }: PromptCardProps) {
   const [enhanceModel, setEnhanceModel] = useState(() => {
     const v = loadValue(enhancerKey)
     return v && AGENT_MODELS.includes(v) ? v : DEFAULT_AGENT_MODEL
@@ -55,7 +57,7 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
     setEnhancing(false)
     setCost(null)
     setError(null)
-  }, [contextKey, targetModel])
+  }, [contextKey, purpose, targetModel])
 
   const pickEnhanceModel = (m: string) => {
     requestIdRef.current += 1
@@ -81,7 +83,7 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
     const requestId = ++requestIdRef.current
     abortRef.current = controller
     try {
-      const res = await enhancePrompt({ rough: prompt, targetModel, mediaKind, chatModel: enhanceModel, maxLength, style, references, supportingContext, signal: controller.signal })
+      const res = await enhancePrompt({ rough: prompt, targetModel, mediaKind, purpose, chatModel: enhanceModel, maxLength, style, references, supportingContext, signal: controller.signal })
       if (controller.signal.aborted || requestId !== requestIdRef.current) return
       onPromptChange(res.text)
       onEnhanced?.({ text: res.text, enhancerModel: enhanceModel })

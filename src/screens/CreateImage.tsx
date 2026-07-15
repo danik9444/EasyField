@@ -416,7 +416,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
         ) : (
           <>
             <ReferenceImageGrid images={refImages} max={maxReferenceImages} onAddFiles={addRefFiles} onRemove={removeRefAt} onGrabPlayhead={grabPlayhead} />
-            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={userPromptMax} enhancerKey="enhancer-image" targetModel={model} mediaKind="image" style={style} references={enhanceRefs} onSpend={onSpend} />
+            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={userPromptMax} enhancerKey="enhancer-image" targetModel={model} mediaKind="image" purpose="create" style={style} references={enhanceRefs} onSpend={onSpend} />
             <ChipField label="STYLE" options={STYLES} selected={style} onSelect={setStyle} chipClassName="ef-style-chip" />
             {outputSettings}
           </>

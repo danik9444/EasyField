@@ -321,6 +321,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
   const jobTitle = isTransition ? 'Create transition' : isExtend ? 'Extend video' : 'Create video'
   const libraryPrefix = isTransition ? 'Transition · ' : isExtend ? 'Extended · ' : ''
   const enhancerKey = isTransition ? 'enhancer-transition-video' : isExtend ? 'enhancer-extend-video' : 'enhancer-video'
+  const promptEnhancementPurpose = isTransition ? 'transition' : isExtend ? 'extend' : 'create'
   const actionLabel = isTransition ? 'Generate transition' : isExtend ? 'Extend' : 'Generate'
   const progressLabel = isTransition ? 'GENERATING TRANSITION' : isExtend ? 'EXTENDING' : 'RENDERING'
   const retryLabel = isTransition ? 'Create another transition' : isExtend ? 'Extend another' : 'Create another'
@@ -1429,7 +1430,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
             onSpend={onSpend}
           />
         ) : (
-          <PromptCard prompt={prompt} onPromptChange={setPrompt} maxLength={standardPromptMax} enhancerKey={enhancerKey} targetModel={model} mediaKind="video" references={enhanceRefs} onSpend={onSpend} />
+          <PromptCard prompt={prompt} onPromptChange={setPrompt} maxLength={standardPromptMax} enhancerKey={enhancerKey} targetModel={model} mediaKind="video" purpose={promptEnhancementPurpose} references={enhanceRefs} onSpend={onSpend} />
         )}
 
         {showAspectPicker && (

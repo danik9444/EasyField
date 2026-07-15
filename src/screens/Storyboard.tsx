@@ -69,7 +69,7 @@ const STORYBOARD_DRAFT_KEY = 'default:storyboard-v1'
 const ENHANCER_PREF_KEY = 'enhancer-storyboard'
 const ENHANCE_MAX_LENGTH = 6_000
 const SCENE_PROMPT_MIN_LENGTH = 3
-const STORYBOARD_CONTEXT_INSTRUCTION = 'Use the complete story and every ordered scene row to preserve narrative sequence, character identity, wardrobe, props, locations, palette and visual continuity. Treat attached references as authoritative visual evidence. Do not copy an action from another scene unless continuity requires it.'
+const STORYBOARD_CONTEXT_INSTRUCTION = 'Use the complete story and every ordered scene row only to prevent contradictions and preserve explicitly established continuity. Treat attached references as authoritative visual evidence. Never copy an action or fill a missing detail from another scene unless the current primary text explicitly refers to it.'
 
 type SaveState = 'loading' | 'saved' | 'saving' | 'error'
 type BriefRunState = 'idle' | 'enhancing' | 'planning' | 'error'
@@ -669,6 +669,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         rough: briefSnapshot,
         targetModel: `Complete storyboard planned for ${current.model}`,
         mediaKind: 'workflow',
+        purpose: 'story-brief',
         chatModel: enhancerModel,
         maxLength: Math.min(ENHANCE_MAX_LENGTH, STORYBOARD_MAX_STORY_BRIEF_LENGTH),
         style: current.style || undefined,
@@ -720,6 +721,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         rough: promptSnapshot,
         targetModel: modelSnapshot,
         mediaKind: 'image',
+        purpose: 'story-scene',
         chatModel: enhancerModel,
         maxLength: promptMaxSnapshot,
         style: styleSnapshot || undefined,

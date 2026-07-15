@@ -643,7 +643,7 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
           </section>
         ) : (
           <>
-            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={activePromptMax} enhancerKey="enhancer-edit-video" targetModel={activeModel} mediaKind="video" references={enhanceRefs} onSpend={onSpend} />
+            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={activePromptMax} enhancerKey="enhancer-edit-video" targetModel={activeModel} mediaKind="video" purpose="edit" references={enhanceRefs} onSpend={onSpend} />
 
             {refImagesMax > 0 && (
               <ReferenceImageGrid

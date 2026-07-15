@@ -146,6 +146,7 @@ export function StoryboardEditor({
                       enhancerKey={enhancerKey}
                       targetModel={targetModel}
                       mediaKind="video"
+                      purpose="multi-shot-scene"
                       ariaLabel={`Prompt for shot ${index + 1}`}
                       placeholder="Framing, subject, action, camera movement and the visual beat for this shot…"
                       references={references}

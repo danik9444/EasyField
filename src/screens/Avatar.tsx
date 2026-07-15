@@ -726,6 +726,7 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
             enhancerKey="enhancer-avatar"
             targetModel={model}
             mediaKind="video"
+            purpose="avatar"
             placeholder="Describe delivery, expression, gaze and motion…"
             references={enhancerReferences}
             contextKey={`${mode}:${model}:${image?.id ?? ''}:${video?.id ?? ''}:${audio?.id ?? ''}`}

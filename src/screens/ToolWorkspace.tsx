@@ -593,6 +593,7 @@ export function ToolWorkspace({ toolId, onBack, toast, onToggleWindowMode, windo
                 enhancerKey={`enhancer-${toolId}`}
                 targetModel={selectedModel?.name ?? tool.name}
                 mediaKind={promptMediaKind}
+                purpose={toolId === 'avatar' ? 'avatar' : 'workflow'}
               />
             ) : (
               <div className="ef-anim-hint" role="note">

@@ -566,6 +566,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
                 enhancerKey="enhancer-sfx-single"
                 targetModel={`Suno Sounds ${modelLabel(model)}`}
                 mediaKind="audio"
+                purpose="single-sfx"
                 onSpend={onSpend}
               />
             </div>
@@ -625,6 +626,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
                     enhancerKey="enhancer-sfx-foley"
                     targetModel="EasyField Auto Foley planner"
                     mediaKind="audio"
+                    purpose="foley-direction"
                     references={videoReferences}
                     contextKey={`guided:${source?.id ?? 'no-video'}`}
                     onSpend={onSpend}

@@ -317,7 +317,7 @@ export function Animation({ onBack, toast, onSpend }: AnimationProps) {
   const supportingContext = useMemo<EnhanceSupportingContext>(() => ({
     label: 'Animation brief context',
     text: compiledPromptContext,
-    instruction: 'Treat the user prompt as the primary creative command. Use the selected format, sound decision and all attached material as binding context. Do not invent claims that conflict with attached sources.',
+    instruction: 'Treat the user prompt as the primary creative command. Use the selected format, sound decision and attached material only as binding evidence. Do not invent claims, copy, data, assets, motion, transitions or sound content that the prompt and evidence do not supply.',
   }), [compiledPromptContext])
   const contextKey = useMemo(() => `${recipe}|${soundMode}|${sources.map((source) => `${source.id}:${source.text?.length ?? 0}`).join('|')}`, [recipe, soundMode, sources])
 
@@ -603,6 +603,7 @@ export function Animation({ onBack, toast, onSpend }: AnimationProps) {
                 enhancerKey={`animation-enhancer-${recipe}`}
                 targetModel={`${engine} · ${selectedRecipe.label}`}
                 mediaKind="video"
+                purpose="animation"
                 ariaLabel={`${selectedRecipe.label} animation prompt`}
                 placeholder={selectedRecipe.placeholder}
                 references={enhancementReferences}
