@@ -207,11 +207,13 @@ begin
       or new.currency_code is distinct from v_plan.currency_code
       or new.included_microcredits_per_grant
         is distinct from v_plan.monthly_grant_microcredits
-      or new.unit_amount_currency_micros is distinct from case new.billing_interval
-        when 'monthly' then v_plan.monthly_price_currency_micros
-        when 'annual' then v_plan.annual_price_currency_micros
-        else null
-      end
+      or new.unit_amount_currency_micros is distinct from (
+        case new.billing_interval
+          when 'monthly' then v_plan.monthly_price_currency_micros
+          when 'annual' then v_plan.annual_price_currency_micros
+          else null
+        end
+      )
     then
       raise exception 'Subscription snapshot does not match the active catalog'
         using errcode = '55000';

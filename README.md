@@ -12,14 +12,19 @@ place generated image, video, and audio results back on the current timeline.
 The catalog contains **20 tools across 5 categories**. Every card now opens a
 complete, auto-saved workspace with recipes, source selection, validated-model
 browsing, privacy/cost preflight and a review state. The established execution
-flows remain live: **Create Image, Edit Image, Create Video, Edit Video,
-Animations, Create Music, Voice Over, and local librosa Beat Detection**.
+flows are wired in the direct-cloud development/operator path: **Create Image,
+Edit Image, Create Video, Edit Video, Animations, Create Music, Voice Over, and
+local librosa Beat Detection**.
 
-The remaining newer workflows currently stop at an honest preflight when their
-provider or Resolve execution adapter is not installed; they never simulate a
-successful paid run. **SuperBrain now calls a real cloud chat model and validates
-its typed plan**, but applying a multi-tool plan remains blocked until every
-step exposes cost, privacy, provider, placement and rollback contracts.
+The established generation adapters are available to the verified direct-cloud
+development/operator path. Regular-customer paid forwarding remains
+deliberately fail-closed until the server-side generation and billing gateway
+is deployed and verified. Newer workflows stop at an honest preflight when
+their cloud or Resolve execution adapter is not installed; they never simulate
+a successful paid run. **SuperBrain can call a real cloud chat model in the
+direct path and validates its typed plan**, but applying a multi-tool plan
+remains blocked until every step exposes cost, privacy, provider, placement and
+rollback contracts.
 
 The Resolve-hosted main process uses SQLite for settings, drafts, job ledgers
 and artifact metadata. Accepted provider task IDs recover after restart, and
@@ -33,12 +38,17 @@ soon as the host can download them.
   official SDK SamplePlugin installation; the Blackmagic binary is neither
   tracked by this repository nor redistributed in EasyField releases.
 - Node.js 22.18+ and npm.
-- `ffmpeg` and `ffprobe` on `PATH` for timeline grabs, media conversion, and
-  animation export. With Homebrew: `brew install ffmpeg`.
-- Python 3 with the project-managed librosa environment for Beat Detection. See
+- For local development only, `ffmpeg` and `ffprobe` on `PATH` provide timeline
+  grabs, media conversion and animation export. With Homebrew:
+  `brew install ffmpeg`. Public builds instead require the signed,
+  checksum-pinned runtime catalog described below.
+- For local development only, Python 3 with the project-managed librosa
+  environment provides Beat Detection. See
   [`plugin/python/README.md`](plugin/python/README.md); packages are not installed
   globally.
-- An active EasyField Cloud API key with sufficient credits for live AI generation.
+- A verified EasyField account with an active plan and sufficient credits for
+  customer generation. Administrator and lifetime Partner accounts may instead
+  connect their own direct cloud credential.
 
 ## Development
 
@@ -100,12 +110,19 @@ timeline, then choose **Workspace → Workflow Integrations → EasyField**.
 
 The managed librosa runtime is versioned separately under
 `~/Library/Application Support/EasyField/runtime/python`; the 300+ MB virtual
-environment is not duplicated inside Resolve's root-owned plugin directory.
+environment is not duplicated inside Resolve's root-owned plugin directory by
+developer installs. It is not valid evidence for a public release.
+
+Production update and PKG builders reject the checked-in, unavailable runtime
+catalog. A distributable build requires exact arm64 and x64 payload inventories
+for FFmpeg/ffprobe, librosa/Python and whisper.cpp, valid Mach-O signatures,
+written redistribution approval and matching SPDX records. No runtime URL,
+version or checksum is guessed by the build.
 
 End users install a signed and notarized macOS PKG produced by the protected
 GitHub Release workflow. The PKG validates macOS and Resolve compatibility,
-requires Resolve to be closed, verifies the complete payload, and preserves the
-previous installation for recovery. See [`docs/RELEASING.md`](docs/RELEASING.md)
+requires Resolve to be closed, verifies the complete payload, and can restore
+the previous installation if its atomic swap fails. See [`docs/RELEASING.md`](docs/RELEASING.md)
 for repository setup, signing, notarization and the no-publish local dry run.
 Published installers are available only from the
 [official EasyField releases](https://github.com/danik9444/EasyField/releases/latest).
@@ -119,9 +136,9 @@ action is always available in **Settings → Resolve → EasyField updates**.
 
 Update installation accepts no renderer-supplied path or URL. Main stages only
 manifest-listed files, and the administrator side rechecks the exact file set
-and every SHA-256 before swapping directories. The previous installation stays
-in `/Library/Application Support/EasyField/Recovery` for recovery. Restart
-Resolve after an update so its Electron host loads the new integration.
+and every SHA-256 before swapping directories. A temporary recovery copy is
+used only during the atomic swap and is removed after successful verification.
+Restart Resolve after an update so its Electron host loads the new integration.
 
 Local developer installs use the local channel described above. Production PKG
 installs contain a fixed public GitHub Release feed and an Ed25519 public key.
@@ -130,17 +147,27 @@ release envelope, archive size and SHA-256, then verifies the exact manifest
 tree before requesting the same administrator-approved atomic swap. A published
 version is immutable and an update always requires a higher SemVer.
 
-## API key and local security
+## Account credentials and local security
 
-The current development/operator build can accept an EasyField Cloud key from
-Settings or the credits badge on Home. In the Electron plugin it is encrypted
-with Electron `safeStorage` (macOS Keychain-backed). The renderer receives only
-an internal proxy token; the cloud gateway adds the real key inside the main
-process. Browser development keeps the key in `sessionStorage` only and must not
-be treated as a production credential store. Before customer billing launches,
-this direct-key path must require a short-lived server capability belonging to
-an administrator or active Partner; a normal customer must use the EasyField
-credit control plane and must not receive a direct-key form.
+Regular customers sign in to an EasyField account and never enter or receive a
+provider credential. Refresh credentials are encrypted with Electron
+`safeStorage` (macOS Keychain-backed), while access tokens stay in Main process
+memory. The renderer receives only a sanitized account snapshot and an opaque
+internal proxy token.
+
+For a regular customer, checkout opens in the system browser and the signed
+billing webhook plus database reconciliation update the EasyField account's
+plan and credits. The desktop stores an encrypted, account-bound checkout
+request so it can resume after restart or sign-out. It does not infer payment
+from a local timeout, an expired browser URL, a higher balance, or a changed
+entitlement; `/checkout-status` is the authoritative recovery path.
+
+Only a server-verified administrator or active lifetime Partner can see the
+direct-cloud connection form. Its credential is validated in Main, encrypted,
+and stored in an account-specific Keychain-backed scope; it is re-authorized
+against the account service before every direct request. Browser development is
+not a production credential store and direct access requires an explicit
+development opt-in.
 
 The Resolve bridge listens only on `127.0.0.1` and protects privileged endpoints
 with a per-process secret plus origin checks. Keep port `18832` local and do not
@@ -148,12 +175,17 @@ remove those checks: the bridge can read timeline media and mutate a project.
 
 ## Billing and credit safety
 
-The Supabase migration at
+The Supabase migrations beginning with
 [`supabase/migrations/202607140001_subscription_billing.sql`](supabase/migrations/202607140001_subscription_billing.sql)
-is the server-side billing foundation. It is intentionally not a signal that
-live billing is enabled. Production still requires the provider orchestration,
-tax/document decisions, sandbox verification, reconciliation and launch gates
-described in the billing ADR and runbook.
+and continuing through
+[`supabase/migrations/20260715170000_private_billing_rls_hardening.sql`](supabase/migrations/20260715170000_private_billing_rls_hardening.sql)
+form the server-side billing foundation. They are intentionally not a signal
+that live billing is enabled. Production still requires the real customer
+generation gateway, deployed merchant and Supabase services, Partner
+refund/chargeback revocation, production allowlisting and packaged testing of the Main-owned password-recovery callback,
+tax/document decisions, sandbox verification and operational launch gates.
+See [`docs/ACCOUNT_SERVICE_DEPLOYMENT.md`](docs/ACCOUNT_SERVICE_DEPLOYMENT.md)
+for the complete fail-closed deployment checklist.
 
 The database, not the renderer or an external payment adapter, owns the billing
 state machine:
@@ -227,11 +259,15 @@ change requires a current administrator actor and cannot remove the last admin.
 - **Beat Detection reports that librosa is missing:** follow
   `plugin/python/README.md` to create `plugin/python/.venv`. The panel reports the
   missing pack safely and never modifies the timeline while it is unavailable.
-- **A recovered job says it needs attention:** reconnect EasyField Cloud, then reopen the
-  Activity panel. Accepted provider task IDs are retained in SQLite.
-- **EasyField Cloud returns an authentication or credit error:** reconnect the key from Home and
-  check its balance. Run the app through Vite or the embedded plugin server;
-  opening `dist/index.html` directly bypasses the required proxies.
+- **A recovered job says it needs attention:** sign back in to the same EasyField
+  account, then reopen the Activity panel. Accepted provider task IDs are
+  retained in SQLite.
+- **EasyField Cloud returns an authentication or credit error:** refresh the
+  account in **Account**, confirm its plan and EasyField credit balance, then
+  sign in again if the session expired. Only a verified administrator or
+  lifetime Partner should reconnect a direct-cloud credential. Run the app
+  through Vite or the embedded plugin server; opening `dist/index.html`
+  directly bypasses the required account proxy.
 - **Port 18832 is already in use:** close stale EasyField/Electron processes and
   relaunch the panel.
 

@@ -25,7 +25,7 @@ decision does not authorize live billing by itself.
 | Plan | Monthly | Annual billed upfront | Annual monthly equivalent | Monthly grant | Top-up rate |
 |---|---:|---:|---:|---:|---:|
 | Starter | $15 | $144 | $12 | 800 credits | $0.020/credit |
-| Creator | $30 | $300 | $25 | 2,000 credits | $0.015/credit |
+| Creator | $24 | $300 | $25 | 2,000 credits | $0.015/credit |
 | Pro | $60 | $588 | $49 | 5,000 credits | $0.012/credit |
 | Studio | $129 | $1,188 | $99 | 12,000 credits | $0.010/credit |
 

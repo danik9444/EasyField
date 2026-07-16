@@ -43,6 +43,8 @@ const REQUIRED_FILES = Object.freeze([
     'plugin-updater.cjs',
     'preload.cjs',
     'python/beat_detect.py',
+    'runtime-pack.cjs',
+    'runtime-packs.json',
     'state-store.cjs',
     'timeline-capture.cjs',
     'timecode.cjs',
@@ -242,7 +244,7 @@ function canonicalReleasePayload(payload) {
     });
 }
 
-function validateRemoteRelease(input, descriptor) {
+function validateRemoteRelease(input, descriptor, options = {}) {
     if (!input || input.schemaVersion !== 1 || input.kind !== 'easyfield-release') throw new Error('Invalid signed update feed');
     const feed = validateGitHubFeedUrl(descriptor.feedUrl);
     const payload = input.payload;
@@ -252,7 +254,9 @@ function validateRemoteRelease(input, descriptor) {
         throw new Error('Signed update metadata does not match its manifest');
     }
     const archive = payload.archive;
-    if (!archive || typeof archive.name !== 'string' || !/^EasyField-[0-9A-Za-z.-]+-plugin\.tar\.gz$/.test(archive.name)) throw new Error('Invalid update archive');
+    const ciStructure = options.allowCiStructure === true;
+    const expectedArchiveName = `EasyField-${manifest.version}${ciStructure ? '-ci-structure' : ''}-plugin.tar.gz`;
+    if (!archive || archive.name !== expectedArchiveName) throw new Error('Invalid update archive');
     if (!Number.isSafeInteger(archive.size) || archive.size <= 0 || archive.size > MAX_RELEASE_BYTES) throw new Error('Invalid update archive size');
     if (typeof archive.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(archive.sha256)) throw new Error('Invalid update archive checksum');
     let archiveUrl;
@@ -266,6 +270,9 @@ function validateRemoteRelease(input, descriptor) {
         ? payload.releaseNotes.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, MAX_RELEASE_NOTES)
         : '';
     if (releaseNotes !== (payload.releaseNotes || '')) throw new Error('Invalid update release notes');
+    if (ciStructure && !releaseNotes.startsWith('[CI STRUCTURE TEST — NO ACCOUNT CONFIG — NOT FOR DISTRIBUTION]\n')) {
+        throw new Error('Invalid CI structure release notes');
+    }
     const signature = decodeCanonicalBase64(input.signature, 'Invalid update signature');
     if (signature.length !== 64) throw new Error('Invalid update signature');
     const key = crypto.createPublicKey({ key: Buffer.from(descriptor.publicKey, 'base64'), format: 'der', type: 'spki' });
@@ -284,6 +291,7 @@ function validateRemoteRelease(input, descriptor) {
         manifest,
         archive: canonicalPayload.archive,
         releaseNotes,
+        ciStructure,
     });
 }
 

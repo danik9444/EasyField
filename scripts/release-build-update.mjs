@@ -4,9 +4,16 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { assertReleaseAccountBuildMode } from './release-account-config.mjs'
+import { assertReleaseRuntimeBuildMode } from './release-runtime-packs.mjs'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pluginRoot = path.join(projectRoot, 'plugin')
+const accountBuildMode = assertReleaseAccountBuildMode(projectRoot)
+const runtimeBuildMode = assertReleaseRuntimeBuildMode(projectRoot)
+if (runtimeBuildMode.kind !== accountBuildMode.kind) {
+  throw new Error('Account and runtime release gates must use the same build mode')
+}
 const require = createRequire(import.meta.url)
 const updater = require(path.join(pluginRoot, 'plugin-updater.cjs'))
 const args = process.argv.slice(2)
@@ -208,7 +215,9 @@ const entries = [
 ]
 const tarBytes = createTar(entries, canonicalMtime())
 const archiveBytes = zlib.gzipSync(tarBytes, { level: 9, mtime: 0 })
-const archiveName = `EasyField-${manifest.version}-plugin.tar.gz`
+const archiveName = accountBuildMode.kind === 'ci-structure'
+  ? `EasyField-${manifest.version}-ci-structure-plugin.tar.gz`
+  : `EasyField-${manifest.version}-plugin.tar.gz`
 const archive = {
   name: archiveName,
   url: `https://github.com/${repository}/releases/download/v${manifest.version}/${archiveName}`,
@@ -219,6 +228,9 @@ const archive = {
 let releaseNotes = option('--notes', `EasyField ${manifest.version}`)
 const notesFile = option('--notes-file', null)
 if (notesFile) releaseNotes = fs.readFileSync(path.resolve(projectRoot, notesFile), 'utf8').trim()
+if (accountBuildMode.kind === 'ci-structure') {
+  releaseNotes = `[CI STRUCTURE TEST — NO ACCOUNT CONFIG — NOT FOR DISTRIBUTION]\n${releaseNotes}`
+}
 if (Buffer.byteLength(releaseNotes) > 4000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(releaseNotes)) {
   throw new Error('Release notes must be at most 4000 bytes and contain no control characters')
 }

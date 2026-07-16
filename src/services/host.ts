@@ -1,3 +1,17 @@
+import type {
+  AccountAuthOutcome,
+  AccountBridgeApi,
+  AccountCheckoutOpened,
+  AccountCheckoutRequest,
+  AccountOAuthCompletion,
+  AccountOAuthStart,
+  AccountPasswordRecoveryCompletion,
+  AccountPasswordRecoveryStart,
+  AccountResult,
+  AccountViewSnapshot,
+} from '../core/accountBridge'
+import type { AutoReloadPolicy } from '../data/subscriptions'
+
 export type StateNamespace = 'settings' | 'drafts' | 'jobs' | 'recipes' | 'transcripts' | 'projects'
 
 interface PersistedStateItem<T> {
@@ -37,6 +51,40 @@ function composite(namespace: StateNamespace, key: string): string {
   return `${namespace}:${key}`
 }
 
+function accountUnavailable<T>(): AccountResult<T> {
+  return {
+    ok: false,
+    error: {
+      code: 'service-unavailable',
+      message: 'EasyField Account is not configured in this build yet.',
+      retryable: false,
+    },
+  }
+}
+
+function accountApi(): AccountBridgeApi | undefined {
+  return nativeHost()?.account
+}
+
+async function callAccount<T>(
+  invoke: (api: AccountBridgeApi) => Promise<AccountResult<T>>,
+): Promise<AccountResult<T>> {
+  const api = accountApi()
+  if (!api) return accountUnavailable<T>()
+  try {
+    return await invoke(api)
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: 'service-unavailable',
+        message: 'EasyField Account could not be reached.',
+        retryable: true,
+      },
+    }
+  }
+}
+
 export const host = {
   isPlugin: (): boolean => nativeHost()?.plugin === true,
 
@@ -57,6 +105,61 @@ export const host = {
     const api = nativeHost()
     if (api?.credentials) return api.credentials.delete(name)
     credentialMemory.delete(name)
+  },
+
+  async connectDirectCloudCredential(candidate: string): Promise<{ credits: number }> {
+    const api = nativeHost()
+    if (!api?.directCloud) {
+      throw new Error('Secure direct cloud connection is available inside DaVinci Resolve.')
+    }
+    const result = await api.directCloud.connect(candidate)
+    if (
+      !result
+      || typeof result.credits !== 'number'
+      || !Number.isFinite(result.credits)
+      || result.credits < 0
+    ) {
+      throw new Error('Direct cloud verification returned an invalid response.')
+    }
+    return { credits: result.credits }
+  },
+
+  async hasExistingDirectCloudCredential(): Promise<boolean> {
+    const api = nativeHost()
+    if (!api?.directCloud || typeof api.directCloud.hasExisting !== 'function') return false
+    try {
+      return await api.directCloud.hasExisting() === true
+    } catch {
+      return false
+    }
+  },
+
+  async hasCurrentAccountDirectCloudCredential(): Promise<boolean> {
+    const api = nativeHost()
+    if (!api?.directCloud || typeof api.directCloud.hasScoped !== 'function') return false
+    try {
+      return await api.directCloud.hasScoped() === true
+    } catch {
+      return false
+    }
+  },
+
+  async adoptExistingDirectCloudCredential(): Promise<{ credits: number }> {
+    const api = nativeHost()
+    if (!api?.directCloud || typeof api.directCloud.adoptExisting !== 'function') {
+      throw new Error('Saved Mac connection adoption is available inside DaVinci Resolve.')
+    }
+    const result = await api.directCloud.adoptExisting()
+    if (
+      !result
+      || Object.keys(result).length !== 1
+      || typeof result.credits !== 'number'
+      || !Number.isFinite(result.credits)
+      || result.credits < 0
+    ) {
+      throw new Error('Saved Mac connection returned an invalid response.')
+    }
+    return { credits: result.credits }
   },
 
   async getState<T>(namespace: StateNamespace, key: string): Promise<T | null> {
@@ -112,6 +215,98 @@ export const host = {
     const api = nativeHost()
     if (!api?.billing) throw new Error('Open EasyField inside DaVinci Resolve to purchase credits.')
     await api.billing.openCreditPurchase()
+  },
+
+  account: {
+    isAvailable(): boolean {
+      return accountApi() != null
+    },
+
+    restore(): Promise<AccountResult<AccountViewSnapshot>> {
+      return callAccount((api) => api.restore())
+    },
+
+    signIn(input: { email: string; password: string }): Promise<AccountResult<AccountAuthOutcome>> {
+      return callAccount((api) => api.signIn(input))
+    },
+
+    signUp(input: { email: string; password: string }): Promise<AccountResult<AccountAuthOutcome>> {
+      return callAccount((api) => api.signUp(input))
+    },
+
+    startOAuth(input: { provider: 'google' | 'apple' }): Promise<AccountResult<AccountOAuthStart>> {
+      return callAccount((api) => api.startOAuth(input))
+    },
+
+    signOut(): Promise<AccountResult<{ snapshot: AccountViewSnapshot }>> {
+      return callAccount((api) => api.signOut())
+    },
+
+    requestPasswordReset(input: { email: string }): Promise<AccountResult<AccountPasswordRecoveryStart>> {
+      return callAccount((api) => api.requestPasswordReset(input))
+    },
+
+    completePasswordRecovery(input: { attemptId: string; password: string }): Promise<AccountResult<{ snapshot: AccountViewSnapshot }>> {
+      return callAccount((api) => api.completePasswordRecovery(input))
+    },
+
+    cancelPasswordRecovery(input: { attemptId: string }): Promise<AccountResult<{ accepted: true }>> {
+      return callAccount((api) => api.cancelPasswordRecovery(input))
+    },
+
+    updateProfile(input: { displayName: string }): Promise<AccountResult<AccountViewSnapshot>> {
+      return callAccount((api) => api.updateProfile(input))
+    },
+
+    resendVerification(input: { email: string }): Promise<AccountResult<{ accepted: true }>> {
+      return callAccount((api) => api.resendVerification(input))
+    },
+
+    getSnapshot(input?: { force?: boolean }): Promise<AccountResult<AccountViewSnapshot>> {
+      return callAccount((api) => api.getSnapshot(input))
+    },
+
+    checkout(input: AccountCheckoutRequest): Promise<AccountResult<AccountCheckoutOpened>> {
+      return callAccount((api) => api.checkout(input))
+    },
+
+    resumeCheckout(): Promise<AccountResult<AccountCheckoutOpened>> {
+      return callAccount((api) => api.resumeCheckout())
+    },
+
+    saveAutoReload(input: { policy: AutoReloadPolicy }): Promise<AccountResult<AccountViewSnapshot>> {
+      return callAccount((api) => api.saveAutoReload(input))
+    },
+
+    onChanged(listener: (snapshot: AccountViewSnapshot) => void): () => void {
+      const api = accountApi()
+      if (!api) return () => undefined
+      try {
+        return api.onChanged(listener)
+      } catch {
+        return () => undefined
+      }
+    },
+
+    onOAuthCompleted(listener: (completion: AccountOAuthCompletion) => void): () => void {
+      const api = accountApi()
+      if (!api) return () => undefined
+      try {
+        return api.onOAuthCompleted(listener)
+      } catch {
+        return () => undefined
+      }
+    },
+
+    onPasswordRecoveryCompleted(listener: (completion: AccountPasswordRecoveryCompletion) => void): () => void {
+      const api = accountApi()
+      if (!api) return () => undefined
+      try {
+        return api.onPasswordRecoveryCompleted(listener)
+      } catch {
+        return () => undefined
+      }
+    },
   },
 
   async checkForUpdates(): Promise<PluginUpdateStatus> {

@@ -3,12 +3,14 @@ import test from 'node:test'
 import {
   AUTO_RELOAD_DISABLED,
   CREDIT_MICROS_PER_CREDIT,
+  DEFAULT_BILLING_INTERVAL,
   MINIMUM_TOP_UP_MONEY_MICROS,
   MONEY_MICROS_PER_USD,
   PARTNER_MEMBERSHIP,
   PROPOSED_PLAN_CHANGE_DEFAULTS,
   SUBSCRIPTION_PLAN_IDS,
   SUBSCRIPTION_PLANS,
+  annualSavingsMoneyMicros,
   calculateTopUpMoneyMicros,
   calculateTopUpRawMoneyMicros,
   createPurchasedCreditLot,
@@ -48,7 +50,7 @@ test('the four plans use exact integer-micro prices, grants and top-up rates', (
     }),
     [
       ['Starter', 15_000_000, 12_000_000, 144_000_000, 800_000_000, 20_000],
-      ['Creator', 30_000_000, 25_000_000, 300_000_000, 2_000_000_000, 15_000],
+      ['Creator', 24_000_000, 25_000_000, 300_000_000, 2_000_000_000, 15_000],
       ['Pro', 60_000_000, 49_000_000, 588_000_000, 5_000_000_000, 12_000],
       ['Studio', 129_000_000, 99_000_000, 1_188_000_000, 12_000_000_000, 10_000],
     ],
@@ -64,6 +66,14 @@ test('the four plans use exact integer-micro prices, grants and top-up rates', (
       plan.topUpMoneyMicrosPerCredit,
     ]) assert.equal(Number.isSafeInteger(value), true)
   }
+})
+
+test('annual is the purchase-screen default and annual copy never claims a negative saving', () => {
+  assert.equal(DEFAULT_BILLING_INTERVAL, 'annual')
+  assert.equal(annualSavingsMoneyMicros('starter'), 36_000_000)
+  assert.equal(annualSavingsMoneyMicros('creator'), 0)
+  assert.equal(annualSavingsMoneyMicros('pro'), 132_000_000)
+  assert.equal(annualSavingsMoneyMicros('studio'), 360_000_000)
 })
 
 test('top-up quotes use integer micros and enforce the ten-dollar minimum', () => {

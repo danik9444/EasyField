@@ -129,8 +129,23 @@ test('installer preflight pins and authenticates Resolve’s official native mod
   assert.match(preinstall, /TeamIdentifier=/)
   assert.match(preinstall, /lipo -archs/)
   assert.match(preinstall, /"arm64 x86_64"\|"x86_64 arm64"/)
+  assert.match(preinstall, /pgrep -x Resolve/)
+  assert.match(preinstall, /pgrep -f "\^\$\{RESOLVE_APP\}\/Contents\/MacOS\/Resolve/)
+  assert.match(preinstall, /if resolve_is_running; then/)
 
   const localInstaller = fs.readFileSync(path.join(projectRoot, 'scripts/plugin-install.sh'), 'utf8')
   assert.match(localInstaller, /packaging\/pkg\/scripts\/preinstall/)
   assert.doesNotMatch(localInstaller, /plugin\/WorkflowIntegration\.node missing/)
+})
+
+test('PKG installation keeps rollback transactional and purges obsolete code after verification', () => {
+  const postinstall = fs.readFileSync(path.join(projectRoot, 'packaging/pkg/scripts/postinstall'), 'utf8')
+  const finalVerification = postinstall.indexOf('if ! verify_tree "$DEST"; then')
+  const successMarker = postinstall.indexOf('INSTALL_COMPLETE=1', finalVerification)
+  const purgeBackup = postinstall.indexOf('/bin/rm -rf "$BACKUP"', successMarker)
+  assert.ok(finalVerification >= 0)
+  assert.ok(successMarker > finalVerification)
+  assert.ok(purgeBackup > successMarker)
+  assert.match(postinstall, /if \[ "\$INSTALL_COMPLETE" -ne 1 \].*"\$SWAP_STARTED" -eq 1/s)
+  assert.match(postinstall, /if \[ "\$HAD_CURRENT" -eq 1 \] && \[ -e "\$BACKUP" \]; then \/bin\/mv "\$BACKUP" "\$DEST"/)
 })

@@ -1,21 +1,22 @@
 # EasyField 1.2.0 release readiness
 
-**Assessment date:** 2026-07-14
+**Assessment date:** 2026-07-15
 **Target:** macOS 15+, Intel and Apple silicon, DaVinci Resolve Studio 21.0.2+
 **Decision:** **NO-GO for a public final release. The source, protected GitHub pipeline and signed-update path are ready; Apple signing/notarization, rights clearance, portable runtimes and the real-device Resolve matrix remain release blockers.**
 
 ## Verified in this candidate
 
 - [x] Version `1.2.0` is synchronized across the root package, lockfile, plugin package and Resolve manifest.
-- [x] Full automated suite passes: 419 tests, 0 failures.
+- [x] Full automated suite passes: 642 tests, 0 failures.
 - [x] Production TypeScript and both Vite builds pass.
 - [x] Plugin manifest verifies its exact EasyField file tree and explicitly excludes Blackmagic's native Resolve module. The installer validates Resolve's official signed, universal SamplePlugin copy in place.
 - [x] Production dependency audit reports 0 known vulnerabilities. GitHub CodeQL has 0 open alerts: 7 findings fixed and 22 reviewed false positives/test-only findings dismissed with rationale. Secret Scanning and Dependabot security alerts are also at 0.
-- [x] SPDX 2.3 SBOM includes every direct production dependency and excludes development-only Electron/Vite.
+- [x] SPDX 2.3 SBOM includes every direct production dependency, excludes development-only Electron/Vite, and is wired to include every release-ready runtime target from the checked catalog.
 - [x] Signed update feed is accepted by the production updater and rejects tampering.
 - [x] Two update builds from the same source are byte-for-byte reproducible.
 - [x] Unsigned QA PKG expands successfully, authenticates its complete payload and contains no symlinks or redistributed `WorkflowIntegration.node`.
-- [x] Installer and updater both preserve the previous plugin for rollback and fail closed on checksum, signature, compatibility or tree mismatch.
+- [x] Installer and updater both restore the previous plugin on a failed swap, purge it after verified success, and fail closed on checksum, signature, compatibility or tree mismatch.
+- [x] Production artifact builders now fail closed when any portable runtime target, checksum inventory, Mach-O signature/architecture check or license approval record is missing. CI can exercise only an explicitly non-distributable empty-runtime structure.
 - [x] All 20 tool screens pass responsive UI smoke at compact and expanded widths without horizontal overflow.
 - [x] The installed 1.1.0 panel opens inside the real Resolve Workflow Integrations host and connects to the active project/timeline.
 - [x] Live EasyField Cloud generation exercised accepted-task persistence, timeout recovery without resubmission, and an honest terminal upstream failure.
@@ -34,13 +35,18 @@
 
 ## Final-product blockers
 
-- [ ] Bundle or publish checksum-pinned universal runtime packs for FFmpeg/ffprobe, librosa/Python and whisper.cpp. The local development runtimes are not portable release payloads.
+- [ ] Supply the release-gated portable runtime payloads for FFmpeg/ffprobe, librosa/Python and whisper.cpp on both arm64 and x64. Exact files/checksums, non-ad-hoc Mach-O signatures and written redistribution approval are required; the local development runtimes are rejected.
 - [ ] Complete and test the execution adapters for the tools that currently stop at an honest preflight; do not advertise them as completed actions until Source → Result → Library → Resolve Apply succeeds.
 - [ ] Enable SuperBrain execution only after every planned action exposes validated cost, privacy, placement and rollback contracts.
 - [ ] Complete the Resolve device matrix for exact trims, mixed timeline/source FPS, linked A/V, locked/disabled tracks, alpha, HDR/Rec.709, restart and rollback behavior.
 - [x] Keep the standalone Electron harness current and covered by the full CI dependency audit. It is development-only: Resolve supplies the production host and no Electron runtime is copied into an EasyField release.
 
 ## Latest local release dry run
+
+The following is the last recorded pre-runtime-gate artifact run. It is retained
+only as historical evidence and is not a releasable result for the current
+tree; a new dry run is required after the account and portable-runtime gates
+are completed.
 
 - Commit: `81b88a4da412233f8d85d24420907a0c1af11704`
 - Plugin build ID: `ad81600d46ebdf3fe1261d21fe4e00b83510809a612fc9cc5ba7bed5080e9dde`
@@ -62,4 +68,4 @@ Do not publish if any of the following occurs:
 - a Resolve operation changes media outside the confirmed interval or cannot prove rollback;
 - the signing key, Apple credential or release environment may have been exposed.
 
-Rollback is a fix-forward release with a higher SemVer. The most recent installed plugin is retained under `/Library/Application Support/EasyField/Recovery`; released assets are immutable and are never replaced in place.
+Rollback after a successful install is a fix-forward release with a higher SemVer. The temporary recovery copy exists only while the atomic swap is in flight and is purged after final verification; released assets are immutable and are never replaced in place.

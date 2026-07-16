@@ -9,7 +9,14 @@ EasyField uses a notarized macOS PKG for first installation and a signed GitHub 
 - Resolve must be closed during initial PKG installation and during an in-app update.
 - The first installer and every update are system-wide. The target is `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/com.easyfield.panel`.
 
-The current plugin still expects external/runtime components for some features. FFmpeg/ffprobe are not yet bundled, the Beat Detection Python environment is not release-portable, and the local Whisper runtime is not packaged. A release can distribute the panel, but those features must not be advertised as fully offline until their universal, signed runtimes are added and tested.
+The checked-in runtime catalog is deliberately marked unavailable. Production
+update and PKG builders fail closed until FFmpeg/ffprobe, the librosa/Python
+environment and whisper.cpp are supplied for both architectures as exact,
+checksum-pinned, non-symlink payload trees. Every Mach-O file must match its
+declared architecture and carry a valid non-ad-hoc signature. The development
+`.venv`, Homebrew tools and global `PATH` are never accepted as release proof.
+The runtime payloads must not be advertised as bundled/offline until this gate
+and the real-device matrix pass.
 
 CI audits the full dependency graph, including the development-only Electron
 harness; the Release workflow separately blocks on the shipped dependency
@@ -30,6 +37,10 @@ SamplePlugin copy in place.
    workflow fails before checkout/signing when the gate is not enabled.
 4. Add these environment secrets:
 
+   - `EASYFIELD_ACCOUNT_CONFIG_BASE64`: base64 of the complete production
+     `plugin/account-config.json`. This file contains only the public Supabase
+     URL/publishable key, enabled OAuth providers and checkout-host allowlist;
+     never place a service-role key, merchant token or webhook secret in it.
    - `EASYFIELD_UPDATE_PRIVATE_KEY_BASE64`: base64 of the complete Ed25519 PKCS#8 private PEM.
    - `APPLE_INSTALLER_CERTIFICATE_BASE64`: base64 of the Developer ID Installer `.p12`.
    - `APPLE_INSTALLER_CERTIFICATE_PASSWORD`: password for that `.p12`.
@@ -46,12 +57,72 @@ base64 < release/keys/easyfield-update-private.pem | tr -d '\n'
 
 Store the resulting private-key value only in the protected secret and an offline backup. Commit neither the key nor `release/`. Record the printed public-key fingerprint in the project password manager or release runbook.
 
+Create `EASYFIELD_ACCOUNT_CONFIG_BASE64` only from a config that already
+passes the local validator:
+
+```sh
+npm run release:validate-account
+base64 < plugin/account-config.json | tr -d '\n'
+```
+
+Store the one-line result directly in the protected environment secret. The
+Release workflow decodes it with restrictive permissions before the plugin
+manifest is assembled, validates it without printing the key, and removes it
+in the final cleanup step. Pull-request CI never receives or reconstructs this
+production config.
+
 5. Review [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) and record
    release approval. In particular, confirm EasyField's eligibility under the
    Remotion license or purchase the required company license. Verify GSAP terms,
    font notices and provenance/redistribution rights for every visual and media
    asset. A generated SBOM inventories packages but does not replace legal
    approval.
+
+## Mandatory account deployment order
+
+For a paid-account release, the server is deployed and proven before any
+desktop artifact is signed. The order is mandatory:
+
+1. Apply every migration through
+   `20260715154941_creator_monthly_price_24.sql` to a disposable/staging
+   Supabase environment and run executable database tests against the real
+   PostgreSQL functions, triggers, RLS and grants. Reconcile any historical
+   duplicate ambiguous checkout before applying the production migration.
+2. Deploy Supabase Auth, the account and billing-webhook Edge Functions, the
+   metered generation gateway, merchant adapter, no-payment reconciliation,
+   scheduled grant/expiry workers and refund/dispute/chargeback handling.
+3. Verify email/password recovery, Google and Apple OAuth, every advertised
+   subscription/top-up SKU, Partner reversal, idempotent webhook retries,
+   cancellation and crash recovery in the merchant sandbox. A successful
+   checkout must be followed through credit reservation, generation,
+   settlement and local artifact persistence.
+4. Confirm the deployed service reports the required schema and operational
+   readiness, then create and validate the public `plugin/account-config.json`.
+   Upload only its base64 form to the protected
+   `EASYFIELD_ACCOUNT_CONFIG_BASE64` secret.
+5. Only after the server evidence and operational approvals are recorded may a
+   reviewed change remove the fail-closed generation/Partner blockers. Enable
+   the protected `EASYFIELD_RELEASE_ENABLED` gate for that release window,
+   produce the desktop artifacts, run packaged Resolve smoke tests, and return
+   the gate to `false` afterward.
+
+The repository is deliberately at an earlier stage today: customer generation
+and Partner checkout remain explicitly blocked. Pull-request CI therefore runs
+`npm run release:validate-account -- --ci-structure-test`. That mode only
+proves that no live config is present, both paid paths remain disabled, and the
+two production builders still invoke the real release gate. CI then exercises
+the update/reproducibility/PKG path with
+`EASYFIELD_ACCOUNT_STRUCTURE_TEST=1`. The builders accept that value only in
+the non-tag GitHub workflow named `CI`, while the live account config is absent
+and both paid readiness flags remain explicitly false. The resulting update
+archive is clearly named `ci-structure`, uses a throwaway test signing key, and
+the PKG is clearly named `ci-structure-unsigned`; artifact inspection proves
+that neither contains `account-config.json`. These artifacts cannot reach an
+account service under their packaged defaults, never exercise Checkout, and
+must not be distributed. `release.yml` never sets this mode and always uses the
+real production gate. When the readiness blockers are intentionally removed,
+the CI-only mode fails and the workflow must be replaced with staging-backed
+database and Edge integration while retaining the same artifact checks.
 
 ## Prepare a version
 
@@ -63,9 +134,26 @@ npm run release:version -- check 1.2.0
 npm ci
 npm run verify:source
 npm run verify
+npm run release:validate-account
+npm run release:validate-runtimes
 npm run release:sbom -- --out release/output/easyfield-1.2.0.spdx.json
 SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" npm run plugin:assemble
 ```
+
+`release:validate-account` is expected to fail while either paid-path blocker
+remains. Do not weaken or bypass it to obtain a package; finish the server-side
+prerequisites instead.
+
+`release:validate-runtimes` is also expected to fail while
+`plugin/runtime-packs.json` is marked unavailable. Complete it only with
+approved binaries and a written approval record under
+`docs/release-approvals/`; do not invent download locations, versions or
+checksums. Materialize the payload before `plugin:assemble` so the signed plugin
+manifest inventories every runtime byte. Each approved component must also
+carry reviewed SPDX metadata; the release SBOM then records every component and
+architecture as an explicit EasyField dependency. The exact preparation and
+validation contract is documented in
+[`RUNTIME_PACKAGING.md`](RUNTIME_PACKAGING.md).
 
 Review the generated `plugin/update-manifest.json`. It must declare macOS 15.0.0, Resolve 21.0.2, both architectures, a canonical file list, and the expected build ID. Do not edit this file by hand.
 
@@ -116,7 +204,7 @@ The unsigned PKG is for structure/testing only and must never be distributed. Th
 
 ## Installation and updates
 
-Users download the notarized PKG for the first installation. Its preinstall checks the operating system, Resolve source/version, and that Resolve is closed. Its postinstall verifies every staged checksum, rejects links and special files, creates a root-owned next directory, verifies it again, moves the prior plugin to `/Library/Application Support/EasyField/Recovery/com.easyfield.panel.previous`, and atomically swaps the new plugin into place. If verification or the swap fails, it restores the previous plugin.
+Users download the notarized PKG for the first installation. Its preinstall checks the operating system, Resolve source/version, and that Resolve is closed. Its postinstall verifies every staged checksum, rejects links and special files, creates a root-owned next directory, verifies it again, moves the prior plugin to a temporary recovery location, and atomically swaps the new plugin into place. If verification or the swap fails, it restores the previous plugin. After final verification succeeds, the obsolete recovery copy is removed so old code and account configuration are not retained as a second unmanaged installation.
 
 The PKG and update archive never contain `WorkflowIntegration.node`. At launch,
 EasyField loads the regular file installed by Blackmagic at
@@ -131,7 +219,7 @@ Subsequent updates are discovered inside EasyField. The updater accepts only the
 
 - Never mutate an existing release or rebuild the same version with different bytes. Fix forward with a higher SemVer.
 - For a product regression, publish a new version containing the last known-good code. The updater intentionally does not offer downgrades.
-- Before manual recovery, quit Resolve. The most recent pre-update installation is retained at `/Library/Application Support/EasyField/Recovery/com.easyfield.panel.previous`. Recovery requires administrator access and should be documented in the incident ticket.
+- Installer/update rollback is transactional: a failure before final verification restores the prior tree automatically. After a verified success, rollback is a fix-forward release with a higher SemVer; no dormant prior plugin is retained on disk.
 - If the Ed25519 private key may be exposed, immediately stop/pause releases and remove compromised release assets. The current updater pins the entire source descriptor and does not permit an in-app key or repository change. Rotate the key by producing a new notarized PKG with the new descriptor and require users to reinstall it. Never silently change the key in an existing GitHub asset.
 - If an Apple certificate or notarization key is exposed, revoke it in Apple Developer/App Store Connect, replace the protected GitHub secret, and produce a new version.
 

@@ -1142,8 +1142,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_plan billing_private.plan_catalog;
-  v_customer_id uuid;
+  v_plan record;
   v_raw_expected_amount numeric;
   v_expected_amount numeric;
 begin
@@ -1182,8 +1181,11 @@ begin
       using errcode = '22023';
   end if;
 
-  select a.customer_id, p
-  into v_customer_id, v_plan
+  -- Keep the joined customer identity and catalog snapshot in one record.
+  -- PostgreSQL does not allow a composite row variable to share a scalar
+  -- INTO target list (`into v_customer_id, v_plan`).
+  select a.customer_id as customer_id, p.*
+  into v_plan
   from public.credit_accounts a
   join public.subscriptions s on s.customer_id = a.customer_id
   join billing_private.plan_catalog p on p.plan_key = s.plan_key and p.active
@@ -1207,7 +1209,7 @@ begin
   if not exists (
     select 1 from billing_private.saved_payment_methods m
     where m.id = new.saved_payment_method_id
-      and m.customer_id = v_customer_id
+      and m.customer_id = v_plan.customer_id
       and m.status = 'active'
       and v_plan.currency_code = any(m.supported_currencies)
   ) then
@@ -1680,7 +1682,9 @@ begin
       or v_existing.provider_cost_currency_micros <> p_provider_cost_currency_micros
       or v_existing.provider_cost_currency_code <> v_currency
       or v_existing.pricing_version <> btrim(p_pricing_version)
-      or v_existing.plan_key is distinct from case when v_admin_bypass then null else v_plan.plan_key end
+      or v_existing.plan_key is distinct from (
+        case when v_admin_bypass then null else v_plan.plan_key end
+      )
       or v_existing.admin_bypass <> v_admin_bypass
       or v_existing.expires_at <> p_expires_at
     then

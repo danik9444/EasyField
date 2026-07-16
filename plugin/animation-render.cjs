@@ -262,12 +262,12 @@ function parseConfiguredLimit(value, fallback) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveFfmpegPath(configured) {
+function resolveFfmpegPath(configured, allowEnvironmentOverrides) {
     // GUI-launched macOS apps often do not inherit Homebrew's PATH. Respect an
     // explicit absolute override, otherwise cover both Apple Silicon and Intel
     // Homebrew before falling back to normal PATH lookup.
     if (configured && configured !== 'ffmpeg') return configured;
-    if (process.env.EF_FFMPEG_PATH) return process.env.EF_FFMPEG_PATH;
+    if (allowEnvironmentOverrides === true && process.env.EF_FFMPEG_PATH) return process.env.EF_FFMPEG_PATH;
     for (const candidate of ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
         if (fs.existsSync(candidate)) return candidate;
     }
@@ -521,13 +521,23 @@ function createAnimationRenderService(options) {
     }
 
     const BrowserWindow = options.BrowserWindow;
-    const ffmpegPath = resolveFfmpegPath(options.ffmpegPath);
+    const allowEnvironmentOverrides = options.allowEnvironmentOverrides === true;
+    const ffmpegPath = resolveFfmpegPath(options.ffmpegPath, allowEnvironmentOverrides);
     const spawnProcess = options.spawnProcess || defaultSpawn;
     const authorizeRequest = options.authorizeRequest;
     const commitArtifactFile = typeof options.commitArtifactFile === 'function' ? options.commitArtifactFile : null;
-    const maxBodyBytes = parseConfiguredLimit(options.maxBodyBytes || process.env.EF_MAX_RENDER_BYTES, DEFAULT_MAX_BODY_BYTES);
-    const maxQueue = parseConfiguredLimit(options.maxQueue || process.env.EF_MAX_RENDER_QUEUE, DEFAULT_MAX_QUEUE);
-    const renderTimeoutMs = parseConfiguredLimit(options.renderTimeoutMs || process.env.EF_RENDER_TIMEOUT_MS, DEFAULT_RENDER_TIMEOUT_MS);
+    const maxBodyBytes = parseConfiguredLimit(
+        options.maxBodyBytes || (allowEnvironmentOverrides ? process.env.EF_MAX_RENDER_BYTES : undefined),
+        DEFAULT_MAX_BODY_BYTES,
+    );
+    const maxQueue = parseConfiguredLimit(
+        options.maxQueue || (allowEnvironmentOverrides ? process.env.EF_MAX_RENDER_QUEUE : undefined),
+        DEFAULT_MAX_QUEUE,
+    );
+    const renderTimeoutMs = parseConfiguredLimit(
+        options.renderTimeoutMs || (allowEnvironmentOverrides ? process.env.EF_RENDER_TIMEOUT_MS : undefined),
+        DEFAULT_RENDER_TIMEOUT_MS,
+    );
     const logger = options.logger || console;
     const jobs = new Map();
     const activeControllers = new Set();
@@ -783,5 +793,6 @@ module.exports = {
     RenderError,
     buildEncoderArgs,
     createAnimationRenderService,
+    resolveFfmpegPath,
     validateRenderPayload,
 };

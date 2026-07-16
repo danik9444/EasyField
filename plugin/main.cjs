@@ -22,7 +22,9 @@ const { createBeatDetectionService } = require('./beat-detection.cjs');
 const { createTranscriptionService } = require('./whisper-transcription.cjs');
 const { createUrlContextService } = require('./url-context.cjs');
 const { createStateStore } = require('./state-store.cjs');
+const { createAccountService } = require('./account-service.cjs');
 const { createPluginUpdater } = require('./plugin-updater.cjs');
+const { resolveRuntimePack } = require('./runtime-pack.cjs');
 const { createTimelineBoundaryCapture } = require('./timeline-capture.cjs');
 const { createEditImageCapture } = require('./edit-image-capture.cjs');
 const { createEditVideoCapture } = require('./edit-video-capture.cjs');
@@ -37,8 +39,21 @@ const {
     windowBoundsForMode,
 } = require('./window-policy.cjs');
 
+// Environment variables are a development/test convenience, not a production
+// configuration channel. A packaged plugin must use only the files and random
+// secrets shipped/created by EasyField, even when its parent process was
+// launched with EF_* variables.
+function environmentOverridesAllowed() {
+    return app?.isPackaged !== true;
+}
+
+function isTrustedDevelopmentMode() {
+    return environmentOverridesAllowed() && process.env.EF_DEV === '1';
+}
+
 const PLUGIN_ID = 'com.easyfield.panel';
-const PORT = parseInt(process.env.EF_PORT, 10) || 18832;
+const PORT = (environmentOverridesAllowed() ? parseInt(process.env.EF_PORT, 10) : 0) || 18832;
+const SERVER_ONLY = environmentOverridesAllowed() && process.env.EF_SERVER_ONLY === '1';
 const UI_DIR = path.join(__dirname, 'ui');
 const MEDIA_DIR = path.join(os.homedir(), 'Movies', 'EasyField Media');
 const ARTIFACT_DIR = path.join(os.homedir(), 'Movies', 'EasyField', '_Artifacts');
@@ -46,9 +61,10 @@ const ARTIFACT_DIR = path.join(os.homedir(), 'Movies', 'EasyField', '_Artifacts'
 // Tests may inject a deterministic value; production gets a fresh 256-bit token
 // on every launch. Main injects it at the Electron session boundary, so the
 // renderer never receives or persists it.
-const BRIDGE_TOKEN = process.env.EF_BRIDGE_TOKEN || crypto.randomBytes(32).toString('hex');
+const BRIDGE_TOKEN = (environmentOverridesAllowed() && process.env.EF_BRIDGE_TOKEN)
+    || crypto.randomBytes(32).toString('hex');
 const JSON_BODY_LIMIT = 64 * 1024;
-const parsedMediaLimit = Number(process.env.EF_MAX_MEDIA_BYTES);
+const parsedMediaLimit = environmentOverridesAllowed() ? Number(process.env.EF_MAX_MEDIA_BYTES) : NaN;
 const MAX_MEDIA_BYTES = Number.isFinite(parsedMediaLimit) && parsedMediaLimit > 0
     ? parsedMediaLimit
     : 1024 * 1024 * 1024;
@@ -87,10 +103,16 @@ BLOCKED_IPS.addSubnet('ff00::', 8, 'ipv6');
 // same relative paths work in dev (:5173) and inside the plugin (:18832).
 // Environment overrides keep deployment configuration provider-neutral. The
 // encoded defaults avoid shipping an upstream brand name in the source tree.
-const PROVIDER_API_HOST = (process.env.EF_CLOUD_API_HOST || Buffer.from('YXBpLmtpZS5haQ==', 'base64').toString('utf8')).trim();
-const PROVIDER_UPLOAD_HOST = (process.env.EF_CLOUD_UPLOAD_HOST || Buffer.from('a2llYWkucmVkcGFuZGFhaS5jbw==', 'base64').toString('utf8')).trim();
+const PROVIDER_API_HOST = ((environmentOverridesAllowed() && process.env.EF_CLOUD_API_HOST)
+    || Buffer.from('YXBpLmtpZS5haQ==', 'base64').toString('utf8')).trim();
+const PROVIDER_UPLOAD_HOST = ((environmentOverridesAllowed() && process.env.EF_CLOUD_UPLOAD_HOST)
+    || Buffer.from('a2llYWkucmVkcGFuZGFhaS5jbw==', 'base64').toString('utf8')).trim();
 const SECURE_PROVIDER_PROXY_TOKEN = '__easyfield_secure__';
+const SECURE_ACCOUNT_PROXY_TOKEN = '__easyfield_account__';
 const CLOUD_GENERATION_CREDENTIAL = 'cloud-generation-api-key';
+const ACCOUNT_SESSION_CREDENTIAL = 'account-session-v1';
+const ACCOUNT_CHECKOUT_STATE_CREDENTIAL = 'account-checkout-state-v1';
+const ACCOUNT_SCOPED_CLOUD_CREDENTIAL_PREFIX = 'cloud-generation-api-key.account.';
 // Credit purchases deliberately use one Main-owned destination. The renderer
 // can request this action, but it cannot choose or redirect the external URL.
 const CREDIT_PURCHASE_URL = Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8');
@@ -98,13 +120,24 @@ const CREDIT_PURCHASE_URL = Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'bas
 // Keep the legacy value out of source text while allowing a seamless upgrade.
 const LEGACY_CLOUD_GENERATION_CREDENTIAL = String.fromCharCode(107, 105, 101, 45, 97, 112, 105, 45, 107, 101, 121);
 
-// ffmpeg: support Homebrew on both Apple Silicon and Intel, then PATH lookup.
-const FFMPEG = process.env.EF_FFMPEG_PATH || (fs.existsSync('/opt/homebrew/bin/ffmpeg')
+// Public releases use only checksum-pinned executables from the signed plugin
+// tree. The deliberately incomplete source catalog keeps the existing local
+// Homebrew/PATH fallback available for development; once releaseReady=true,
+// any missing/tampered packaged runtime becomes a fail-closed ENOENT path.
+const runtimePack = resolveRuntimePack({ pluginRoot: __dirname, architecture: process.arch });
+const unavailableRuntimeExecutable = (name) => path.join(__dirname, `.easyfield-${name}-runtime-unavailable`);
+const developmentFfmpeg = () => (environmentOverridesAllowed() && process.env.EF_FFMPEG_PATH) || (fs.existsSync('/opt/homebrew/bin/ffmpeg')
     ? '/opt/homebrew/bin/ffmpeg'
     : fs.existsSync('/usr/local/bin/ffmpeg') ? '/usr/local/bin/ffmpeg' : 'ffmpeg');
-const FFPROBE = process.env.EF_FFPROBE_PATH || (fs.existsSync('/opt/homebrew/bin/ffprobe')
+const developmentFfprobe = () => (environmentOverridesAllowed() && process.env.EF_FFPROBE_PATH) || (fs.existsSync('/opt/homebrew/bin/ffprobe')
     ? '/opt/homebrew/bin/ffprobe'
     : fs.existsSync('/usr/local/bin/ffprobe') ? '/usr/local/bin/ffprobe' : 'ffprobe');
+const FFMPEG = runtimePack.available
+    ? runtimePack.executables.ffmpeg
+    : runtimePack.strict ? unavailableRuntimeExecutable('ffmpeg') : developmentFfmpeg();
+const FFPROBE = runtimePack.available
+    ? runtimePack.executables.ffprobe
+    : runtimePack.strict ? unavailableRuntimeExecutable('ffprobe') : developmentFfprobe();
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -244,7 +277,7 @@ function bridgeOriginAllowed(req) {
     if (origin === 'http://127.0.0.1:' + PORT || origin === 'http://localhost:' + PORT) return true;
     // The Electron dev window is served by Vite and proxied to this server. Vite
     // can move to another loopback port when 5173 is occupied.
-    return process.env.EF_DEV === '1' && isLoopbackOrigin(origin);
+    return isTrustedDevelopmentMode() && isLoopbackOrigin(origin);
 }
 
 function authorizeBridge(req, res) {
@@ -255,7 +288,7 @@ function authorizeBridge(req, res) {
     if (bridgeTokenMatches(req)) return true;
     // Preserve browser-only Vite development without weakening the packaged
     // plugin. Browsers cannot forge Origin; production always requires a token.
-    if (process.env.EF_DEV === '1' && req.headers.origin && isLoopbackOrigin(req.headers.origin)) return true;
+    if (isTrustedDevelopmentMode() && req.headers.origin && isLoopbackOrigin(req.headers.origin)) return true;
     sendJSON(res, 401, { ok: false, error: 'bridge authentication required', code: 'UNAUTHORIZED' });
     return false;
 }
@@ -573,12 +606,17 @@ async function downloadTo(url, destPath, redirects) {
 
 // Forward a request to a cloud-provider host, preserving method + headers (minus host)
 // and streaming both bodies. Handles multi-MB JSON uploads without buffering.
-function proxy(req, res, targetHost, targetPath) {
+async function proxy(req, res, targetHost, targetPath, proxyKind) {
     const headers = Object.assign({}, req.headers);
     delete headers.host;
     delete headers.connection;
-    headers.host = targetHost;
-    if (headers.authorization === 'Bearer ' + SECURE_PROVIDER_PROXY_TOKEN) {
+    const usesDirectCredential = headers.authorization === 'Bearer ' + SECURE_PROVIDER_PROXY_TOKEN;
+    const usesAccountSession = headers.authorization === 'Bearer ' + SECURE_ACCOUNT_PROXY_TOKEN;
+    if (headers.authorization && !usesDirectCredential && !usesAccountSession && !isTrustedDevelopmentMode()) {
+        sendJSON(res, 403, { ok: false, error: 'Unsupported cloud authentication mode', code: 'FORBIDDEN' });
+        return;
+    }
+    if (usesDirectCredential || usesAccountSession) {
         if (!bridgeOriginAllowed(req)) {
             sendJSON(res, 403, { ok: false, error: 'secure proxy origin rejected', code: 'FORBIDDEN' });
             return;
@@ -587,8 +625,28 @@ function proxy(req, res, targetHost, targetPath) {
             sendJSON(res, 401, { ok: false, error: 'secure proxy authentication required', code: 'UNAUTHORIZED' });
             return;
         }
+    }
+    if (usesDirectCredential) {
+        const directContext = await accountService?.getFreshDirectProviderContext?.();
+        if (!directContext?.directProviderAllowed) {
+            // An unconfigured legacy/local installation has no account
+            // entitlement layer. In that mode `false` means there is no
+            // stored direct credential to authenticate upstream, not that an
+            // authenticated account was denied an entitled action. Preserve
+            // the existing 401 contract while configured accounts continue
+            // to fail with 403 when their role/entitlement does not allow
+            // direct provider access.
+            if (directContext?.accountConfigured === false) {
+                sendJSON(res, 401, { ok: false, error: 'EasyField Cloud is not connected', code: 'UNAUTHORIZED' });
+                return;
+            }
+            sendJSON(res, 403, { ok: false, error: 'Direct cloud access is unavailable for this account', code: 'FORBIDDEN' });
+            return;
+        }
         try {
-            const credential = readStoredCredential(CLOUD_GENERATION_CREDENTIAL);
+            const credential = directContext.accountConfigured
+                ? readAccountScopedCloudCredential(directContext.accountId)
+                : readStoredCredential(CLOUD_GENERATION_CREDENTIAL);
             if (!credential) {
                 sendJSON(res, 401, { ok: false, error: 'EasyField Cloud is not connected', code: 'UNAUTHORIZED' });
                 return;
@@ -599,11 +657,34 @@ function proxy(req, res, targetHost, targetPath) {
             return;
         }
     }
+    let targetPort = 443;
+    if (usesAccountSession) {
+        try {
+            const gatewayBase = accountService?.getGatewayBaseUrl?.();
+            const accessToken = await accountService?.getGatewayAccessToken?.();
+            if (!gatewayBase || !accessToken) {
+                sendJSON(res, 401, { ok: false, error: 'Sign in to EasyField before using cloud actions', code: 'UNAUTHORIZED' });
+                return;
+            }
+            const gateway = new URL(gatewayBase);
+            if (gateway.protocol !== 'https:') throw new Error('invalid-gateway');
+            targetHost = gateway.hostname;
+            targetPort = gateway.port || 443;
+            const root = gateway.pathname.replace(/\/$/, '');
+            targetPath = `${root}/gateway/${proxyKind}${targetPath}`;
+            headers.authorization = 'Bearer ' + accessToken;
+            headers['x-easyfield-client'] = 'resolve-plugin';
+        } catch {
+            sendJSON(res, 503, { ok: false, error: 'EasyField account gateway is unavailable', code: 'SERVICE_UNAVAILABLE' });
+            return;
+        }
+    }
+    headers.host = targetPort === 443 ? targetHost : `${targetHost}:${targetPort}`;
     // This token is only for the loopback boundary and must never be forwarded
     // to either provider host.
     delete headers['x-ef-bridge-token'];
 
-    const options = { hostname: targetHost, port: 443, path: targetPath, method: req.method, headers };
+    const options = { hostname: targetHost, port: targetPort, path: targetPath, method: req.method, headers };
     const upstream = https.request(options, (up) => {
         res.writeHead(up.statusCode, up.headers);
         up.pipe(res);
@@ -664,6 +745,8 @@ const STATIC_SECURITY_HEADERS = Object.freeze({
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), display-capture=(), usb=(), serial=(), hid=(), payment=()',
 });
 
 function artifactPathIsValid(id, localPath) {
@@ -680,6 +763,59 @@ function artifactPathIsValid(id, localPath) {
 }
 
 const MANAGED_ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PLACEMENT_MEDIA_NAMESPACE = 'placement-media';
+
+function verifiedPlacementMediaPath(candidate) {
+    if (typeof candidate !== 'string' || !path.isAbsolute(candidate)) return null;
+    let info;
+    let target;
+    try {
+        info = fs.lstatSync(candidate);
+        if (!info.isFile() || info.isSymbolicLink()) return null;
+        target = fs.realpathSync(candidate);
+    } catch (e) {
+        return null;
+    }
+    for (const root of [MEDIA_DIR, ARTIFACT_DIR]) {
+        try {
+            const realRoot = fs.realpathSync(root);
+            if (isPathInside(realRoot, target, false)) return target;
+        } catch (e) { /* a root with no files may not exist yet */ }
+    }
+    return null;
+}
+
+function registerPlacementMedia(localPath, kind) {
+    if (!stateStore) throw new EFError('Placement receipt store is unavailable', 'PLACEMENT_STORE_UNAVAILABLE', 503);
+    const verifiedPath = verifiedPlacementMediaPath(localPath);
+    if (!verifiedPath || !['image', 'video', 'audio'].includes(kind)) {
+        throw new EFError('Imported media could not be registered safely', 'PLACEMENT_MEDIA_INVALID', 409);
+    }
+    const mediaId = crypto.randomUUID();
+    stateStore.set(PLACEMENT_MEDIA_NAMESPACE, mediaId, {
+        id: mediaId,
+        localPath: verifiedPath,
+        kind,
+        createdAt: Date.now(),
+    });
+    return mediaId;
+}
+
+function resolvePlacementMedia(mediaId) {
+    if (!stateStore || typeof mediaId !== 'string' || !MANAGED_ARTIFACT_ID.test(mediaId)) {
+        throw new EFError('Invalid imported media reference', 'BAD_REQUEST', 400);
+    }
+    const receipt = stateStore.get(PLACEMENT_MEDIA_NAMESPACE, mediaId);
+    const localPath = receipt
+        && receipt.id === mediaId
+        && ['image', 'video', 'audio'].includes(receipt.kind)
+        ? verifiedPlacementMediaPath(receipt.localPath)
+        : null;
+    if (!localPath) {
+        throw new EFError('The imported EasyField media file is unavailable', 'SOURCE_OFFLINE', 409);
+    }
+    return localPath;
+}
 
 async function resolveManagedArtifact(id, requestedKind) {
     if (typeof id !== 'string' || !MANAGED_ARTIFACT_ID.test(id)) {
@@ -796,7 +932,7 @@ async function bridgeStatus(req, res) {
                 out.height = parseInt(await timeline.GetSetting('timelineResolutionHeight'), 10) || null;
                 try { out.colorSpace = await project.GetSetting('colorScienceMode'); } catch (e) { /* optional */ }
             }
-            out.capabilities = ['grab-frame', 'grab-edit-image-source', 'grab-edit-video-source', 'grab-shot-start-frame', 'grab-shot-end-frame', 'grab-clip', 'grab-audio', 'beat-markers', 'media-pool', 'append', 'place-at-playhead', 'place-at-frame', 'place-managed-artifact', 'place-linked-av', 'place-interval-safe', 'validate-placement-anchor', 'validate-placement-anchor-v2'];
+            out.capabilities = ['grab-frame', 'grab-edit-image-source', 'grab-edit-video-source', 'grab-shot-start-frame', 'grab-shot-end-frame', 'grab-clip', 'grab-audio', 'beat-markers', 'opaque-placement-media', 'media-pool', 'append', 'place-at-playhead', 'place-at-frame', 'place-managed-artifact', 'place-linked-av', 'place-interval-safe', 'validate-placement-anchor', 'validate-placement-anchor-v2'];
         }
     } catch (err) {
         // Health probe never fails hard — report disconnected.
@@ -1248,13 +1384,16 @@ async function place(req, res) {
         try {
             ctx = await getContext();
         } catch (e) {
-            sendJSON(res, 503, { ok: false, code: 'RESOLVE_CLOSED', path: absPath });
+            // The media remains saved locally, but filesystem paths never cross
+            // the renderer boundary. A receipt is issued only after Resolve has
+            // imported the file successfully.
+            sendJSON(res, 503, { ok: false, code: 'RESOLVE_CLOSED' });
             return;
         }
 
         const mediaPool = await ctx.project.GetMediaPool();
         const imported = await mediaPool.ImportMedia([absPath]);
-        if (!imported || imported.length === 0) throw new EFError('Resolve could not import ' + absPath, 'IMPORT_FAILED', 500);
+        if (!imported || imported.length === 0) throw new EFError('Resolve could not import the saved EasyField media', 'IMPORT_FAILED', 500);
 
         // A freshly-written file is imported before Resolve has finished reading it,
         // so appending immediately can create an offline timeline clip. Wait until
@@ -1272,7 +1411,8 @@ async function place(req, res) {
         }
 
         if (placementMode === 'media-pool') {
-            sendJSON(res, 200, { ok: true, path: absPath, imported: true, appended: false, placement: 'media-pool' });
+            const mediaId = registerPlacementMedia(absPath, mediaKind);
+            sendJSON(res, 200, { ok: true, mediaId, imported: true, appended: false, placement: 'media-pool' });
             return;
         }
         if (!ctx.timeline) throw new EFError('No current timeline', 'NO_TIMELINE', 409);
@@ -1320,7 +1460,8 @@ async function place(req, res) {
             throw new EFError('Resolve imported the file but could not place it safely', 'PLACE_FAILED', 500);
         }
 
-        sendJSON(res, 200, { ok: true, path: absPath, appended: true, placement: placementMode });
+        const mediaId = registerPlacementMedia(absPath, mediaKind);
+        sendJSON(res, 200, { ok: true, mediaId, appended: true, placement: placementMode });
     });
 }
 
@@ -1533,6 +1674,7 @@ const animationRender = createAnimationRenderService({
     origin: 'http://127.0.0.1:' + PORT,
     ffmpegPath: FFMPEG,
     authorizeRequest: authorizeBridge,
+    allowEnvironmentOverrides: environmentOverridesAllowed(),
     // Packaged renders are committed before the temporary render directory is
     // removed or a success response is exposed to the renderer.
     commitArtifactFile,
@@ -1547,6 +1689,10 @@ const beatDetection = createBeatDetectionService({
     ffmpegPath: FFMPEG,
     maxBytes: MAX_MEDIA_BYTES,
     scriptPath: path.join(__dirname, 'python', 'beat_detect.py'),
+    pythonCandidates: runtimePack.available
+        ? [runtimePack.executables.python3]
+        : runtimePack.strict ? [] : undefined,
+    allowEnvironmentOverrides: environmentOverridesAllowed(),
 });
 
 // Local OpenAI Whisper inference runs behind a native whisper.cpp CLI boundary.
@@ -1555,6 +1701,10 @@ const transcription = createTranscriptionService({
     authorizeRequest: authorizeBridge,
     ffmpegPath: FFMPEG,
     maxBytes: MAX_MEDIA_BYTES,
+    cliCandidates: runtimePack.available
+        ? [runtimePack.executables['whisper-cli']]
+        : runtimePack.strict ? [] : undefined,
+    allowEnvironmentOverrides: environmentOverridesAllowed(),
 });
 
 // Read-only website context for Animations.  It has its own strict HTTPS/DNS,
@@ -1565,7 +1715,7 @@ const urlContext = createUrlContextService({ authorizeRequest: authorizeBridge }
 const beatMarkers = createBeatMarkerService({
     getContext,
     withTimelineOperationLock,
-    mediaRoot: MEDIA_DIR,
+    resolveMediaReference: resolvePlacementMedia,
     EFError,
 });
 
@@ -1600,14 +1750,48 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (pathname === '/auth/callback') {
+        if (!accountService) {
+            sendJSON(res, 503, { ok: false, error: 'account service unavailable', code: 'SERVICE_UNAVAILABLE' });
+            return;
+        }
+        void accountService.handleOAuthCallback(req, res).then((handled) => {
+            if (!handled && !res.headersSent) sendJSON(res, 400, { ok: false, error: 'invalid account callback', code: 'BAD_REQUEST' });
+        }).catch(() => {
+            if (!res.headersSent) sendJSON(res, 400, { ok: false, error: 'account callback failed', code: 'BAD_REQUEST' });
+            else res.destroy();
+        });
+        return;
+    }
+
+    if (pathname === '/auth/recovery') {
+        if (!accountService) {
+            sendJSON(res, 503, { ok: false, error: 'account service unavailable', code: 'SERVICE_UNAVAILABLE' });
+            return;
+        }
+        void accountService.handlePasswordRecoveryCallback(req, res).then((handled) => {
+            if (!handled && !res.headersSent) sendJSON(res, 400, { ok: false, error: 'invalid recovery callback', code: 'BAD_REQUEST' });
+        }).catch(() => {
+            if (!res.headersSent) sendJSON(res, 400, { ok: false, error: 'recovery callback failed', code: 'BAD_REQUEST' });
+            else res.destroy();
+        });
+        return;
+    }
+
     // Streaming proxies (strip prefix, preserve the rest of the path + query).
     const fullPath = req.url; // includes query string
     if (pathname === '/provider' || pathname.startsWith('/provider/')) {
-        proxy(req, res, PROVIDER_API_HOST, fullPath.replace(/^\/provider/, '') || '/');
+        void proxy(req, res, PROVIDER_API_HOST, fullPath.replace(/^\/provider/, '') || '/', 'provider').catch(() => {
+            if (!res.headersSent) sendJSON(res, 502, { ok: false, error: 'cloud gateway failed', code: 'SERVICE_UNAVAILABLE' });
+            else res.destroy();
+        });
         return;
     }
     if (pathname === '/provider-upload' || pathname.startsWith('/provider-upload/')) {
-        proxy(req, res, PROVIDER_UPLOAD_HOST, fullPath.replace(/^\/provider-upload/, '') || '/');
+        void proxy(req, res, PROVIDER_UPLOAD_HOST, fullPath.replace(/^\/provider-upload/, '') || '/', 'provider-upload').catch(() => {
+            if (!res.headersSent) sendJSON(res, 502, { ok: false, error: 'cloud upload gateway failed', code: 'SERVICE_UNAVAILABLE' });
+            else res.destroy();
+        });
         return;
     }
 
@@ -1682,6 +1866,7 @@ function startServer() {
 
 let mainWindow = null;
 let stateStore = null;
+let accountService = null;
 let currentWindowMode = 'compact';
 let floatingController = null;
 let displayChangeHandler = null;
@@ -1689,7 +1874,12 @@ let displayChangeHandler = null;
 // Artifact rows contain absolute paths and are Main-owned. They deliberately do
 // not participate in the renderer's generic state IPC surface.
 const VALID_RENDERER_STATE_NAMESPACES = new Set(['settings', 'drafts', 'jobs', 'recipes', 'transcripts', 'projects']);
-const VALID_CREDENTIALS = new Set([CLOUD_GENERATION_CREDENTIAL, LEGACY_CLOUD_GENERATION_CREDENTIAL, 'voice-provider-api-key']);
+const RENDERER_CREDENTIALS = new Set([CLOUD_GENERATION_CREDENTIAL, LEGACY_CLOUD_GENERATION_CREDENTIAL, 'voice-provider-api-key']);
+const PRIVATE_CREDENTIALS = new Set([
+    ...RENDERER_CREDENTIALS,
+    ACCOUNT_SESSION_CREDENTIAL,
+    ACCOUNT_CHECKOUT_STATE_CREDENTIAL,
+]);
 
 function assertStateKey(namespace, key) {
     if (!VALID_RENDERER_STATE_NAMESPACES.has(namespace)) throw new Error('Invalid state namespace');
@@ -1697,8 +1887,56 @@ function assertStateKey(namespace, key) {
 }
 
 function credentialPath(name) {
-    if (!VALID_CREDENTIALS.has(name)) throw new Error('Invalid credential name');
+    if (!PRIVATE_CREDENTIALS.has(name)) throw new Error('Invalid credential name');
     return path.join(app.getPath('userData'), name + '.safe');
+}
+
+function writeStoredCredential(name, value) {
+    const file = credentialPath(name);
+    if (typeof value !== 'string' || value.length > 32 * 1024) throw new Error('Invalid credential value');
+    if (!value) {
+        for (const candidate of credentialDeletePaths(name)) {
+            try { fs.unlinkSync(candidate); } catch {}
+        }
+        return;
+    }
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('macOS Keychain is unavailable');
+    writePrivateFileAtomic(file, safeStorage.encryptString(value));
+    if (name === CLOUD_GENERATION_CREDENTIAL) {
+        try { fs.unlinkSync(credentialPath(LEGACY_CLOUD_GENERATION_CREDENTIAL)); } catch {}
+    }
+}
+
+function deleteStoredCredential(name) {
+    for (const file of credentialDeletePaths(name)) {
+        try { fs.unlinkSync(file); } catch {}
+    }
+}
+
+function loadAccountPublicConfig() {
+    let fileConfig = {};
+    const configPath = path.join(__dirname, 'account-config.json');
+    try {
+        const stat = fs.statSync(configPath);
+        if (stat.isFile() && stat.size > 0 && stat.size <= 64 * 1024) {
+            const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) fileConfig = parsed;
+        }
+    } catch { /* an unconfigured build remains safely signed out */ }
+    const environmentConfig = environmentOverridesAllowed() ? {
+        supabaseUrl: process.env.EF_SUPABASE_URL,
+        anonKey: process.env.EF_SUPABASE_ANON_KEY,
+        accountApiUrl: process.env.EF_ACCOUNT_API_URL,
+        oauthProviders: process.env.EF_OAUTH_PROVIDERS,
+        checkoutHosts: process.env.EF_CHECKOUT_HOSTS,
+    } : {};
+    return {
+        supabaseUrl: environmentConfig.supabaseUrl || fileConfig.supabaseUrl || '',
+        anonKey: environmentConfig.anonKey || fileConfig.anonKey || '',
+        accountApiUrl: environmentConfig.accountApiUrl || fileConfig.accountApiUrl || '',
+        oauthProviders: environmentConfig.oauthProviders || fileConfig.oauthProviders || [],
+        checkoutHosts: environmentConfig.checkoutHosts || fileConfig.checkoutHosts || [],
+    };
 }
 
 function readStoredCredential(name) {
@@ -1742,6 +1980,331 @@ function credentialDeletePaths(name) {
     return [credentialPath(CLOUD_GENERATION_CREDENTIAL), credentialPath(LEGACY_CLOUD_GENERATION_CREDENTIAL)];
 }
 
+function normalizedAccountCredentialScope(accountId) {
+    const normalized = typeof accountId === 'string' ? accountId.trim().toLowerCase() : '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) {
+        throw new Error('Invalid account credential scope');
+    }
+    return normalized;
+}
+
+function accountScopedCloudCredentialPath(accountId) {
+    const scope = normalizedAccountCredentialScope(accountId);
+    const digest = crypto.createHash('sha256').update(scope, 'utf8').digest('hex');
+    return path.join(app.getPath('userData'), ACCOUNT_SCOPED_CLOUD_CREDENTIAL_PREFIX + digest + '.safe');
+}
+
+function readAccountScopedCloudCredential(accountId) {
+    const scope = normalizedAccountCredentialScope(accountId);
+    const file = accountScopedCloudCredentialPath(scope);
+    if (!safeStorage || !safeStorage.isEncryptionAvailable() || !fs.existsSync(file)) return '';
+    try {
+        const payload = JSON.parse(safeStorage.decryptString(fs.readFileSync(file)));
+        if (
+            payload?.version !== 1
+            || payload.accountId !== scope
+            || typeof payload.credential !== 'string'
+            || !payload.credential
+            || payload.credential.length > 8192
+        ) return '';
+        return payload.credential;
+    } catch {
+        return '';
+    }
+}
+
+function writeAccountScopedCloudCredential(accountId, value) {
+    const scope = normalizedAccountCredentialScope(accountId);
+    const file = accountScopedCloudCredentialPath(scope);
+    if (typeof value !== 'string' || value.length > 8192) throw new Error('Invalid credential value');
+    if (!value) {
+        deleteAccountScopedCloudCredential(scope);
+        return;
+    }
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('macOS Keychain is unavailable');
+    const record = JSON.stringify({ version: 1, accountId: scope, credential: value });
+    writePrivateFileAtomic(file, safeStorage.encryptString(record));
+}
+
+function deleteAccountScopedCloudCredential(accountId) {
+    try {
+        fs.unlinkSync(accountScopedCloudCredentialPath(accountId));
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+}
+
+// Adoption reads the old app-global credential without running the historical
+// filename migration in readStoredCredential(). The source file must remain
+// byte-for-byte recoverable until the candidate, account and new ciphertext
+// have all been verified.
+function readGlobalCloudCredentialForAdoption() {
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) return '';
+    for (const file of credentialDeletePaths(CLOUD_GENERATION_CREDENTIAL)) {
+        if (!fs.existsSync(file)) continue;
+        try {
+            const value = safeStorage.decryptString(fs.readFileSync(file));
+            if (typeof value === 'string' && value && value.length <= 8192) return value;
+        } catch { /* a corrupt copy must not hide a second valid legacy copy */ }
+    }
+    return '';
+}
+
+function sameCredential(left, right) {
+    const a = Buffer.from(left, 'utf8');
+    const b = Buffer.from(right, 'utf8');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function writeVerifiedAccountScopedCloudCredential(accountId, value) {
+    writeAccountScopedCloudCredential(accountId, value);
+    const verified = readAccountScopedCloudCredential(accountId);
+    if (!sameCredential(verified, value)) {
+        deleteAccountScopedCloudCredential(accountId);
+        throw new Error('Account credential verification failed');
+    }
+}
+
+function deleteGlobalCloudCredentialCopiesStrict() {
+    const files = credentialDeletePaths(CLOUD_GENERATION_CREDENTIAL);
+    // Snapshot encrypted bytes only. If the second unlink fails after the
+    // first succeeded, restoring these bytes keeps the old connection fully
+    // recoverable without ever decrypting it for rollback or IPC.
+    const snapshots = files.flatMap((file) => {
+        if (!fs.existsSync(file)) return [];
+        return [{ file, bytes: fs.readFileSync(file) }];
+    });
+    try {
+        for (const file of files) {
+            try {
+                fs.unlinkSync(file);
+            } catch (error) {
+                if (error?.code !== 'ENOENT') throw error;
+            }
+        }
+        if (files.some((file) => fs.existsSync(file))) {
+            throw new Error('Legacy credential removal failed');
+        }
+    } catch {
+        let restored = true;
+        for (const snapshot of snapshots) {
+            try {
+                const current = fs.existsSync(snapshot.file) ? fs.readFileSync(snapshot.file) : null;
+                if (!current || !current.equals(snapshot.bytes)) {
+                    writePrivateFileAtomic(snapshot.file, snapshot.bytes);
+                }
+                const verified = fs.readFileSync(snapshot.file);
+                if (!verified.equals(snapshot.bytes)) restored = false;
+            } catch {
+                restored = false;
+            }
+        }
+        const error = new Error('Legacy credential removal failed');
+        error.globalCredentialRestored = restored;
+        throw error;
+    }
+}
+
+function validateDirectCloudCredential(candidate) {
+    return new Promise((resolve2, reject) => {
+        if (
+            typeof candidate !== 'string'
+            || !candidate
+            || candidate.length > 8192
+            || !/^[\x21-\x7e]+$/.test(candidate)
+        ) {
+            reject(new Error('Enter a valid direct cloud credential'));
+            return;
+        }
+
+        let settled = false;
+        const finish = (error, value) => {
+            if (settled) return;
+            settled = true;
+            if (error) reject(error);
+            else resolve2(value);
+        };
+        let request;
+        try {
+            request = https.request({
+                hostname: PROVIDER_API_HOST,
+                port: 443,
+                path: '/api/v1/chat/credit',
+                method: 'GET',
+                headers: {
+                    Accept: 'application/json',
+                    Authorization: 'Bearer ' + candidate,
+                },
+            }, (response) => {
+                const chunks = [];
+                let bytes = 0;
+                response.on('data', (chunk) => {
+                    bytes += chunk.length;
+                    if (bytes > JSON_BODY_LIMIT) {
+                        response.destroy(new Error('Direct cloud verification response was too large'));
+                        return;
+                    }
+                    chunks.push(chunk);
+                });
+                response.on('error', () => finish(new Error('Direct cloud verification is unavailable')));
+                response.on('end', () => {
+                    let payload = null;
+                    try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch {}
+                    if (
+                        response.statusCode === 401
+                        || response.statusCode === 403
+                        || payload?.code === 401
+                        || payload?.code === 403
+                    ) {
+                        finish(new Error('The direct cloud credential is invalid'));
+                        return;
+                    }
+                    const credits = payload?.data;
+                    if (
+                        response.statusCode !== 200
+                        || payload?.code !== 200
+                        || typeof credits !== 'number'
+                        || !Number.isFinite(credits)
+                        || credits < 0
+                        || credits > Number.MAX_SAFE_INTEGER
+                    ) {
+                        finish(new Error('Direct cloud verification is unavailable'));
+                        return;
+                    }
+                    finish(null, { credits });
+                });
+            });
+        } catch {
+            finish(new Error('Direct cloud verification is unavailable'));
+            return;
+        }
+        request.setTimeout(20_000, () => request.destroy(new Error('Direct cloud verification timed out')));
+        request.on('error', () => finish(new Error('Direct cloud verification is unavailable')));
+        request.end();
+    });
+}
+
+async function connectDirectCloudCredential(rawCandidate) {
+    const candidate = typeof rawCandidate === 'string' ? rawCandidate.trim() : '';
+    if (!candidate || candidate.length > 8192) throw new Error('Enter a valid direct cloud credential');
+
+    // Privileged access is re-read from the server at the moment a candidate
+    // enters Main. Renderer state is never sufficient authority to persist it.
+    const before = await accountService?.getFreshDirectProviderContext?.();
+    if (!before?.directProviderAllowed || (before.accountConfigured && !before.accountId)) {
+        throw new Error('Direct cloud access is unavailable for this account');
+    }
+
+    const verified = await validateDirectCloudCredential(candidate);
+
+    if (before?.accountConfigured) {
+        // Re-check after the network round trip so a sign-out, account switch,
+        // or entitlement revocation cannot write the candidate into the wrong
+        // account scope. A failed replacement leaves the old value untouched.
+        const after = await accountService.getFreshDirectProviderContext();
+        if (!after.directProviderAllowed || !after.accountId || after.accountId !== before.accountId) {
+            throw new Error('Direct cloud access is unavailable for this account');
+        }
+        writeAccountScopedCloudCredential(after.accountId, candidate);
+    } else {
+        // Compatibility for old, unconfigured installations. Configured builds
+        // always use the authenticated account scope above.
+        writeStoredCredential(CLOUD_GENERATION_CREDENTIAL, candidate);
+    }
+    return { credits: verified.credits };
+}
+
+async function hasExistingDirectCloudCredential() {
+    try {
+        const context = await accountService?.getFreshDirectProviderContext?.();
+        if (
+            !context?.accountConfigured
+            || !context.authenticated
+            || !context.directProviderAllowed
+            || !context.accountId
+            || readAccountScopedCloudCredential(context.accountId)
+        ) return false;
+        return Boolean(readGlobalCloudCredentialForAdoption());
+    } catch {
+        return false;
+    }
+}
+
+async function hasCurrentAccountDirectCloudCredential() {
+    try {
+        const context = await accountService?.getFreshDirectProviderContext?.();
+        if (!context?.accountConfigured || !context.authenticated || !context.accountId) return false;
+        return Boolean(readAccountScopedCloudCredential(context.accountId));
+    } catch {
+        return false;
+    }
+}
+
+async function adoptExistingDirectCloudCredential() {
+    const before = await accountService?.getFreshDirectProviderContext?.();
+    if (
+        !before?.accountConfigured
+        || !before.authenticated
+        || !before.directProviderAllowed
+        || !before.accountId
+    ) throw new Error('Saved Mac connection is unavailable for this account');
+    if (readAccountScopedCloudCredential(before.accountId)) {
+        throw new Error('This account already has a saved Mac connection');
+    }
+
+    const stored = readGlobalCloudCredentialForAdoption();
+    const candidate = typeof stored === 'string' ? stored.trim() : '';
+    if (!candidate) throw new Error('No saved Mac connection is available');
+
+    let verified;
+    try {
+        verified = await validateDirectCloudCredential(candidate);
+    } catch {
+        // Provider responses, credential content and filesystem details never
+        // cross the IPC boundary. The untouched global file remains available
+        // for manual recovery or replacement.
+        throw new Error('The saved Mac connection could not be verified');
+    }
+
+    // The provider validation is a network round trip. Re-read server authority
+    // afterwards so a sign-out, account switch or entitlement revocation cannot
+    // bind the global credential to a stale account.
+    const after = await accountService.getFreshDirectProviderContext();
+    if (
+        !after.accountConfigured
+        || !after.authenticated
+        || !after.directProviderAllowed
+        || !after.accountId
+        || after.accountId !== before.accountId
+    ) throw new Error('Saved Mac connection is unavailable for this account');
+    if (readAccountScopedCloudCredential(after.accountId)) {
+        throw new Error('This account already has a saved Mac connection');
+    }
+
+    let scopedWritten = false;
+    try {
+        writeVerifiedAccountScopedCloudCredential(after.accountId, candidate);
+        scopedWritten = true;
+        // This is deliberately the final mutation. The global source survives
+        // every validation, authorization and account-scoped write failure.
+        deleteGlobalCloudCredentialCopiesStrict();
+    } catch (error) {
+        // Roll back the new account copy only when every old ciphertext was
+        // restored. If the filesystem also prevents restoration, retaining the
+        // already-verified scoped ciphertext avoids destroying the sole
+        // recoverable credential.
+        if (scopedWritten && error?.globalCredentialRestored !== false) {
+            deleteAccountScopedCloudCredential(after.accountId);
+        }
+        throw new Error('EasyField could not secure the saved Mac connection');
+    }
+    return { credits: verified.credits };
+}
+
+function isCloudGenerationCredentialName(name) {
+    return name === CLOUD_GENERATION_CREDENTIAL || name === LEGACY_CLOUD_GENERATION_CREDENTIAL;
+}
+
 function writePrivateFileAtomic(filePath, bytes) {
     const temporary = filePath + '.' + crypto.randomBytes(8).toString('hex') + '.tmp';
     try {
@@ -1755,7 +2318,7 @@ function writePrivateFileAtomic(filePath, bytes) {
 }
 
 function trustedPanelOrigin() {
-    return process.env.EF_DEV === '1' ? 'http://localhost:5173' : 'http://127.0.0.1:' + PORT;
+    return isTrustedDevelopmentMode() ? 'http://localhost:5173' : 'http://127.0.0.1:' + PORT;
 }
 
 function assertTrustedIpcEvent(event) {
@@ -1871,29 +2434,114 @@ function registerHostIpc() {
     if (!ipcMain || typeof ipcMain.handle !== 'function') return;
     stateStore = createStateStore(app.getPath('userData'));
 
-    registerTrustedHandler('ef:credentials:get', (name) => {
+    const accountConfig = loadAccountPublicConfig();
+    accountService = createAccountService({
+        ...accountConfig,
+        // Missing production account configuration is never authority to use
+        // a legacy raw key. Compatibility requires both explicit development
+        // flags and an unpackaged Electron session.
+        allowLegacyDirectProvider: isTrustedDevelopmentMode()
+            && process.env.EF_ALLOW_LEGACY_DIRECT_PROVIDER === '1',
+        callbackUrl: `http://127.0.0.1:${PORT}/auth/callback`,
+        recoveryCallbackUrl: `http://127.0.0.1:${PORT}/auth/recovery`,
+        readSession: () => readStoredCredential(ACCOUNT_SESSION_CREDENTIAL),
+        writeSession: (value) => writeStoredCredential(ACCOUNT_SESSION_CREDENTIAL, value),
+        clearSession: () => deleteStoredCredential(ACCOUNT_SESSION_CREDENTIAL),
+        readCheckoutState: () => readStoredCredential(ACCOUNT_CHECKOUT_STATE_CREDENTIAL),
+        writeCheckoutState: (value) => writeStoredCredential(ACCOUNT_CHECKOUT_STATE_CREDENTIAL, value),
+        clearCheckoutState: () => deleteStoredCredential(ACCOUNT_CHECKOUT_STATE_CREDENTIAL),
+        hasDirectProviderCredential: () => Boolean(readStoredCredential(CLOUD_GENERATION_CREDENTIAL)),
+        openExternal: (url) => {
+            if (!shell || typeof shell.openExternal !== 'function') throw new Error('External browser is unavailable');
+            return shell.openExternal(url);
+        },
+        openDirectCreditPurchase: () => {
+            if (!shell || typeof shell.openExternal !== 'function') throw new Error('External billing is unavailable');
+            return shell.openExternal(CREDIT_PURCHASE_URL);
+        },
+        onChanged: (snapshot) => {
+            if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.webContents.send === 'function') {
+                mainWindow.webContents.send('ef:account:changed', snapshot);
+            }
+        },
+        onOAuthCompleted: (completion) => {
+            if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.webContents.send === 'function') {
+                mainWindow.webContents.send('ef:account:oauth-completed', completion);
+            }
+        },
+        onPasswordRecoveryCompleted: (completion) => {
+            if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.webContents.send === 'function') {
+                mainWindow.webContents.send('ef:account:password-recovery-completed', completion);
+            }
+        },
+    });
+
+    registerTrustedHandler('ef:credentials:get', async (name) => {
+        if (!RENDERER_CREDENTIALS.has(name)) throw new Error('Invalid credential name');
+        if (isCloudGenerationCredentialName(name) && accountService?.isConfigured?.()) {
+            const context = await accountService.getFreshDirectProviderContext();
+            if (!context.directProviderAllowed || !context.accountId) {
+                throw new Error('Direct cloud credentials are unavailable for this account');
+            }
+            return readAccountScopedCloudCredential(context.accountId) ? SECURE_PROVIDER_PROXY_TOKEN : '';
+        }
         return readStoredCredential(name) ? SECURE_PROVIDER_PROXY_TOKEN : '';
     });
-    registerTrustedHandler('ef:credentials:set', (name, value) => {
-        const file = credentialPath(name);
+    registerTrustedHandler('ef:credentials:set', async (name, value) => {
+        if (!RENDERER_CREDENTIALS.has(name)) throw new Error('Invalid credential name');
         if (typeof value !== 'string' || value.length > 8192) throw new Error('Invalid credential value');
-        if (!value) {
-            for (const candidate of credentialDeletePaths(name)) {
-                try { fs.unlinkSync(candidate); } catch {}
+        if (isCloudGenerationCredentialName(name) && accountService?.isConfigured?.()) {
+            const context = await accountService.getFreshDirectProviderContext();
+            if (value.trim()) {
+                throw new Error('Direct cloud credentials must be verified before storage');
+            }
+            if (!context.authenticated || !context.accountId) {
+                throw new Error('Sign in before deleting direct cloud credentials');
+            }
+            try {
+                deleteAccountScopedCloudCredential(context.accountId);
+            } catch {
+                throw new Error('Saved direct cloud connection could not be removed');
             }
             return;
         }
-        if (!safeStorage || !safeStorage.isEncryptionAvailable()) throw new Error('macOS Keychain is unavailable');
-        writePrivateFileAtomic(file, safeStorage.encryptString(value));
-        if (name === CLOUD_GENERATION_CREDENTIAL) {
-            try { fs.unlinkSync(credentialPath(LEGACY_CLOUD_GENERATION_CREDENTIAL)); } catch {}
-        }
+        writeStoredCredential(name, value);
     });
-    registerTrustedHandler('ef:credentials:delete', (name) => {
-        for (const file of credentialDeletePaths(name)) {
-            try { fs.unlinkSync(file); } catch {}
+    registerTrustedHandler('ef:credentials:delete', async (name) => {
+        if (!RENDERER_CREDENTIALS.has(name)) throw new Error('Invalid credential name');
+        if (isCloudGenerationCredentialName(name) && accountService?.isConfigured?.()) {
+            const context = await accountService.getFreshDirectProviderContext();
+            if (!context.authenticated || !context.accountId) {
+                throw new Error('Sign in before deleting direct cloud credentials');
+            }
+            try {
+                deleteAccountScopedCloudCredential(context.accountId);
+            } catch {
+                throw new Error('Saved direct cloud connection could not be removed');
+            }
+            return;
         }
+        deleteStoredCredential(name);
     });
+    registerTrustedHandler('ef:direct-cloud:connect', (candidate) => connectDirectCloudCredential(candidate));
+    registerTrustedHandler('ef:direct-cloud:has-existing', () => hasExistingDirectCloudCredential());
+    registerTrustedHandler('ef:direct-cloud:has-scoped', () => hasCurrentAccountDirectCloudCredential());
+    registerTrustedHandler('ef:direct-cloud:adopt-existing', () => adoptExistingDirectCloudCredential());
+
+    registerTrustedHandler('ef:account:restore', () => accountService.restore());
+    registerTrustedHandler('ef:account:sign-in', (input) => accountService.signIn(input));
+    registerTrustedHandler('ef:account:sign-up', (input) => accountService.signUp(input));
+    registerTrustedHandler('ef:account:start-oauth', (input) => accountService.startOAuth(input));
+    registerTrustedHandler('ef:account:sign-out', () => accountService.signOut());
+    registerTrustedHandler('ef:account:request-password-reset', (input) => accountService.requestPasswordReset(input));
+    registerTrustedHandler('ef:account:complete-password-recovery', (input) => accountService.completePasswordRecovery(input));
+    registerTrustedHandler('ef:account:cancel-password-recovery', (input) => accountService.cancelPasswordRecovery(input));
+    registerTrustedHandler('ef:account:update-profile', (input) => accountService.updateProfile(input));
+    registerTrustedHandler('ef:account:resend-verification', (input) => accountService.resendVerification(input));
+    registerTrustedHandler('ef:account:get-snapshot', (input) => accountService.getSnapshot(input));
+    registerTrustedHandler('ef:account:checkout', (input) => accountService.checkout(input));
+    registerTrustedHandler('ef:account:resume-checkout', () => accountService.resumeCheckout());
+    registerTrustedHandler('ef:account:save-auto-reload', (input) => accountService.saveAutoReload(input));
     registerTrustedHandler('ef:state:get', (namespace, key) => {
         assertStateKey(namespace, key);
         return stateStore.get(namespace, key);
@@ -1919,7 +2567,11 @@ function registerHostIpc() {
         currentWindowMode = mode;
         applyWindowMode(mainWindow, screen, mode, { animate: true });
     });
-    registerTrustedHandler('ef:billing:open-credit-purchase', () => {
+    registerTrustedHandler('ef:billing:open-credit-purchase', async () => {
+        const context = await accountService?.getFreshDirectProviderContext?.();
+        if (!context?.directProviderAllowed) {
+            throw new Error('Direct credit purchase is unavailable for this account');
+        }
         if (!shell || typeof shell.openExternal !== 'function') {
             throw new Error('External billing is unavailable');
         }
@@ -1978,6 +2630,9 @@ function createWindow() {
             nodeIntegration: false,
             webSecurity: true,
             allowRunningInsecureContent: false,
+            webviewTag: false,
+            navigateOnDragDrop: false,
+            experimentalFeatures: false,
         },
     });
     mainWindow.setMenu(null);
@@ -1995,10 +2650,23 @@ function createWindow() {
     screen.on('display-removed', displayChangeHandler);
     mainWindow.on('moved', displayChangeHandler);
 
-    // EF_DEV=1 -> vite dev server (HMR); otherwise the embedded static UI.
+    // Trusted, unpackaged EF_DEV=1 -> Vite (HMR); otherwise embedded static UI.
     const url = trustedPanelOrigin();
     const allowedOrigin = new URL(url).origin;
-    const webRequest = mainWindow.webContents.session?.webRequest;
+    const panelSession = mainWindow.webContents.session;
+    // All media capture comes from the Resolve bridge or explicit file input.
+    // Web-origin permissions are therefore unnecessary and denied by default,
+    // including any future permission a compromised renderer might request.
+    if (panelSession && typeof panelSession.setPermissionRequestHandler === 'function') {
+        panelSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+    }
+    if (panelSession && typeof panelSession.setPermissionCheckHandler === 'function') {
+        panelSession.setPermissionCheckHandler(() => false);
+    }
+    if (panelSession && typeof panelSession.setDevicePermissionHandler === 'function') {
+        panelSession.setDevicePermissionHandler(() => false);
+    }
+    const webRequest = panelSession?.webRequest;
     if (webRequest && typeof webRequest.onBeforeSendHeaders === 'function') {
         // In EF_DEV the cloud-provider paths first reach Vite. Vite forwards only the
         // opaque secure sentinel to this Main process, so it needs the same
@@ -2034,7 +2702,14 @@ function createWindow() {
         // Electron window that inherits this panel's preload.
         try {
             const target = new URL(targetUrl);
-            if (target.protocol === 'https:' && shell && typeof shell.openExternal === 'function') {
+            if (
+                target.protocol === 'https:'
+                && !target.username
+                && !target.password
+                && target.href.length <= 4096
+                && shell
+                && typeof shell.openExternal === 'function'
+            ) {
                 void shell.openExternal(target.toString());
             }
         } catch (e) { /* denied below */ }
@@ -2061,21 +2736,35 @@ function createWindow() {
     });
 }
 
-app.whenReady().then(async () => {
-    registerHostIpc();
-    await startServer();
-    // Warm the Resolve bridge (non-fatal if it fails).
-    getResolve().catch(() => {});
-    // EF_SERVER_ONLY=1 -> headless server (curl verification), no window.
-    if (process.env.EF_SERVER_ONLY !== '1') {
-        createWindow();
-    }
-});
+// Production uses a single process for the encrypted account/checkout store.
+// Development and headless tests remain independently launchable.
+const hasSingleInstanceLock = app?.isPackaged !== true
+    || (typeof app.requestSingleInstanceLock === 'function' && app.requestSingleInstanceLock());
+
+if (!hasSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) mainWindow.restore();
+        if (typeof mainWindow.show === 'function') mainWindow.show();
+        if (typeof mainWindow.focus === 'function') mainWindow.focus();
+    });
+
+    app.whenReady().then(async () => {
+        registerHostIpc();
+        await startServer();
+        // Warm the Resolve bridge (non-fatal if it fails).
+        getResolve().catch(() => {});
+        // Unpackaged EF_SERVER_ONLY=1 -> verification server, no window.
+        if (!SERVER_ONLY) createWindow();
+    });
+}
 
 app.on('window-all-closed', () => {
     // Headless verification/render mode intentionally has no persistent panel
     // window; closing its temporary render host must not tear down the server.
-    if (process.env.EF_SERVER_ONLY !== '1') app.quit();
+    if (!SERVER_ONLY) app.quit();
 });
 
 app.on('quit', () => {

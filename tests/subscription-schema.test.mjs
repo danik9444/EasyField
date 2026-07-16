@@ -30,6 +30,12 @@ const partnerMigration = readFileSync(path.join(
   'migrations',
   '202607150003_partner_lifetime_access.sql',
 ), 'utf8')
+const privateRlsHardeningMigration = readFileSync(path.join(
+  projectRoot,
+  'supabase',
+  'migrations',
+  '20260715170000_private_billing_rls_hardening.sql',
+), 'utf8')
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -320,6 +326,7 @@ test('the pricing revision has a forward migration for already-installed catalog
   assert.match(normalizedStateHardeningMigration, /old\.status in \('granted', 'skipped', 'cancelled'\)/)
   assert.match(normalizedStateHardeningMigration, /checkout snapshot does not match the active catalog/)
   assert.match(normalizedStateHardeningMigration, /subscription snapshot does not match the active catalog/)
+  assert.doesNotMatch(normalizedStateHardeningMigration, /is distinct from case/)
   assert.match(
     normalizedPricingMigration,
     /recoverable_checkout\.status in \('failed', 'expired', 'cancelled'\)/,
@@ -357,6 +364,11 @@ test('Starter blocks only the canonical regular Seedance 2 model by exact ID', (
 
   const quote = extractFunction('billing_private.create_generation_quote')
   assert.match(quote, /btrim\(p_model_id\) = any\(v_plan\.blocked_model_ids\)/)
+  assert.match(
+    quote,
+    /v_existing\.plan_key is distinct from \( case when v_admin_bypass then null else v_plan\.plan_key end \)/,
+  )
+  assert.doesNotMatch(quote, /is distinct from case/)
   assert.doesNotMatch(
     quote,
     /(?:like|ilike|similar to)[^;]{0,120}blocked_model_ids|blocked_model_ids[^;]{0,120}(?:like|ilike|similar to)/,
@@ -716,8 +728,11 @@ test('authenticated reads omit provider economics, reusable tokens and task refe
 test('auto-reload resolves its plan and payment ownership from trusted server state', () => {
   const autoReload = extractFunction('billing_private.apply_auto_reload_catalog_snapshot')
   const sql = normalize(migration)
+  assert.match(autoReload, /declare v_plan record;/)
+  assert.match(autoReload, /select a\.customer_id as customer_id, p\.\* into v_plan/)
+  assert.doesNotMatch(autoReload, /into v_customer_id, v_plan/)
   assert.match(autoReload, /join billing_private\.plan_catalog p on p\.plan_key = s\.plan_key and p\.active/)
-  assert.match(autoReload, /m\.customer_id = v_customer_id/)
+  assert.match(autoReload, /m\.customer_id = v_plan\.customer_id/)
   assert.match(autoReload, /m\.status = 'active'/)
   assert.match(autoReload, /v_plan\.currency_code = any\(m\.supported_currencies\)/)
   assert.match(autoReload, /v_raw_expected_amount < v_plan\.minimum_top_up_currency_micros/)
@@ -964,4 +979,25 @@ test('new account and subscription UI sources contain no legacy provider brandin
     const contents = readFileSync(path.join(projectRoot, relativePath), 'utf8')
     assert.doesNotMatch(contents, brandedText, `${relativePath} exposes a legacy provider brand`)
   }
+})
+
+test('every private billing table has fail-closed RLS in the forward hardening migration', () => {
+  const sql = normalize(privateRlsHardeningMigration)
+  const privateTables = [
+    'plan_catalog',
+    'saved_payment_methods',
+    'renewal_attempts',
+    'payment_event_deliveries',
+    'checkout_no_payment_reconciliations',
+    'partner_offer_catalog',
+    'payment_entitlement_claims',
+    'partner_purchase_intents',
+  ]
+  for (const table of privateTables) {
+    assert.match(sql, new RegExp(`alter table billing_private\\.${table} enable row level security`))
+  }
+  assert.match(sql, /revoke all on all tables in schema billing_private from public, anon, authenticated/)
+  assert.match(sql, /revoke all on all sequences in schema billing_private from public, anon, authenticated/)
+  assert.doesNotMatch(sql, /create policy/)
+  assert.doesNotMatch(sql, /force row level security/)
 })

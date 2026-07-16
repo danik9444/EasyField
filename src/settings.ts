@@ -12,6 +12,8 @@ export interface Settings {
 
 export const ACCENT_OPTIONS = ['#E26BD2', '#5B8CFF', '#3ED598', '#FFB454']
 export const SECURE_API_KEY_TOKEN = '__easyfield_secure__'
+/** Opaque renderer sentinel resolved to the signed-in account session by Main. */
+export const ACCOUNT_API_KEY_TOKEN = '__easyfield_account__'
 export const CLOUD_API_CREDENTIAL = 'cloud-generation-api-key'
 
 export const DEFAULT_SETTINGS: Settings = {

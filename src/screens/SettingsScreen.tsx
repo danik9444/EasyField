@@ -12,9 +12,16 @@ interface SettingsScreenProps {
   apiStatus: 'idle' | 'connecting' | 'connected' | 'error'
   apiError: string
   credits: number
+  accountConfigured: boolean
+  accountReady: boolean
+  accountSignedIn: boolean
+  directProviderAllowed: boolean
+  hasExistingDirectCredential: boolean
   onBack: () => void
+  onOpenAccount: () => void
   onChange: (patch: Partial<Settings>) => void
   onConnectApiKey: (key: string) => void | Promise<void>
+  onAdoptExistingConnection: () => void | Promise<void>
   onRefreshApiConnection: () => void | Promise<void>
   updateStatus: PluginUpdateStatus | null
   updateChecking: boolean
@@ -52,7 +59,7 @@ const PLACEMENT_OPTIONS: Array<{ value: Settings['placementMode']; label: string
 const PLACEMENT_META = Object.fromEntries(PLACEMENT_OPTIONS.map((option) => [option.label, option.meta]))
 const IMPLEMENTED_ARTIFACT_ROOT = '~/Movies/EasyField'
 
-export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack, onChange, onConnectApiKey, onRefreshApiConnection, updateStatus, updateChecking, updateInstalling, updateInstalled, updateError, onCheckForUpdates, onInstallUpdate }: SettingsScreenProps) {
+export function SettingsScreen({ settings, apiStatus, apiError, credits, accountConfigured, accountReady, accountSignedIn, directProviderAllowed, hasExistingDirectCredential, onBack, onOpenAccount, onChange, onConnectApiKey, onAdoptExistingConnection, onRefreshApiConnection, updateStatus, updateChecking, updateInstalling, updateInstalled, updateError, onCheckForUpdates, onInstallUpdate }: SettingsScreenProps) {
   const [section, setSection] = useState<SettingsSection>('general')
   const [keyDraft, setKeyDraft] = useState(() => settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey)
   const [checking, setChecking] = useState(false)
@@ -68,14 +75,22 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
     { label: 'Runtime', value: host.isPlugin() ? 'Electron plugin' : 'Browser development', ok: true },
     { label: 'EasyField version', value: updateStatus?.currentVersion ?? (host.isPlugin() ? 'Checking…' : 'Development build'), ok: updateStatus?.supported !== false && !updateStatus?.available && !updateError },
     { label: 'DaVinci Resolve', value: bridge.connected ? `${bridge.product ?? 'Resolve'} · ${bridge.timeline ?? 'Timeline'}` : bridge.compatibilityError ?? 'Disconnected', ok: bridge.connected },
-    { label: 'EasyField Cloud', value: apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : 'Disconnected', ok: apiStatus === 'connected' },
+    {
+      label: directProviderAllowed ? 'Direct provider access' : 'EasyField Account',
+      value: directProviderAllowed
+        ? apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : 'Disconnected'
+        : !accountConfigured ? 'Service unavailable' : accountReady ? `${credits.toLocaleString()} credits` : accountSignedIn ? 'Review plan, balance or verification' : 'Signed out',
+      ok: directProviderAllowed ? apiStatus === 'connected' : accountReady,
+    },
     { label: 'Persistent state', value: host.isPlugin() ? 'SQLite · WAL' : 'Browser fallback', ok: true },
     { label: 'Credentials', value: host.isPlugin() ? 'macOS safeStorage' : 'Session only', ok: host.isPlugin() },
-  ], [apiError, apiStatus, bridge, credits, updateError, updateStatus])
+  ], [accountConfigured, accountReady, accountSignedIn, apiError, apiStatus, bridge, credits, directProviderAllowed, updateError, updateStatus])
   const activeSection = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0]
   const diagnosticHealth = diagnostics.filter((item) => item.ok).length
   const sectionStatus = section === 'ai'
-    ? { label: apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'connecting' ? 'Checking connection' : 'Connection needed', tone: apiStatus === 'connected' ? 'is-ok' : 'is-warning' }
+    ? directProviderAllowed
+      ? { label: apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'connecting' ? 'Checking connection' : 'Connection needed', tone: apiStatus === 'connected' ? 'is-ok' : 'is-warning' }
+      : { label: !accountConfigured ? 'Service unavailable' : accountReady ? `${credits.toLocaleString()} credits` : accountSignedIn ? 'Account needs attention' : 'Sign in required', tone: accountReady ? 'is-ok' : 'is-warning' }
     : section === 'resolve'
       ? { label: updateStatus?.available ? 'EasyField update available' : bridge.connected ? 'Resolve connected' : bridge.compatibilityError ? 'Update required' : 'Resolve offline', tone: bridge.connected && !updateStatus?.available ? 'is-ok' : 'is-warning' }
       : section === 'privacy'
@@ -98,7 +113,7 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
     try {
       await Promise.allSettled([
         resolve.refreshStatus(),
-        settings.apiKey.trim() ? Promise.resolve(onRefreshApiConnection()) : Promise.resolve(),
+        directProviderAllowed && settings.apiKey.trim() ? Promise.resolve(onRefreshApiConnection()) : Promise.resolve(),
       ])
     } finally {
       setChecking(false)
@@ -179,7 +194,8 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
 
           {section === 'ai' && (
             <>
-              <SettingsGroup title="EasyField Cloud" description="The API key is encrypted by macOS and is never written to localStorage.">
+              {directProviderAllowed ? (
+                <SettingsGroup title="Direct provider access" description="This privileged credential is encrypted by macOS and is never written to localStorage.">
                 <form
                   className="ef-settings-api-form"
                   onSubmit={(event) => {
@@ -188,7 +204,7 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
                   }}
                 >
                   <label className="ef-setting-field" htmlFor="ef-settings-api-key">
-                    <span>API key</span>
+                    <span>Direct cloud credential</span>
                     <input
                       id="ef-settings-api-key"
                       type="password"
@@ -197,7 +213,7 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
                       spellCheck={false}
                       aria-describedby="ef-settings-api-status"
                       aria-invalid={apiStatus === 'error'}
-                      placeholder={storedSecureKey ? 'Stored securely in macOS Keychain' : 'Paste your EasyField Cloud API key'}
+                      placeholder={storedSecureKey ? 'Stored securely in macOS Keychain' : 'Paste your direct provider credential'}
                       onChange={(event) => setKeyDraft(event.target.value)}
                     />
                   </label>
@@ -205,13 +221,35 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
                     type="submit"
                     className="ef-setting-primary"
                     disabled={!canValidateKey}
-                    title={!keyToValidate ? 'Enter an API key first' : undefined}
+                    title={!keyToValidate ? 'Enter a credential first' : undefined}
                   >
                     {apiStatus === 'connecting' ? 'Checking…' : apiStatus === 'connected' ? 'Validate again' : 'Connect securely'}
                   </button>
-                  <p id="ef-settings-api-status" role="status" aria-live="polite" className={`ef-setting-status is-${apiStatus}`}>{apiStatus === 'connected' ? `Connected · ${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : !keyToValidate ? 'Enter an API key to enable cloud actions.' : 'The key stays on this Mac.'}</p>
+                  <p id="ef-settings-api-status" role="status" aria-live="polite" className={`ef-setting-status is-${apiStatus}`}>{apiStatus === 'connected' ? `Connected · ${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : !keyToValidate ? 'Enter a credential to enable direct cloud actions.' : 'The credential stays on this Mac.'}</p>
+                  {hasExistingDirectCredential && apiStatus !== 'connected' && (
+                    <button
+                      type="button"
+                      className="ef-setting-primary"
+                      disabled={apiStatus === 'connecting'}
+                      onClick={() => void onAdoptExistingConnection()}
+                    >{apiStatus === 'connecting' ? 'Checking saved connection…' : 'Use saved Mac connection'}</button>
+                  )}
                 </form>
-              </SettingsGroup>
+                </SettingsGroup>
+              ) : (
+                <SettingsGroup title="EasyField Account" description="Plans, credits and generation access follow your verified account. Regular users never enter a provider key.">
+                  <SettingRow
+                    label={accountSignedIn ? 'Account connected' : 'Account access'}
+                    hint={!accountConfigured
+                      ? 'The account service is not configured in this build.'
+                      : accountReady
+                        ? `${credits.toLocaleString()} credits available.`
+                        : accountSignedIn ? 'Review your plan, balance or verification status.' : 'Sign in or create an account to continue.'}
+                  >
+                    <button type="button" className="ef-setting-primary" onClick={onOpenAccount}>{accountSignedIn ? 'Open account' : 'Sign in'}</button>
+                  </SettingRow>
+                </SettingsGroup>
+              )}
               <SettingsGroup title="Local model packs" description="Whisper and analysis packs install on first use after showing download size and free space.">
                 <SettingRow label="Transcription engine" hint="The approved product behavior asks on every run."><span className="ef-setting-value">Ask every run</span></SettingRow>
                 <SettingRow label="Voice clone" hint="Provider-neutral contract exists; execution stays hidden until a provider is approved."><span className="ef-setting-value is-muted">Not enabled in beta</span></SettingRow>

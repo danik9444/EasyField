@@ -25,6 +25,14 @@ test('Character belongs to Image while Avatar belongs to Video', () => {
   assert.equal(video.some((tool) => tool.id === 'avatar' && tool.name === 'Avatar'), true)
 })
 
+test('tools without a production dispatcher are catalogued as review-only', () => {
+  const reviewOnly = TOOL_DEFINITIONS
+    .filter((tool) => tool.execution === 'review-only')
+    .map((tool) => tool.id)
+    .sort()
+  assert.deepEqual(reviewOnly, ['broll', 'captions', 'culling'])
+})
+
 test('Upscale is a Footage tool backed by the two verified Topaz source adapters', () => {
   const footage = TOOL_DEFINITIONS.filter((tool) => tool.category === 'footage')
   assert.deepEqual(footage.map((tool) => tool.name), ['Culling', 'B-roll', 'Upscale'])

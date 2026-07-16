@@ -1684,7 +1684,7 @@ body::before {
   }
   .ef-home-header {
     display: grid;
-    grid-template-columns: minmax(0,1fr) auto auto auto;
+    grid-template-columns: minmax(0,1fr) auto auto auto auto;
   }
   .ef-home-header > .ef-spacer { display: none; }
   .ef-home-brand { overflow: hidden; }
@@ -1722,7 +1722,7 @@ body::before {
   .ef-pro-badge,
   .ef-resolve-badge-label { display: none; }
   .ef-home-header .ef-density-toggle { min-width: 32px; width: 32px; }
-  .ef-home-header { grid-template-columns: minmax(84px,1fr) 32px 32px auto; gap: 5px; }
+  .ef-home-header { grid-template-columns: minmax(72px,1fr) 32px 32px 32px auto; gap: 5px; }
   .ef-logo-tile { width: 31px; height: 31px; }
   .ef-home-statuses { gap: 4px; }
   .ef-resolve-badge { min-width: 32px; width: 32px; padding: 0; justify-content: center; }

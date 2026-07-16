@@ -14,7 +14,9 @@ Verify the runtime without analyzing media:
 plugin/python/.venv/bin/python3 plugin/python/beat_detect.py --probe
 ```
 
-The environment is intentionally ignored by version control. Release builds
-should bundle architecture-specific managed runtimes for Apple Silicon and
-Intel, or install the matching runtime during onboarding. EasyField never
-installs Python packages globally.
+The environment is intentionally ignored by version control and is accepted
+only in development. It is never considered release evidence or copied into a
+public artifact. Release builds require the separate, exact-file runtime pack
+catalog for Apple silicon and Intel, including checksums, Mach-O validation and
+recorded redistribution approval. EasyField never installs Python packages
+globally.

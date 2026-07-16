@@ -411,7 +411,7 @@ export async function enhancePrompt(opts: {
     throw new ChatError('Write a prompt or attach a reference before using prompt enhancement.')
   }
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your EasyField Cloud API key first (tap the credits badge on Home).')
+  if (!key) throw new ChatError('Sign in to EasyField and activate generation access before using this tool.')
 
   // Resolve attachments: fetch+downscale image refs into inline vision images,
   // and describe every ref (image/video/audio) by role + label in a manifest.
@@ -549,7 +549,7 @@ export async function planStoryboard(opts: {
   signal?: AbortSignal
 }): Promise<StoryboardPlanResult> {
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your EasyField Cloud API key before planning a storyboard.')
+  if (!key) throw new ChatError('Sign in to EasyField and activate generation access before planning a storyboard.')
   const storyBrief = opts.storyBrief.trim().slice(0, 12000)
   const targetModel = opts.targetModel.trim().slice(0, 240)
   const requestedDuration = Number.isFinite(opts.totalDurationSeconds)
@@ -712,7 +712,7 @@ export async function planFoleyEvents(opts: {
   signal?: AbortSignal
 }): Promise<FoleyPlanResult> {
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your EasyField Cloud API key before analyzing Foley events.')
+  if (!key) throw new ChatError('Sign in to EasyField and activate generation access before analyzing Foley events.')
   const direction = opts.direction.trim().slice(0, 1200)
   const durationSeconds = Math.round(opts.durationSeconds * 1000) / 1000
   const maximumEvents = Math.max(1, Math.min(32, Math.floor(opts.maximumEvents ?? 24)))
@@ -877,7 +877,7 @@ export async function planTimelineWorkflow(opts: {
   signal?: AbortSignal
 }): Promise<BrainPlanResult> {
   const key = currentApiKey()
-  if (!key) throw new ChatError('Connect your EasyField Cloud API key before asking SuperBrain to plan.')
+  if (!key) throw new ChatError('Sign in to EasyField and activate generation access before asking SuperBrain to plan.')
   const allowedTools = [...TOOL_IDS].join(', ')
   const mode = opts.mode ?? DEFAULT_BRAIN_MODE
   const questionsAsked = Math.max(0, Math.floor(opts.questionsAsked ?? 0))

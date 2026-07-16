@@ -5,5 +5,5 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["supabase/functions/_shared/**/*.ts"]
+  "include": ["supabase/functions/**/*.ts"]
 }

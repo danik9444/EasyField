@@ -83,7 +83,8 @@ export interface PlaceInput {
 }
 export interface PlaceResult {
   ok: boolean
-  path?: string
+  /** Opaque Main-owned reference for follow-up operations such as markers. */
+  mediaId?: string
   error?: string
 }
 
@@ -94,7 +95,7 @@ export interface BeatMarkerInput {
 }
 
 export interface BeatMarkerUndoToken {
-  path: string
+  mediaId: string
   target: 'timeline' | 'media-pool'
   customData: string[]
 }
@@ -439,21 +440,21 @@ async function placeToTimeline(input: PlaceInput): Promise<PlaceResult> {
     }
     const json = (await res.json().catch(() => null)) as PlaceResult | null
     if (!res.ok || !json) return { ok: false, error: json?.error || `Place failed (${res.status})` }
-    return { ok: !!json.ok, path: json.path, error: json.error }
+    return { ok: !!json.ok, mediaId: json.mediaId, error: json.error }
   } catch {
     return { ok: false, error: BRIDGE_DOWN }
   }
 }
 
 async function applyBeatMarkers(input: {
-  path: string
+  mediaId: string
   target: 'timeline' | 'media-pool'
   analysisId: string
   color: string
   markers: BeatMarkerInput[]
 }): Promise<BeatMarkerApplyResult> {
   if (status.compatibilityError) return { ok: false, error: status.compatibilityError }
-  if (status.connected && !status.capabilities?.includes('beat-markers')) {
+  if (status.connected && (!status.capabilities?.includes('beat-markers') || !status.capabilities.includes('opaque-placement-media'))) {
     return { ok: false, error: 'Update the EasyField Resolve integration to import Beat Detection markers.' }
   }
   try {

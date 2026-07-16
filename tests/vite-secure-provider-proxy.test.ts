@@ -4,6 +4,7 @@ import { once } from 'node:events'
 import test from 'node:test'
 import {
   createSecureProviderDevMiddleware,
+  SECURE_ACCOUNT_PROXY_TOKEN,
   SECURE_PROVIDER_PROXY_TOKEN,
 } from '../vite-plugin-secure-provider.ts'
 
@@ -57,7 +58,7 @@ async function call(
   })
 }
 
-test('Vite routes only Electron sentinel requests back through secure Main', async (t) => {
+test('Vite routes both Electron sentinels through Main and blocks implicit direct credentials', async (t) => {
   const captured: CapturedRequest[] = []
   const main = createServer((req, res) => {
     let body = ''
@@ -90,43 +91,105 @@ test('Vite routes only Electron sentinel requests back through secure Main', asy
     await close(main)
   })
 
-  const sentinel = `Bearer ${SECURE_PROVIDER_PROXY_TOKEN}`
-  const account = await call(vitePort, '/provider/api/v1/chat/credit?source=dev', sentinel)
+  const directSentinel = `Bearer ${SECURE_PROVIDER_PROXY_TOKEN}`
+  const accountSentinel = `Bearer ${SECURE_ACCOUNT_PROXY_TOKEN}`
+  const direct = await call(vitePort, '/provider/api/v1/chat/credit?source=direct', directSentinel)
+  assert.equal(direct.status, 200)
+  assert.deepEqual(JSON.parse(direct.body), { proxiedByMain: true })
+
+  const account = await call(vitePort, '/provider/api/v1/chat/credit?source=account', accountSentinel)
   assert.equal(account.status, 200)
   assert.deepEqual(JSON.parse(account.body), { proxiedByMain: true })
 
   const uploadBody = JSON.stringify({ file: 'synthetic-data-only' })
-  const upload = await call(vitePort, '/provider-upload/api/file-base64-upload', sentinel, uploadBody)
-  assert.equal(upload.status, 200)
+  const directUpload = await call(
+    vitePort,
+    '/provider-upload/api/file-base64-upload?source=direct',
+    directSentinel,
+    uploadBody,
+  )
+  assert.equal(directUpload.status, 200)
+  const accountUpload = await call(
+    vitePort,
+    '/provider-upload/api/file-base64-upload?source=account',
+    accountSentinel,
+    uploadBody,
+  )
+  assert.equal(accountUpload.status, 200)
 
   assert.deepEqual(captured, [
     {
       method: 'GET',
-      url: '/provider/api/v1/chat/credit?source=dev',
-      authorization: sentinel,
+      url: '/provider/api/v1/chat/credit?source=direct',
+      authorization: directSentinel,
+      bridgeToken: 'synthetic-main-boundary-token',
+      body: '',
+    },
+    {
+      method: 'GET',
+      url: '/provider/api/v1/chat/credit?source=account',
+      authorization: accountSentinel,
       bridgeToken: 'synthetic-main-boundary-token',
       body: '',
     },
     {
       method: 'POST',
-      url: '/provider-upload/api/file-base64-upload',
-      authorization: sentinel,
+      url: '/provider-upload/api/file-base64-upload?source=direct',
+      authorization: directSentinel,
+      bridgeToken: 'synthetic-main-boundary-token',
+      body: uploadBody,
+    },
+    {
+      method: 'POST',
+      url: '/provider-upload/api/file-base64-upload?source=account',
+      authorization: accountSentinel,
       bridgeToken: 'synthetic-main-boundary-token',
       body: uploadBody,
     },
   ])
 
-  // A browser-only Vite session owns its raw key in sessionStorage. It must
-  // continue to the existing direct provider proxy, never through Electron.
+  // A raw browser key cannot silently fall through to the direct provider
+  // proxy. Browser-only development must opt in explicitly.
   const browser = await call(vitePort, '/provider/api/v1/chat/credit', 'Bearer synthetic-browser-session-key')
-  assert.equal(browser.status, 204)
-  assert.equal(fallthroughs, 1)
-  assert.equal(captured.length, 2)
+  assert.equal(browser.status, 403)
+  assert.equal(JSON.parse(browser.body).code, 'PLUGIN_PROXY_AUTH_REQUIRED')
+  assert.equal(fallthroughs, 0)
+  assert.equal(captured.length, 4)
 
   // The sentinel is scoped to the two provider routes, not a general-purpose
   // tunnel into Main.
-  const unrelated = await call(vitePort, '/api/render', sentinel)
+  const unrelated = await call(vitePort, '/api/render', accountSentinel)
   assert.equal(unrelated.status, 204)
+  assert.equal(fallthroughs, 1)
+  assert.equal(captured.length, 4)
+
+  const publicPricing = await call(vitePort, '/provider/client/v1/model-pricing/page', '')
+  assert.equal(publicPricing.status, 204)
   assert.equal(fallthroughs, 2)
-  assert.equal(captured.length, 2)
+  assert.equal(captured.length, 4)
+
+  const unauthenticatedTask = await call(vitePort, '/provider/api/v1/jobs/createTask', '')
+  assert.equal(unauthenticatedTask.status, 403)
+  assert.equal(fallthroughs, 2)
+})
+
+test('browser direct credentials fall through only with an explicit development opt-in', async (t) => {
+  let fallthroughs = 0
+  const middleware = createSecureProviderDevMiddleware(18_832, { allowBrowserDirect: true })
+  const vite = createServer((req, res) => middleware(req, res, () => {
+    fallthroughs += 1
+    res.writeHead(204)
+    res.end()
+  }))
+  const vitePort = await listen(vite)
+  t.after(async () => close(vite))
+
+  const browser = await call(vitePort, '/provider/api/v1/chat/credit', 'Bearer synthetic-browser-session-key')
+  assert.equal(browser.status, 204)
+  assert.equal(fallthroughs, 1)
+
+  const missing = await call(vitePort, '/provider/api/v1/chat/credit', '')
+  assert.equal(missing.status, 403)
+  assert.equal(JSON.parse(missing.body).code, 'PLUGIN_PROXY_AUTH_REQUIRED')
+  assert.equal(fallthroughs, 1)
 })

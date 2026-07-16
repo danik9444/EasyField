@@ -99,7 +99,7 @@ function runProcess(command, args, options) {
         try {
             child = spawn(command, args, {
                 stdio: ['ignore', 'pipe', 'pipe'],
-                env: Object.assign({}, process.env, options && options.env || {}),
+                env: childEnvironment(options && options.env),
             });
         } catch (error) {
             finish({ missing: error && error.code === 'ENOENT', error });
@@ -124,20 +124,38 @@ function runProcess(command, args, options) {
     });
 }
 
-function defaultPythonCandidates(scriptPath) {
+function childEnvironment(extra) {
+    const allowed = [
+        'PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE',
+        'OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS',
+    ];
+    const env = {};
+    for (const name of allowed) {
+        if (typeof process.env[name] === 'string') env[name] = process.env[name];
+    }
+    return Object.assign(env, {
+        PYTHONNOUSERSITE: '1',
+        PYTHONSAFEPATH: '1',
+        PYTHONDONTWRITEBYTECODE: '1',
+    }, extra || {});
+}
+
+function defaultPythonCandidates(scriptPath, allowEnvironmentOverrides) {
     const pluginDir = path.resolve(path.dirname(scriptPath), '..');
+    const allowDevelopmentRuntime = allowEnvironmentOverrides === true;
     return [
-        process.env.EF_BEAT_PYTHON,
-        path.join(path.dirname(scriptPath), '.venv', 'bin', 'python3'),
+        allowDevelopmentRuntime ? process.env.EF_BEAT_PYTHON : null,
+        allowDevelopmentRuntime ? path.join(path.dirname(scriptPath), '.venv', 'bin', 'python3') : null,
         path.join(os.homedir(), 'Library', 'Application Support', 'EasyField', 'runtime', 'python', 'bin', 'python3'),
-        path.join(pluginDir, '..', '.venv', 'bin', 'python3'),
-        'python3',
+        allowDevelopmentRuntime ? path.join(pluginDir, '..', '.venv', 'bin', 'python3') : null,
+        allowDevelopmentRuntime ? 'python3' : null,
     ].filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
 }
 
 async function probeBeatRuntime(options) {
     const scriptPath = options && options.scriptPath || path.join(__dirname, 'python', 'beat_detect.py');
-    const candidates = options && options.pythonCandidates || defaultPythonCandidates(scriptPath);
+    const candidates = options && options.pythonCandidates
+        || defaultPythonCandidates(scriptPath, options && options.allowEnvironmentOverrides);
     let lastPayload = null;
     for (const python of candidates) {
         if (python.includes(path.sep) && !fs.existsSync(python)) continue;
@@ -246,6 +264,7 @@ function createBeatDetectionService(options) {
         pythonCandidates: options && options.pythonCandidates,
         ffmpegPath: options && options.ffmpegPath,
         timeoutMs: options && options.timeoutMs,
+        allowEnvironmentOverrides: options && options.allowEnvironmentOverrides === true,
     };
     let statusCache = null;
     let statusCacheAt = 0;

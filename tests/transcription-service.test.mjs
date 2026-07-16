@@ -16,6 +16,7 @@ const {
   createTranscriptionService,
   normalizeTranscription,
   parseOptions,
+  probeRuntime,
   readWhisperResultJson,
   runProcess,
 } = require('../plugin/whisper-transcription.cjs')
@@ -301,4 +302,24 @@ test('process cancellation kills a running whisper.cpp child promptly', async ()
   const result = await running
   assert.equal(result.cancelled, true)
   assert.ok(Date.now() - started < 2000)
+})
+
+test('packaged transcription ignores environment CLI overrides', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'easyfield-whisper-env-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const cli = path.join(root, 'untrusted-whisper-cli')
+  await writeFile(cli, '#!/usr/bin/env node\nconsole.log("whisper.cpp version : env-test")\n')
+  fs.chmodSync(cli, 0o700)
+  const previous = process.env.EF_WHISPER_CLI
+  process.env.EF_WHISPER_CLI = cli
+  try {
+    const packaged = await probeRuntime({ runtimeRoot: path.join(root, 'managed'), allowEnvironmentOverrides: false })
+    const development = await probeRuntime({ runtimeRoot: path.join(root, 'managed'), allowEnvironmentOverrides: true })
+    assert.equal(packaged.available, false)
+    assert.equal(development.available, true)
+    assert.equal(development.command, cli)
+  } finally {
+    if (previous === undefined) delete process.env.EF_WHISPER_CLI
+    else process.env.EF_WHISPER_CLI = previous
+  }
 })

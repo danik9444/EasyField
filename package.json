@@ -34,6 +34,8 @@
     "plugin:start": "electron plugin/",
     "plugin:install": "bash scripts/plugin-install.sh",
     "release:version": "node scripts/release-version.mjs",
+    "release:validate-account": "node scripts/release-account-config.mjs",
+    "release:validate-runtimes": "node scripts/release-runtime-packs.mjs",
     "release:verify-plugin": "node scripts/release-verify-plugin.mjs",
     "release:keygen": "node scripts/release-generate-key.mjs",
     "release:sbom": "node scripts/release-generate-sbom.mjs",

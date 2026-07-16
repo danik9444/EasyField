@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "module": "esnext",
+    "types": [
+      "vite/client"
+    ],
+    "allowArbitraryExtensions": true,
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
+  },
+  "include": [
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/content.ts",
+    "src/fontsource.d.ts",
+    "src/vite-env.d.ts",
+    "src/hooks/useRelease.ts",
+    "src/components/BrandMark.tsx",
+    "src/components/ProductStage.tsx",
+    "src/components/ReleaseAction.tsx",
+    "src/components/ui/accordion.tsx",
+    "src/lib/utils.ts"
+  ]
+}

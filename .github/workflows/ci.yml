@@ -48,6 +48,12 @@ jobs:
       - name: Check synchronized version
         run: npm run release:version -- check
 
+      - name: Verify deliberately blocked account-release structure
+        run: npm run release:validate-account -- --ci-structure-test
+
+      - name: Verify deliberately absent portable-runtime structure
+        run: npm run release:validate-runtimes -- --ci-structure-test
+
       - name: Verify clean source checkout
         run: npm run verify
 
@@ -61,43 +67,59 @@ jobs:
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" npm run plugin:assemble
 
-      - name: Exercise signed update builder
+      - name: Exercise signed non-chargeable CI update builder
+        env:
+          EASYFIELD_ACCOUNT_STRUCTURE_TEST: '1'
+          EASYFIELD_RUNTIME_STRUCTURE_TEST: '1'
         run: |
           npm run release:keygen -- --out-dir release/ci-keys
           npm run release:update -- \
             --repo "$EASYFIELD_RELEASE_REPOSITORY" \
             --private-key release/ci-keys/easyfield-update-private.pem \
             --out-dir release/ci-output \
-            --notes "CI verification only"
+            --notes "CI account structure verification only — not for distribution"
 
-      - name: Verify update reproducibility
+      - name: Verify CI update reproducibility
         shell: bash
+        env:
+          EASYFIELD_ACCOUNT_STRUCTURE_TEST: '1'
+          EASYFIELD_RUNTIME_STRUCTURE_TEST: '1'
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
-          ARCHIVE="EasyField-${VERSION}-plugin.tar.gz"
+          ARCHIVE="EasyField-${VERSION}-ci-structure-plugin.tar.gz"
           npm run release:update -- \
             --repo "$EASYFIELD_RELEASE_REPOSITORY" \
             --private-key release/ci-keys/easyfield-update-private.pem \
             --out-dir release/ci-rebuild \
-            --notes "CI verification only"
+            --notes "CI account structure verification only — not for distribution"
           cmp "release/ci-output/$ARCHIVE" "release/ci-rebuild/$ARCHIVE"
           cmp release/ci-output/easyfield-update.json release/ci-rebuild/easyfield-update.json
 
-      - name: Exercise unsigned PKG builder
+      - name: Exercise unsigned non-chargeable CI PKG builder
+        env:
+          EASYFIELD_ACCOUNT_STRUCTURE_TEST: '1'
+          EASYFIELD_RUNTIME_STRUCTURE_TEST: '1'
         run: npm run release:pkg -- --unsigned --out-dir release/ci-output
 
-      - name: Inspect artifacts
+      - name: Inspect non-distributable CI artifacts
         shell: bash
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
-          tar -tzf "release/ci-output/EasyField-${VERSION}-plugin.tar.gz" | grep -q '^com.easyfield.panel/update-manifest.json$'
-          pkgutil --expand-full "release/ci-output/EasyField-${VERSION}-macOS-universal-unsigned.pkg" release/expanded-pkg
+          ARCHIVE="release/ci-output/EasyField-${VERSION}-ci-structure-plugin.tar.gz"
+          PKG="release/ci-output/EasyField-${VERSION}-macOS-universal-ci-structure-unsigned.pkg"
+          tar -tzf "$ARCHIVE" | grep -q '^com.easyfield.panel/update-manifest.json$'
+          if tar -tzf "$ARCHIVE" | grep -q '^com.easyfield.panel/account-config.json$'; then
+            echo "CI structure archive unexpectedly contains a live account config." >&2
+            exit 1
+          fi
+          pkgutil --expand-full "$PKG" release/expanded-pkg
           test -x release/expanded-pkg/*/Scripts/preinstall
           test -x release/expanded-pkg/*/Scripts/postinstall
           PAYLOAD="$(find release/expanded-pkg -type d -path '*/InstallerPayload/com.easyfield.panel' -print -quit)"
           test -n "$PAYLOAD"
+          test ! -e "$PAYLOAD/account-config.json"
           CHECKSUMS="$PWD/$(dirname "$PAYLOAD")/release-checksums.sha256"
           test -f "$CHECKSUMS"
           test -z "$(find "$PAYLOAD" -type l -print -quit)"
@@ -111,8 +133,8 @@ jobs:
           name: easyfield-ci-artifacts
           path: |
             release/ci-output/easyfield-update.json
-            release/ci-output/EasyField-*-plugin.tar.gz
-            release/ci-output/EasyField-*-unsigned.pkg
+            release/ci-output/EasyField-*-ci-structure-plugin.tar.gz
+            release/ci-output/EasyField-*-ci-structure-unsigned.pkg
             output/easyfield-ci.spdx.json
           if-no-files-found: warn
           retention-days: 7

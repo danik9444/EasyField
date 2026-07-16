@@ -12,6 +12,9 @@ export type SubscriptionPlanId = 'starter' | 'creator' | 'pro' | 'studio'
 export type BillingInterval = 'monthly' | 'annual'
 export type LifetimeProductId = 'partner_lifetime'
 
+/** The purchase screen always opens on the annual comparison. */
+export const DEFAULT_BILLING_INTERVAL: BillingInterval = 'annual'
+
 export const MONEY_MICROS_PER_USD = 1_000_000
 export const MONEY_MICROS_PER_USD_CENT = 10_000
 export const CREDIT_MICROS_PER_CREDIT = 1_000_000
@@ -75,7 +78,7 @@ export const SUBSCRIPTION_PLANS: Readonly<Record<SubscriptionPlanId, Readonly<Su
   creator: definePlan({
     id: 'creator',
     name: 'Creator',
-    monthlyChargeMoneyMicros: 30 * MONEY_MICROS_PER_USD,
+    monthlyChargeMoneyMicros: 24 * MONEY_MICROS_PER_USD,
     annualChargeMoneyMicros: 300 * MONEY_MICROS_PER_USD,
     annualMonthlyEquivalentMoneyMicros: 25 * MONEY_MICROS_PER_USD,
     monthlyGrantCreditMicros: 2_000 * CREDIT_MICROS_PER_CREDIT,
@@ -109,6 +112,15 @@ export const SUBSCRIPTION_PLANS: Readonly<Record<SubscriptionPlanId, Readonly<Su
 
 export function getSubscriptionPlan(planId: SubscriptionPlanId): Readonly<SubscriptionPlan> {
   return SUBSCRIPTION_PLANS[planId]
+}
+
+/**
+ * Returns only a genuine annual saving. This keeps purchase copy accurate when
+ * a monthly promotion is lower than the unchanged annual commitment.
+ */
+export function annualSavingsMoneyMicros(planId: SubscriptionPlanId): MoneyMicros {
+  const plan = getSubscriptionPlan(planId)
+  return Math.max(0, plan.monthlyChargeMoneyMicros * 12 - plan.annualChargeMoneyMicros)
 }
 
 function assertNonNegativeSafeInteger(value: number, label: string): void {

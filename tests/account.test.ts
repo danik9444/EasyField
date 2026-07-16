@@ -167,7 +167,10 @@ test('plan-priced top-ups require an active, unexpired entitlement', () => {
 })
 
 test('account controls keep their semantic names and persist auto-reload disable', () => {
-  assert.match(accountScreenSource, /<h1>Plans & credits<\/h1>/)
+  assert.match(accountScreenSource, /platformRole === 'admin'/)
+  assert.match(accountScreenSource, /'Admin direct access'/)
+  assert.match(accountScreenSource, /activePartner\s*\? 'Partner direct access'/)
+  assert.match(accountScreenSource, /: 'Plans & credits'/)
   assert.match(accountScreenSource, /aria-label=\{policy\.enabled \? 'Turn off auto-reload' : 'Turn on auto-reload'\}/)
   assert.match(accountScreenSource, /onRequestSaveAutoReload\(disabledPolicy\)/)
   assert.match(accountScreenSource, /balances\.otherCreditMicros > 0/)
@@ -175,8 +178,8 @@ test('account controls keep their semantic names and persist auto-reload disable
   assert.match(accountScreenSource, /Get lifetime access/)
   assert.match(accountScreenSource, /Buy provider credits/)
   assert.match(accountScreenSource, /host\.openCreditPurchase\(\)/)
-  assert.match(accountScreenSource, /!activePartner && <TopUpSection/)
-  assert.match(accountScreenSource, /!activePartner && <AutoReloadSection/)
+  assert.match(accountScreenSource, /showCustomerBilling && <TopUpSection/)
+  assert.match(accountScreenSource, /showCustomerBilling && <AutoReloadSection/)
   assert.match(homeScreenSource, /creditsLive && host\.isPlugin\(\)/)
   assert.match(homeScreenSource, /host\.openCreditPurchase\(\)/)
 })

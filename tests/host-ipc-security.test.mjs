@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,6 +11,21 @@ import { fileURLToPath } from 'node:url'
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pluginMain = path.join(projectRoot, 'plugin', 'main.cjs')
 const pluginPreload = path.join(projectRoot, 'plugin', 'preload.cjs')
+
+test('packaged Main ignores development trust and environment configuration overrides', async () => {
+  const source = await readFile(pluginMain, 'utf8')
+  assert.match(source, /function environmentOverridesAllowed\(\) \{\s*return app\?\.isPackaged !== true;\s*\}/)
+  assert.match(source, /function isTrustedDevelopmentMode\(\) \{\s*return environmentOverridesAllowed\(\) && process\.env\.EF_DEV === '1';\s*\}/)
+  assert.equal((source.match(/process\.env\.EF_DEV === '1'/g) || []).length, 1)
+  assert.match(source, /const environmentConfig = environmentOverridesAllowed\(\) \? \{/)
+  assert.match(source, /return isTrustedDevelopmentMode\(\) \? 'http:\/\/localhost:5173'/)
+  assert.match(source, /const PROVIDER_API_HOST = \(\(environmentOverridesAllowed\(\) && process\.env\.EF_CLOUD_API_HOST\)/)
+  assert.match(source, /const runtimePack = resolveRuntimePack\(\{ pluginRoot: __dirname, architecture: process\.arch \}\)/)
+  assert.match(source, /const FFMPEG = runtimePack\.available/)
+  assert.match(source, /runtimePack\.strict \? unavailableRuntimeExecutable\('ffmpeg'\) : developmentFfmpeg\(\)/)
+  assert.match(source, /const hasSingleInstanceLock = app\?\.isPackaged !== true\s*\|\| \(typeof app\.requestSingleInstanceLock === 'function' && app\.requestSingleInstanceLock\(\)\)/)
+  assert.match(source, /app\.on\('second-instance'/)
+})
 
 async function reservePort() {
   const socket = createServer()
@@ -92,7 +107,12 @@ class FakeWebContents extends EventEmitter {
     this.id = 77
     this.mainFrame = { url: '' }
     this.openHandler = null
-    this.session = { webRequest: { onBeforeSendHeaders: (filter, listener) => { this.requestFilter = filter; this.requestListener = listener } } }
+    this.session = {
+      webRequest: { onBeforeSendHeaders: (filter, listener) => { this.requestFilter = filter; this.requestListener = listener } },
+      setPermissionRequestHandler: (handler) => { this.permissionRequestHandler = handler },
+      setPermissionCheckHandler: (handler) => { this.permissionCheckHandler = handler },
+      setDevicePermissionHandler: (handler) => { this.devicePermissionHandler = handler },
+    }
   }
   setWindowOpenHandler(handler) { this.openHandler = handler }
   getURL() { return this.mainFrame.url }
@@ -145,7 +165,7 @@ require(process.argv[1])
 
 async function waitForReady() {
   for (let i = 0; i < 100; i += 1) {
-    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url') && handlers.has('ef:billing:open-credit-purchase')) return
+    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url') && handlers.has('ef:billing:open-credit-purchase') && handlers.has('ef:account:restore')) return
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('Main IPC did not become ready')
@@ -156,15 +176,6 @@ void (async () => {
   const win = FakeBrowserWindow.last
   const trusted = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
   const secret = 'synthetic-ipc-test-secret'
-
-  await handlers.get('ef:billing:open-credit-purchase')(trusted, 'https://attacker.invalid/checkout')
-  let untrustedBillingRejected = false
-  try {
-    await handlers.get('ef:billing:open-credit-purchase')(
-      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
-      'https://attacker.invalid/checkout',
-    )
-  } catch { untrustedBillingRejected = true }
 
   await handlers.get('ef:window:set-mode')(trusted, 'expanded')
   let arbitraryWindowModeRejected = false
@@ -180,6 +191,34 @@ void (async () => {
   const rendererCredential = await handlers.get('ef:credentials:get')(trusted, 'cloud-generation-api-key')
   const legacyCredentialMigrated = fs.existsSync(credentialPath) && !fs.existsSync(legacyCredentialPath)
   await handlers.get('ef:credentials:set')(trusted, 'cloud-generation-api-key', secret)
+  await handlers.get('ef:billing:open-credit-purchase')(trusted, 'https://attacker.invalid/checkout')
+  let untrustedBillingRejected = false
+  try {
+    await handlers.get('ef:billing:open-credit-purchase')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+      'https://attacker.invalid/checkout',
+    )
+  } catch { untrustedBillingRejected = true }
+  let privateAccountCredentialRejected = false
+  try { await handlers.get('ef:credentials:get')(trusted, 'account-session-v1') }
+  catch { privateAccountCredentialRejected = true }
+  const accountRestore = await handlers.get('ef:account:restore')(trusted)
+  let untrustedAccountRejected = false
+  try { await handlers.get('ef:account:restore')({ sender: {}, senderFrame: { url: 'https://attacker.invalid' } }) }
+  catch { untrustedAccountRejected = true }
+  let untrustedDirectConnectRejected = false
+  try {
+    await handlers.get('ef:direct-cloud:connect')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+      'synthetic-untrusted-candidate',
+    )
+  } catch { untrustedDirectConnectRejected = true }
+  let untrustedDirectAdoptionRejected = false
+  try {
+    await handlers.get('ef:direct-cloud:adopt-existing')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+    )
+  } catch { untrustedDirectAdoptionRejected = true }
   const stored = fs.readFileSync(credentialPath)
   const credentialMode = fs.statSync(credentialPath).mode & 0o777
 
@@ -237,6 +276,16 @@ void (async () => {
   } catch { mismatchedArtifactRejected = true }
   const artifactDir = path.join(process.env.HOME, 'Movies', 'EasyField', '_Artifacts')
   const partials = fs.readdirSync(artifactDir).filter((name) => name.endsWith('.download') || name.endsWith('.tmp'))
+  const permissionRequestDenied = await new Promise((resolve) => {
+    win.webContents.permissionRequestHandler(win.webContents, 'camera', (allowed) => resolve(allowed === false))
+  })
+  const permissionCheckDenied = win.webContents.permissionCheckHandler(win.webContents, 'microphone') === false
+  const devicePermissionDenied = win.webContents.devicePermissionHandler({ deviceType: 'hid' }) === false
+  const billingOpenedFixedUrl = openedExternalUrls.length === 1
+    && openedExternalUrls[0] === Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8')
+  const credentialWindowDenied = win.webContents.openHandler?.({ url: 'https://user:password@attacker.invalid' }).action === 'deny'
+  const credentialWindowNotOpened = openedExternalUrls.length === 1
+  const newWindowDenied = win.webContents.openHandler?.({ url: 'https://attacker.invalid' }).action === 'deny'
 
   console.log(JSON.stringify({
     rendererGotSentinel: rendererCredential === '__easyfield_secure__',
@@ -247,16 +296,29 @@ void (async () => {
     credentialMode,
     untrustedRejected,
     untrustedBillingRejected,
-    billingOpenedFixedUrl: openedExternalUrls.length === 1
-      && openedExternalUrls[0] === Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8'),
+    privateAccountCredentialRejected,
+    accountRestoreSignedOut: accountRestore?.ok === true && accountRestore.value?.session?.status === 'signed-out',
+    accountRestoreLeaksToken: /(?:access|refresh)[_-]?token/i.test(JSON.stringify(accountRestore)),
+    untrustedAccountRejected,
+    untrustedDirectConnectRejected,
+    untrustedDirectAdoptionRejected,
+    billingOpenedFixedUrl,
     rendererBillingUrlIgnored: !openedExternalUrls.includes('https://attacker.invalid/checkout'),
     artifactNamespaceRejected,
     navigationPrevented,
     webviewPrevented,
-    newWindowDenied: win.webContents.openHandler?.({ url: 'https://attacker.invalid' }).action === 'deny',
+    credentialWindowDenied,
+    credentialWindowNotOpened,
+    newWindowDenied,
+    permissionRequestDenied,
+    permissionCheckDenied,
+    devicePermissionDenied,
     sandbox: win.options.webPreferences.sandbox,
     contextIsolation: win.options.webPreferences.contextIsolation,
     nodeIntegration: win.options.webPreferences.nodeIntegration,
+    webviewDisabled: win.options.webPreferences.webviewTag === false,
+    dragNavigationDisabled: win.options.webPreferences.navigateOnDragDrop === false,
+    experimentalFeaturesDisabled: win.options.webPreferences.experimentalFeatures === false,
     bridgeTokenInjectedByMain: injectedHeaders['X-EF-Bridge-Token'] === process.env.EF_BRIDGE_TOKEN,
     devProviderAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/provider/*'),
     devUploadAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/provider-upload/*'),
@@ -300,6 +362,11 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
       EF_TEST_USER_DATA: userDataPath,
       EF_BRIDGE_TOKEN: 'synthetic-ipc-bridge-token',
       EF_DEV: '1',
+      EF_ALLOW_LEGACY_DIRECT_PROVIDER: '1',
+      // Keep this isolated IPC harness on the legacy test path even when a
+      // gitignored live account config is present for local packaging.
+      EF_SUPABASE_URL: 'disabled://host-ipc-security-test',
+      EF_SUPABASE_ANON_KEY: 'disabled-for-host-ipc-security-test',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -325,15 +392,29 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     credentialMode: 0o600,
     untrustedRejected: true,
     untrustedBillingRejected: true,
+    privateAccountCredentialRejected: true,
+    accountRestoreSignedOut: true,
+    accountRestoreLeaksToken: false,
+    untrustedAccountRejected: true,
+    untrustedDirectConnectRejected: true,
+    untrustedDirectAdoptionRejected: true,
     billingOpenedFixedUrl: true,
     rendererBillingUrlIgnored: true,
     artifactNamespaceRejected: true,
     navigationPrevented: true,
     webviewPrevented: true,
+    credentialWindowDenied: true,
+    credentialWindowNotOpened: true,
     newWindowDenied: true,
+    permissionRequestDenied: true,
+    permissionCheckDenied: true,
+    devicePermissionDenied: true,
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
+    webviewDisabled: true,
+    dragNavigationDisabled: true,
+    experimentalFeaturesDisabled: true,
     bridgeTokenInjectedByMain: true,
     devProviderAuthenticatedByMain: true,
     devUploadAuthenticatedByMain: true,
@@ -368,7 +449,11 @@ Module._load = function (request, parent, isMain) {
   if (request === 'electron') {
     return {
       contextBridge: { exposeInMainWorld: (_name, value) => { exposed = value } },
-      ipcRenderer: { invoke: async (...args) => { calls.push(args); return null } },
+      ipcRenderer: {
+        invoke: async (...args) => { calls.push(args); return null },
+        on: () => {},
+        removeListener: () => {},
+      },
     }
   }
   return originalLoad.call(this, request, parent, isMain)
@@ -381,7 +466,17 @@ void exposed.billing.openCreditPurchase('https://attacker.invalid/checkout').the
     frozen: Object.isFrozen(exposed),
     hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
     hasCredentials: typeof exposed.credentials?.get === 'function',
+    hasDirectCloudConnect: typeof exposed.directCloud?.connect === 'function',
+    hasDirectCloudAvailability: typeof exposed.directCloud?.hasExisting === 'function',
+    hasDirectCloudScopedPresence: typeof exposed.directCloud?.hasScoped === 'function',
+    hasDirectCloudAdoption: typeof exposed.directCloud?.adoptExisting === 'function',
     hasArtifactBytes: typeof exposed.artifacts?.ingestBytes === 'function',
+    hasAccountRestore: typeof exposed.account?.restore === 'function',
+    hasPasswordRecovery: typeof exposed.account?.requestPasswordReset === 'function'
+      && typeof exposed.account?.completePasswordRecovery === 'function'
+      && typeof exposed.account?.cancelPasswordRecovery === 'function'
+      && typeof exposed.account?.onPasswordRecoveryCompleted === 'function',
+    hasProfileUpdate: typeof exposed.account?.updateProfile === 'function',
     billingCall: calls.at(-1),
   }))
 })
@@ -401,7 +496,14 @@ void exposed.billing.openCreditPurchase('https://attacker.invalid/checkout').the
   assert.equal(result.frozen, true)
   assert.equal(result.hasBridgeToken, false)
   assert.equal(result.hasCredentials, true)
+  assert.equal(result.hasDirectCloudConnect, true)
+  assert.equal(result.hasDirectCloudAvailability, true)
+  assert.equal(result.hasDirectCloudScopedPresence, true)
+  assert.equal(result.hasDirectCloudAdoption, true)
   assert.equal(result.hasArtifactBytes, true)
+  assert.equal(result.hasAccountRestore, true)
+  assert.equal(result.hasPasswordRecovery, true)
+  assert.equal(result.hasProfileUpdate, true)
   assert.deepEqual(result.billingCall, ['ef:billing:open-credit-purchase'])
-  assert.deepEqual(result.keys, ['artifacts', 'billing', 'credentials', 'plugin', 'state', 'updates', 'window'])
+  assert.deepEqual(result.keys, ['account', 'artifacts', 'billing', 'credentials', 'directCloud', 'plugin', 'state', 'updates', 'window'])
 })
