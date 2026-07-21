@@ -55,10 +55,10 @@
     "@remotion/renderer": "4.0.489",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.5.0",
+    "@vitejs/plugin-react": "^6.0.3",
     "electron": "^43.1.0",
     "hyperframes": "^0.7.37",
     "typescript": "~5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^8.1.5"
   }
 }
