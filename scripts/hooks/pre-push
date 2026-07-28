@@ -26,6 +26,26 @@ cd "$PROJECT_DIR" || exit 0
 MANIFEST=plugin/update-manifest.json
 LOG="${TMPDIR:-/tmp}/easyfield-prepush.log"
 
+# A branch behind origin/main builds an OLDER tree than what is already released,
+# and the panel accepts any fresh buildId from a local source without comparing
+# versions — so publishing from here hands the running panel a downgrade. This is
+# not hypothetical: while the Creator annual price was being corrected, pushing a
+# docs branch three commits behind main republished the feed without that fix.
+#
+# Deliberately checks the local origin/main ref rather than fetching, to keep the
+# hook offline and fast. A stale local ref only means the guard does not fire, so
+# the worst case is the behaviour that existed before it.
+if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  behind=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+  if [ "${behind:-0}" -gt 0 ]; then
+    echo "==> Skipped publishing the local plugin update"
+    echo "    HEAD is $behind commit(s) behind origin/main, so this build is older"
+    echo "    than the released one and would downgrade the panel in Resolve."
+    echo "    Merge origin/main into this branch to publish from it."
+    exit 0
+  fi
+fi
+
 echo "==> Publishing local plugin update for the panel in Resolve"
 
 if ! npm run --silent plugin:build >"$LOG" 2>&1; then
