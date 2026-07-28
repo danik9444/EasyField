@@ -304,7 +304,7 @@ export function LibraryPicker({
         <footer className="ef-library-picker-actions">
           <span>Library originals stay untouched.</span>
           <button type="button" className="is-secondary" disabled={busy} onClick={close}>Cancel</button>
-          <button type="button" className="is-primary" disabled={!selectedIds.length || busy} onClick={() => void confirm()}>
+          <button type="button" className="is-primary" disabled={!selectedIds.length || busy} aria-describedby={statusId} onClick={() => void confirm()}>
             {busy ? 'Adding…' : confirmLabel || (effectiveMax === 1 ? 'Use selected media' : `Add ${selectedIds.length || ''} selected`.trim())}
           </button>
         </footer>

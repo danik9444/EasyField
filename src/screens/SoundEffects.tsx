@@ -723,7 +723,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
             : mode === 'foley' && pendingFoley.length === 0
               ? <span className="ef-price"><span className="ef-price-label">REVIEW</span><span className="ef-spacer" /><span className="ef-price-value">{approvedFoley.length ? 'GENERATED' : 'NO EVENTS SELECTED'}</span></span>
               : <PriceEstimate estimate={estimate} />}
-          <div className={`ef-create-footer-message ${error || (mode === 'single' && !bpmValid) ? 'is-error' : !connected || (mode === 'single' && standardValidation) || (mode === 'foley' && (!sourceReady || foleyGuidanceValidation)) ? 'is-help' : 'is-ready'}`} role={error || (mode === 'single' && !bpmValid) ? 'alert' : 'status'} aria-live="polite">
+          <div id="sound-effects-footer-message" className={`ef-create-footer-message ${error || (mode === 'single' && !bpmValid) ? 'is-error' : !connected || (mode === 'single' && standardValidation) || (mode === 'foley' && (!sourceReady || foleyGuidanceValidation)) ? 'is-help' : 'is-ready'}`} role={error || (mode === 'single' && !bpmValid) ? 'alert' : 'status'} aria-live="polite">
             {error
               ? `✕ ${error}`
               : !connected
@@ -756,6 +756,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
               }
             }}
             disabled={mode === 'foley' ? foleySummary ? !canGenerateFoley : !canAnalyze : !canGenerateStandard}
+            aria-describedby="sound-effects-footer-message"
           >
             <Icon glyph="spark" color="#0E0E13" size={13} /> {mode === 'foley'
               ? !foleySummary

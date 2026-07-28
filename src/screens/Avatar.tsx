@@ -834,8 +834,8 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Avatar generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${error || !rightsConfirmed || promptOverLimit ? 'is-error' : ready ? 'is-ready' : 'is-help'}`} role={error ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
-          <button type="button" className="ef-generate ef-create-footer-action" disabled={!ready} onClick={() => { void run() }}><Icon glyph="avatar" size={14} color="#0E0E13" /> {mode === 'portrait' ? 'Create avatar' : 'Lip-sync video'}</button>
+          <div id="avatar-footer-message" className={`ef-create-footer-message ${error || !rightsConfirmed || promptOverLimit ? 'is-error' : ready ? 'is-ready' : 'is-help'}`} role={error ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
+          <button type="button" className="ef-generate ef-create-footer-action" disabled={!ready} aria-describedby="avatar-footer-message" onClick={() => { void run() }}><Icon glyph="avatar" size={14} color="#0E0E13" /> {mode === 'portrait' ? 'Create avatar' : 'Lip-sync video'}</button>
         </footer>
       )}
 

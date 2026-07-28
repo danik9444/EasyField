@@ -572,7 +572,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Voice generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${error || inputInvalid ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || inputInvalid ? 'alert' : 'status'} aria-live="polite">
+          <div id="voice-over-footer-message" className={`ef-create-footer-message ${error || inputInvalid ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || inputInvalid ? 'alert' : 'status'} aria-live="polite">
             {error
               ? `✕ ${error}`
               : !connected
@@ -581,7 +581,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
                   ? `✕ ${kind === 'dialogue' ? 'Add dialogue text (5,000 characters maximum)' : 'Add narration text (5,000 characters maximum)'}`
                 : `${kind === 'dialogue' ? `${lines.length} dialogue lines` : `${chars} characters`} · original timing preserved`}
           </div>
-          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || inputInvalid}>
+          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || inputInvalid} aria-describedby="voice-over-footer-message">
             <Icon glyph="spark" color="#0E0E13" size={13} /> {kind === 'dialogue' ? 'Perform dialogue' : 'Generate voice'}
           </button>
         </footer>
