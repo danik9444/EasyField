@@ -22,6 +22,7 @@ interface Window {
     }
     window?: {
       setMode: (mode: 'compact' | 'expanded') => Promise<void>
+      setLayout: (mode: 'compact' | 'expanded', heightMode: 'standard' | 'full') => Promise<void>
     }
     billing?: {
       openCreditPurchase: () => Promise<void>

@@ -1,4 +1,15 @@
-import { formatStoryboardDuration, formatStoryboardTimecode, type StoryboardTimingMode } from '../data/storyboard'
+import {
+  STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+  STORYBOARD_MAX_SCENES,
+  STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
+  STORYBOARD_MIN_SCENE_DURATION_SECONDS,
+  STORYBOARD_MIN_TOTAL_DURATION_SECONDS,
+  formatStoryboardDuration,
+  formatStoryboardTimecode,
+  isStoryboardSceneDuration,
+  type StoryboardTimingMode,
+  type StoryboardWorkflowMode,
+} from '../data/storyboard'
 
 export interface StoryboardExportScene {
   ordinal: number
@@ -14,14 +25,24 @@ export interface StoryboardExportInput {
   title: string
   story: string
   aspect: string
+  workflowMode: StoryboardWorkflowMode
   timingMode: StoryboardTimingMode
   totalDurationSeconds: number
   scenes: StoryboardExportScene[]
 }
 
+/**
+ * A provider-generated visual contact sheet wrapped in EasyField's exact,
+ * deterministic storyboard metadata. The generated pixels are drawn once,
+ * without crops, overlays or colour treatment; all authored copy is rendered
+ * locally around the visual so it cannot be misspelled by the image model.
+ */
+export interface GeneratedStoryboardBoardExportInput extends StoryboardExportInput {
+  generatedSheetUrl: string
+}
+
 const CANVAS_WIDTH = 1_920
 const CHROME_SAFE_CANVAS_HEIGHT = 32_700
-const MAX_SCENES = 20
 const IMAGE_TIMEOUT_MS = 30_000
 
 const COLOR = {
@@ -262,6 +283,30 @@ interface HeaderLayout {
   titleY: number
   storyPanelY: number
   storyPanelHeight: number
+  bottom: number
+}
+
+interface MetadataSceneLayout {
+  scene: StoryboardExportScene
+  x: number
+  y: number
+  width: number
+  height: number
+  headerHeight: number
+  title: WrappedBlock
+  description: WrappedBlock
+  explanation: WrappedBlock
+}
+
+interface GeneratedSheetLayout {
+  x: number
+  y: number
+  width: number
+  height: number
+  frameX: number
+  frameY: number
+  frameWidth: number
+  frameHeight: number
   bottom: number
 }
 
@@ -509,25 +554,25 @@ function sceneDescriptor(scene: StoryboardExportScene): string {
   return `Scene ${scene.ordinal}${title ? ` (“${title.slice(0, 72)}”)` : ''}`
 }
 
-function imageSourceFor(scene: StoryboardExportScene): string {
-  const source = cleanText(scene.imageUrl)
-  if (!source) throw new Error(`${sceneDescriptor(scene)} has no image to export.`)
+function imageSourceForExport(value: string, descriptor: string): string {
+  const source = cleanText(value)
+  if (!source) throw new Error(`${descriptor} has no image to export.`)
 
   let parsed: URL
   try {
     parsed = new URL(source, document.baseURI)
   } catch {
-    throw new Error(`${sceneDescriptor(scene)} has an invalid image URL.`)
+    throw new Error(`${descriptor} has an invalid image URL.`)
   }
 
   if (!['blob:', 'data:', 'http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error(`${sceneDescriptor(scene)} uses an unsupported image URL.`)
+    throw new Error(`${descriptor} uses an unsupported image URL.`)
   }
   return parsed.href
 }
 
-async function loadSceneImage(scene: StoryboardExportScene): Promise<HTMLImageElement> {
-  const source = imageSourceFor(scene)
+async function loadExportImage(value: string, descriptor: string): Promise<HTMLImageElement> {
+  const source = imageSourceForExport(value, descriptor)
 
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const element = new Image()
@@ -537,7 +582,7 @@ async function loadSceneImage(scene: StoryboardExportScene): Promise<HTMLImageEl
       settled = true
       element.onload = null
       element.onerror = null
-      reject(new Error(`${sceneDescriptor(scene)} timed out while loading its image.`))
+      reject(new Error(`${descriptor} timed out while loading its image.`))
     }, IMAGE_TIMEOUT_MS)
 
     const finish = (callback: () => void) => {
@@ -556,10 +601,10 @@ async function loadSceneImage(scene: StoryboardExportScene): Promise<HTMLImageEl
     }
     element.onload = () => finish(() => {
       if (element.naturalWidth > 0 && element.naturalHeight > 0) resolve(element)
-      else reject(new Error(`${sceneDescriptor(scene)} loaded an empty image.`))
+      else reject(new Error(`${descriptor} loaded an empty image.`))
     })
     element.onerror = () => finish(() => reject(new Error(
-      `${sceneDescriptor(scene)} could not load its image. The source may be unavailable or may not allow cross-origin image export.`,
+      `${descriptor} could not load its image. The source may be unavailable or may not allow cross-origin image export.`,
     )))
     element.src = source
   })
@@ -575,11 +620,15 @@ async function loadSceneImage(scene: StoryboardExportScene): Promise<HTMLImageEl
     probeContext.getImageData(0, 0, 1, 1)
   } catch {
     throw new Error(
-      `${sceneDescriptor(scene)} cannot be included because its image source does not permit canvas export.`,
+      `${descriptor} cannot be included because its image source does not permit canvas export.`,
     )
   }
 
   return image
+}
+
+async function loadSceneImage(scene: StoryboardExportScene): Promise<HTMLImageElement> {
+  return loadExportImage(scene.imageUrl, sceneDescriptor(scene))
 }
 
 function measureHeader(
@@ -723,6 +772,123 @@ function buildSceneLayouts(
   return { layouts, bottom: y - spacing.rowGap }
 }
 
+function measureMetadataScene(
+  context: CanvasRenderingContext2D,
+  scene: StoryboardExportScene,
+  width: number,
+  profile: TypographyProfile,
+): Omit<MetadataSceneLayout, 'x' | 'y' | 'height'> & { naturalHeight: number } {
+  const { spacing, font, lineHeight } = profile
+  const innerWidth = width - spacing.cardPadding * 2
+  const titleWidth = innerWidth - spacing.badgeSize - spacing.badgeToTitle
+  const title = wrapBlock(
+    context,
+    cleanText(scene.title) || `Scene ${scene.ordinal}`,
+    font.cardTitle,
+    titleWidth,
+    lineHeight.cardTitle,
+  )
+  const description = wrapBlock(
+    context,
+    cleanText(scene.description),
+    font.description,
+    innerWidth,
+    lineHeight.description,
+  )
+  const explanation = wrapBlock(
+    context,
+    cleanText(scene.explanation),
+    font.explanation,
+    innerWidth,
+    lineHeight.explanation,
+  )
+  const headerHeight = Math.max(spacing.cardHeaderMinHeight, title.height)
+  const naturalHeight = spacing.cardPadding
+    + headerHeight
+    + spacing.cardHeaderGap
+    + lineHeight.label
+    + spacing.labelToCopy
+    + description.height
+    + spacing.sectionGap
+    + lineHeight.label
+    + spacing.labelToCopy
+    + explanation.height
+    + spacing.cardBottomPadding
+
+  return {
+    scene,
+    width,
+    naturalHeight,
+    headerHeight,
+    title,
+    description,
+    explanation,
+  }
+}
+
+function buildMetadataSceneLayouts(
+  context: CanvasRenderingContext2D,
+  scenes: StoryboardExportScene[],
+  startY: number,
+  profile: TypographyProfile,
+): { layouts: MetadataSceneLayout[]; bottom: number } {
+  const { spacing } = profile
+  const contentWidth = CANVAS_WIDTH - spacing.pagePadding * 2
+  const columns = scenes.length === 1 ? 1 : 2
+  const cardWidth = (contentWidth - spacing.columnGap * (columns - 1)) / columns
+  const measured = scenes.map((scene) => measureMetadataScene(context, scene, cardWidth, profile))
+  const layouts: MetadataSceneLayout[] = []
+  let y = startY
+
+  for (let rowStart = 0; rowStart < measured.length; rowStart += columns) {
+    const row = measured.slice(rowStart, rowStart + columns)
+    const rowHeight = Math.max(...row.map((scene) => scene.naturalHeight))
+    row.forEach((scene, column) => {
+      layouts.push({
+        ...scene,
+        x: spacing.pagePadding + column * (cardWidth + spacing.columnGap),
+        y,
+        height: rowHeight,
+      })
+    })
+    y += rowHeight + spacing.rowGap
+  }
+
+  return { layouts, bottom: y - spacing.rowGap }
+}
+
+function measureGeneratedSheet(
+  image: HTMLImageElement,
+  startY: number,
+  profile: TypographyProfile,
+): GeneratedSheetLayout {
+  const { spacing, lineHeight } = profile
+  const width = CANVAS_WIDTH - spacing.pagePadding * 2
+  const innerWidth = width - spacing.cardPadding * 2
+  const maximumHeight = profile.name === 'normal' ? 2_000 : profile.name === 'compact' ? 1_750 : 1_500
+  const naturalFrameHeight = innerWidth * image.naturalHeight / image.naturalWidth
+  const frameHeight = Math.min(naturalFrameHeight, maximumHeight)
+  const frameWidth = Math.min(innerWidth, frameHeight * image.naturalWidth / image.naturalHeight)
+  const frameY = startY + spacing.cardPadding + lineHeight.label + spacing.labelToCopy
+  const height = spacing.cardPadding
+    + lineHeight.label
+    + spacing.labelToCopy
+    + frameHeight
+    + spacing.cardBottomPadding
+
+  return {
+    x: spacing.pagePadding,
+    y: startY,
+    width,
+    height,
+    frameX: spacing.pagePadding + (width - frameWidth) / 2,
+    frameY,
+    frameWidth,
+    frameHeight,
+    bottom: startY + height,
+  }
+}
+
 function drawBackground(context: CanvasRenderingContext2D, height: number): void {
   context.fillStyle = COLOR.canvas
   context.fillRect(0, 0, CANVAS_WIDTH, height)
@@ -858,6 +1024,7 @@ function drawSceneCard(
   context: CanvasRenderingContext2D,
   layout: SceneLayout,
   profile: TypographyProfile,
+  includeTiming: boolean,
 ): void {
   const { spacing, font, lineHeight } = profile
   const cardRadius = profile.name === 'dense' ? 18 : profile.name === 'compact' ? 22 : 24
@@ -925,6 +1092,7 @@ function drawSceneCard(
 
   const descriptionLabelY = layout.frameY + layout.frameHeight + spacing.frameToLabel
   drawLabel(context, 'SCENE DESCRIPTION', layout.x + spacing.cardPadding, descriptionLabelY, profile, COLOR.blue)
+  if (includeTiming) drawSceneTimingLabel(context, layout, profile, descriptionLabelY)
   const descriptionY = descriptionLabelY + lineHeight.label + spacing.labelToCopy
   drawBlock(
     context,
@@ -948,6 +1116,124 @@ function drawSceneCard(
     font.explanation,
     lineHeight.explanation,
     COLOR.inkMuted,
+  )
+}
+
+function drawMetadataSceneCard(
+  context: CanvasRenderingContext2D,
+  layout: MetadataSceneLayout,
+  profile: TypographyProfile,
+  includeTiming: boolean,
+): void {
+  const { spacing, font, lineHeight } = profile
+  const cardRadius = profile.name === 'dense' ? 18 : profile.name === 'compact' ? 22 : 24
+  const cardGradient = context.createLinearGradient(layout.x, layout.y, layout.x + layout.width, layout.y + layout.height)
+  cardGradient.addColorStop(0, 'rgba(26, 26, 36, 0.985)')
+  cardGradient.addColorStop(1, 'rgba(14, 14, 20, 0.985)')
+  fillRoundedRect(context, layout.x, layout.y, layout.width, layout.height, cardRadius, cardGradient)
+  strokeRoundedRect(context, layout.x, layout.y, layout.width, layout.height, cardRadius, COLOR.line)
+
+  const accentInset = Math.min(24, spacing.cardPadding)
+  const accent = context.createLinearGradient(layout.x + accentInset, layout.y, layout.x + layout.width - accentInset, layout.y)
+  accent.addColorStop(0, COLOR.blue)
+  accent.addColorStop(0.55, COLOR.purple)
+  accent.addColorStop(1, 'rgba(238, 116, 215, 0)')
+  context.fillStyle = accent
+  context.fillRect(layout.x + accentInset, layout.y, layout.width - accentInset * 2, 2)
+
+  const badgeX = layout.x + spacing.cardPadding
+  const badgeY = layout.y + spacing.cardPadding
+  const badgeRadius = Math.max(10, Math.round(spacing.badgeSize * 0.28))
+  fillRoundedRect(context, badgeX, badgeY, spacing.badgeSize, spacing.badgeSize, badgeRadius, 'rgba(168, 120, 255, 0.11)')
+  strokeRoundedRect(context, badgeX, badgeY, spacing.badgeSize, spacing.badgeSize, badgeRadius, 'rgba(168, 120, 255, 0.34)')
+  context.save()
+  context.font = font.sceneNumber
+  context.fillStyle = COLOR.ink
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText(
+    String(layout.scene.ordinal).padStart(2, '0'),
+    badgeX + spacing.badgeSize / 2,
+    badgeY + spacing.badgeSize / 2,
+  )
+  context.restore()
+
+  drawBlock(
+    context,
+    layout.title,
+    badgeX + spacing.badgeSize + spacing.badgeToTitle,
+    badgeY + Math.max(0, (spacing.badgeSize - layout.title.height) / 2),
+    layout.width - spacing.cardPadding * 2 - spacing.badgeSize - spacing.badgeToTitle,
+    font.cardTitle,
+    lineHeight.cardTitle,
+    COLOR.ink,
+  )
+
+  const descriptionLabelY = layout.y + spacing.cardPadding + layout.headerHeight + spacing.cardHeaderGap
+  drawLabel(context, 'SCENE DESCRIPTION', layout.x + spacing.cardPadding, descriptionLabelY, profile, COLOR.blue)
+  if (includeTiming) drawSceneTimingLabel(context, layout, profile, descriptionLabelY)
+  const descriptionY = descriptionLabelY + lineHeight.label + spacing.labelToCopy
+  drawBlock(
+    context,
+    layout.description,
+    layout.x + spacing.cardPadding,
+    descriptionY,
+    layout.width - spacing.cardPadding * 2,
+    font.description,
+    lineHeight.description,
+    COLOR.inkSoft,
+  )
+
+  const explanationLabelY = descriptionY + layout.description.height + spacing.sectionGap
+  drawLabel(context, 'STORY PURPOSE', layout.x + spacing.cardPadding, explanationLabelY, profile, COLOR.amber)
+  drawBlock(
+    context,
+    layout.explanation,
+    layout.x + spacing.cardPadding,
+    explanationLabelY + lineHeight.label + spacing.labelToCopy,
+    layout.width - spacing.cardPadding * 2,
+    font.explanation,
+    lineHeight.explanation,
+    COLOR.inkMuted,
+  )
+}
+
+function drawGeneratedSheet(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  layout: GeneratedSheetLayout,
+  profile: TypographyProfile,
+): void {
+  const radius = profile.name === 'dense' ? 18 : profile.name === 'compact' ? 22 : 24
+  const frameRadius = profile.name === 'dense' ? 12 : profile.name === 'compact' ? 14 : 16
+  const panelGradient = context.createLinearGradient(layout.x, layout.y, layout.x + layout.width, layout.y + layout.height)
+  panelGradient.addColorStop(0, 'rgba(111, 149, 255, 0.06)')
+  panelGradient.addColorStop(0.5, 'rgba(21, 21, 29, 0.97)')
+  panelGradient.addColorStop(1, 'rgba(238, 116, 215, 0.05)')
+  fillRoundedRect(context, layout.x, layout.y, layout.width, layout.height, radius, panelGradient)
+  strokeRoundedRect(context, layout.x, layout.y, layout.width, layout.height, radius, COLOR.lineBright)
+  drawLabel(
+    context,
+    'GENERATED VISUAL BOARD  ·  ORIGINAL OUTPUT',
+    layout.x + profile.spacing.cardPadding,
+    layout.y + profile.spacing.cardPadding,
+    profile,
+    COLOR.pink,
+  )
+
+  context.save()
+  roundedRect(context, layout.frameX, layout.frameY, layout.frameWidth, layout.frameHeight, frameRadius)
+  context.clip()
+  context.drawImage(image, layout.frameX, layout.frameY, layout.frameWidth, layout.frameHeight)
+  context.restore()
+  strokeRoundedRect(
+    context,
+    layout.frameX,
+    layout.frameY,
+    layout.frameWidth,
+    layout.frameHeight,
+    frameRadius,
+    COLOR.lineBright,
   )
 }
 
@@ -980,13 +1266,6 @@ function drawContainedImage(
   context.fillStyle = '#050508'
   context.fillRect(layout.frameX, layout.frameY, layout.frameWidth, layout.frameHeight)
   context.drawImage(image, x, y, width, height)
-
-  const shade = context.createLinearGradient(0, layout.frameY, 0, layout.frameY + layout.frameHeight)
-  shade.addColorStop(0, 'rgba(0, 0, 0, 0.04)')
-  shade.addColorStop(0.72, 'rgba(0, 0, 0, 0)')
-  shade.addColorStop(1, 'rgba(0, 0, 0, 0.16)')
-  context.fillStyle = shade
-  context.fillRect(layout.frameX, layout.frameY, layout.frameWidth, layout.frameHeight)
   context.restore()
 
   strokeRoundedRect(
@@ -1000,25 +1279,19 @@ function drawContainedImage(
   )
 }
 
-function drawSceneTimingBadge(
+function drawSceneTimingLabel(
   context: CanvasRenderingContext2D,
-  layout: SceneLayout,
+  layout: Pick<SceneLayout, 'scene' | 'x' | 'width'>,
   profile: TypographyProfile,
+  y: number,
 ): void {
   const label = `${formatStoryboardTimecode(layout.scene.startSeconds)}–${formatStoryboardTimecode(layout.scene.startSeconds + layout.scene.durationSeconds)}  ·  ${formatStoryboardDuration(layout.scene.durationSeconds)}`
   context.save()
-  context.font = profile.font.meta
-  const horizontalPadding = profile.name === 'dense' ? 10 : 13
-  const height = profile.name === 'dense' ? 30 : 36
-  const width = Math.ceil(context.measureText(label).width + horizontalPadding * 2)
-  const x = layout.frameX + layout.frameWidth - width - 12
-  const y = layout.frameY + 12
-  fillRoundedRect(context, x, y, width, height, Math.round(height / 2), 'rgba(6, 6, 10, 0.82)')
-  strokeRoundedRect(context, x, y, width, height, Math.round(height / 2), 'rgba(255, 255, 255, 0.18)')
-  context.fillStyle = COLOR.ink
-  context.textAlign = 'center'
-  context.textBaseline = 'middle'
-  context.fillText(label, x + width / 2, y + height / 2 + 1)
+  context.font = profile.font.sectionLabel
+  context.fillStyle = COLOR.inkMuted
+  context.textAlign = 'right'
+  context.textBaseline = 'top'
+  context.fillText(label, layout.x + layout.width - profile.spacing.cardPadding, y)
   context.restore()
 }
 
@@ -1084,6 +1357,85 @@ interface MeasuredBoard {
   canvasHeight: number
 }
 
+interface PreparedStoryboardExport {
+  includeTiming: boolean
+  totalDurationSeconds: number
+  title: string
+  story: string
+  scenes: StoryboardExportScene[]
+}
+
+function prepareStoryboardExport(input: StoryboardExportInput): PreparedStoryboardExport {
+  if (!Array.isArray(input.scenes) || input.scenes.length === 0) {
+    throw new Error('Add at least one completed scene before exporting a storyboard.')
+  }
+  if (input.scenes.length > STORYBOARD_MAX_SCENES) {
+    throw new Error(`A single storyboard PNG can contain at most ${STORYBOARD_MAX_SCENES} scenes.`)
+  }
+
+  const includeTiming = input.timingMode !== 'none'
+  const totalDurationSeconds = input.workflowMode === 'scenes'
+    ? input.totalDurationSeconds
+    : Math.round(input.totalDurationSeconds)
+  const minimumTotal = input.workflowMode === 'scenes'
+    ? input.scenes.length * STORYBOARD_MIN_SCENE_DURATION_SECONDS
+    : Math.max(
+      STORYBOARD_MIN_TOTAL_DURATION_SECONDS,
+      input.scenes.length * STORYBOARD_MIN_SCENE_DURATION_SECONDS,
+    )
+  const maximumTotal = Math.min(
+    STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
+    input.scenes.length * STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+  )
+  if (
+    includeTiming
+    && (
+      !Number.isFinite(totalDurationSeconds)
+      || (input.workflowMode === 'scenes' && !Number.isInteger(totalDurationSeconds * 2))
+      || totalDurationSeconds < minimumTotal
+      || totalDurationSeconds > maximumTotal
+    )
+  ) {
+    throw new Error('The storyboard needs a valid total duration before export.')
+  }
+
+  const orderedScenes = input.scenes
+    .map((scene, index) => ({ scene, index }))
+    .sort((left, right) => left.scene.ordinal - right.scene.ordinal || left.index - right.index)
+    .map(({ scene }) => scene)
+
+  let timingCursor = 0
+  const scenes = orderedScenes.map((scene) => {
+    if (!Number.isFinite(scene.ordinal)) {
+      throw new Error('Every storyboard scene needs a valid ordinal before export.')
+    }
+    const durationSeconds = scene.durationSeconds
+    if (
+      includeTiming
+      && (
+        !isStoryboardSceneDuration(durationSeconds)
+      )
+    ) {
+      throw new Error(`Storyboard scene ${scene.ordinal} needs a valid duration before export.`)
+    }
+    const safeDuration = includeTiming ? durationSeconds : 1
+    const timedScene = { ...scene, durationSeconds: safeDuration, startSeconds: timingCursor }
+    if (includeTiming) timingCursor += safeDuration
+    return timedScene
+  })
+  if (includeTiming && timingCursor !== totalDurationSeconds) {
+    throw new Error('Scene durations must equal the total storyboard duration before export.')
+  }
+
+  return {
+    includeTiming,
+    totalDurationSeconds,
+    title: normalizeLayoutText(input.title),
+    story: normalizeLayoutText(input.story),
+    scenes,
+  }
+}
+
 function measureBoard(
   context: CanvasRenderingContext2D,
   title: string,
@@ -1105,6 +1457,42 @@ function measureBoard(
   }
 }
 
+interface MeasuredGeneratedBoard {
+  profile: TypographyProfile
+  header: HeaderLayout
+  sheet: GeneratedSheetLayout
+  metadataHeadingY: number
+  metadata: { layouts: MetadataSceneLayout[]; bottom: number }
+  footerY: number
+  canvasHeight: number
+}
+
+function measureGeneratedBoard(
+  context: CanvasRenderingContext2D,
+  title: string,
+  story: string,
+  scenes: StoryboardExportScene[],
+  image: HTMLImageElement,
+  profile: TypographyProfile,
+): MeasuredGeneratedBoard {
+  const header = measureHeader(context, title, story, profile)
+  const sheet = measureGeneratedSheet(image, header.bottom, profile)
+  const metadataHeadingY = sheet.bottom + profile.spacing.headerBottomGap
+  const metadataStartY = metadataHeadingY + profile.lineHeight.label + profile.spacing.labelToCopy
+  const metadata = buildMetadataSceneLayouts(context, scenes, metadataStartY, profile)
+  const footerY = metadata.bottom + profile.spacing.footerGap
+  const canvasHeight = Math.ceil(footerY + profile.spacing.footerHeight)
+  return {
+    profile,
+    header,
+    sheet,
+    metadataHeadingY,
+    metadata,
+    footerY,
+    canvasHeight,
+  }
+}
+
 /**
  * Renders a complete, ordered storyboard into one derived high-resolution PNG.
  * Source frames are read only and are never resized, rewritten or replaced.
@@ -1113,41 +1501,8 @@ export async function renderStoryboardPng(input: StoryboardExportInput): Promise
   if (typeof document === 'undefined' || typeof window === 'undefined') {
     throw new Error('Storyboard PNG export is only available in the EasyField desktop interface.')
   }
-  if (!Array.isArray(input.scenes) || input.scenes.length === 0) {
-    throw new Error('Add at least one completed scene before exporting a storyboard.')
-  }
-  if (input.scenes.length > MAX_SCENES) {
-    throw new Error(`A single storyboard PNG can contain at most ${MAX_SCENES} scenes.`)
-  }
-
-  const includeTiming = input.timingMode !== 'none'
-  const totalDurationSeconds = Math.round(input.totalDurationSeconds)
-  if (includeTiming && (!Number.isFinite(totalDurationSeconds) || totalDurationSeconds < input.scenes.length)) {
-    throw new Error('The storyboard needs a valid total duration before export.')
-  }
-
-  const orderedScenes = input.scenes
-    .map((scene, index) => ({ scene, index }))
-    .sort((left, right) => left.scene.ordinal - right.scene.ordinal || left.index - right.index)
-    .map(({ scene }) => scene)
-
-  let timingCursor = 0
-  const scenes = orderedScenes.map((scene) => {
-    if (!Number.isFinite(scene.ordinal)) {
-      throw new Error('Every storyboard scene needs a valid ordinal before export.')
-    }
-    const durationSeconds = Math.round(scene.durationSeconds)
-    if (includeTiming && (!Number.isFinite(durationSeconds) || durationSeconds < 1)) {
-      throw new Error(`Storyboard scene ${scene.ordinal} needs a valid duration before export.`)
-    }
-    const safeDuration = includeTiming ? durationSeconds : 1
-    const timedScene = { ...scene, durationSeconds: safeDuration, startSeconds: timingCursor }
-    if (includeTiming) timingCursor += safeDuration
-    return timedScene
-  })
-  if (includeTiming && timingCursor !== totalDurationSeconds) {
-    throw new Error('Scene durations must equal the total storyboard duration before export.')
-  }
+  const prepared = prepareStoryboardExport(input)
+  const { includeTiming, totalDurationSeconds, scenes } = prepared
 
   await waitForProductFonts()
 
@@ -1157,12 +1512,10 @@ export async function renderStoryboardPng(input: StoryboardExportInput): Promise
   const measuringContext = measuringCanvas.getContext('2d')
   if (!measuringContext) throw new Error('This browser does not support storyboard canvas export.')
 
-  const cleanTitle = normalizeLayoutText(input.title)
-  const cleanStory = normalizeLayoutText(input.story)
   const attempts = TYPOGRAPHY_PROFILES.map((profile) => measureBoard(
     measuringContext,
-    cleanTitle,
-    cleanStory,
+    prepared.title,
+    prepared.story,
     scenes,
     profile,
   ))
@@ -1193,16 +1546,91 @@ export async function renderStoryboardPng(input: StoryboardExportInput): Promise
     includeTiming,
     profile,
   )
-  sceneLayout.layouts.forEach((layout) => drawSceneCard(context, layout, profile))
+  sceneLayout.layouts.forEach((layout) => drawSceneCard(context, layout, profile, includeTiming))
 
   // Load one frame at a time to keep decoded image memory bounded for a
-  // 20-scene, high-resolution storyboard.
+  // 15-scene, high-resolution storyboard.
   for (const layout of sceneLayout.layouts) {
     const image = await loadSceneImage(layout.scene)
     drawContainedImage(context, image, layout, profile)
-    if (includeTiming) drawSceneTimingBadge(context, layout, profile)
   }
 
   drawFooter(context, footerY, scenes.length, profile)
+  return canvasToPng(canvas)
+}
+
+/**
+ * Wraps a single AI-generated visual board in deterministic local metadata.
+ * The source contact sheet remains visually untouched and is never replaced;
+ * exact authored story and scene copy is drawn in separate local panels.
+ */
+export async function renderGeneratedStoryboardBoardPng(
+  input: GeneratedStoryboardBoardExportInput,
+): Promise<Blob> {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    throw new Error('Storyboard PNG export is only available in the EasyField desktop interface.')
+  }
+  const prepared = prepareStoryboardExport(input)
+  const generatedImage = await loadExportImage(
+    input.generatedSheetUrl,
+    'The generated visual board',
+  )
+
+  await waitForProductFonts()
+
+  const measuringCanvas = document.createElement('canvas')
+  measuringCanvas.width = 1
+  measuringCanvas.height = 1
+  const measuringContext = measuringCanvas.getContext('2d')
+  if (!measuringContext) throw new Error('This browser does not support storyboard canvas export.')
+
+  const attempts = TYPOGRAPHY_PROFILES.map((profile) => measureGeneratedBoard(
+    measuringContext,
+    prepared.title,
+    prepared.story,
+    prepared.scenes,
+    generatedImage,
+    profile,
+  ))
+  const board = attempts.find((attempt) => attempt.canvasHeight <= attempt.profile.safeHeight)
+  if (!board) {
+    const requiredHeight = attempts.at(-1)?.canvasHeight ?? CHROME_SAFE_CANVAS_HEIGHT + 1
+    throw new Error(
+      `This generated storyboard needs ${requiredHeight}px even in the densest complete layout, above the browser's safe ${CHROME_SAFE_CANVAS_HEIGHT}px single-image limit.`,
+    )
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = CANVAS_WIDTH
+  canvas.height = board.canvasHeight
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('This browser does not support storyboard canvas export.')
+
+  drawBackground(context, board.canvasHeight)
+  drawHeader(
+    context,
+    board.header,
+    cleanText(input.aspect),
+    prepared.scenes.length,
+    prepared.totalDurationSeconds,
+    prepared.includeTiming,
+    board.profile,
+  )
+  drawGeneratedSheet(context, generatedImage, board.sheet, board.profile)
+  drawLabel(
+    context,
+    'ORDERED SCENE DETAILS',
+    board.profile.spacing.pagePadding,
+    board.metadataHeadingY,
+    board.profile,
+    COLOR.purple,
+  )
+  board.metadata.layouts.forEach((layout) => drawMetadataSceneCard(
+    context,
+    layout,
+    board.profile,
+    prepared.includeTiming,
+  ))
+  drawFooter(context, board.footerY, prepared.scenes.length, board.profile)
   return canvasToPng(canvas)
 }

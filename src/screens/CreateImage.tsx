@@ -3,8 +3,8 @@ import { Icon } from '../icons'
 import { Dropdown } from '../components/Dropdown'
 import { ChipField } from '../components/ChipField'
 import { PromptCard } from '../components/PromptCard'
-import { ReferenceImageGrid } from '../components/ReferenceImageGrid'
 import { CharacterBuilderPanel } from '../components/CharacterBuilderPanel'
+import { StoryboardReferencePicker } from '../components/StoryboardSceneReferencePicker'
 import { resolve } from '../services/resolve'
 import { sendToTimeline } from '../services/timeline'
 import { runImage, isConnected, isGenerationExit, saveUrl } from '../services/run'
@@ -95,6 +95,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
   const [characterDraft, setCharacterDraft] = useState<CharacterDraft>(() => createDefaultCharacterDraft())
   const [characterDraftReady, setCharacterDraftReady] = useState(mode !== 'character')
   const [refImages, setRefImages] = useState<ReferenceImage[]>([])
+  const [referenceDialogOpen, setReferenceDialogOpen] = useState(false)
   const [results, setResults] = useState<{ id: string; url: string }[]>([])
   const [selectedResultIds, setSelectedResultIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -274,6 +275,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
     }
     setError(null)
     setSelectedResultIds([])
+    setReferenceDialogOpen(false)
     setPhase('generating')
     const controller = generation.begin()
     activeRunRef.current = true
@@ -415,8 +417,41 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
           </>
         ) : (
           <>
-            <ReferenceImageGrid images={refImages} max={maxReferenceImages} onAddFiles={addRefFiles} onRemove={removeRefAt} onGrabPlayhead={grabPlayhead} />
-            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={userPromptMax} enhancerKey="enhancer-image" targetModel={model} mediaKind="image" purpose="create" style={style} references={enhanceRefs} onSpend={onSpend} />
+            <section className="ef-workspace-intro ef-create-image-intro" aria-labelledby="create-image-intro-title">
+              <span className="ef-workspace-kicker">ONE IDEA · FINISHED IMAGE</span>
+              <h1 id="create-image-intro-title">Create the frame you have in mind.</h1>
+              <p>Describe the subject, composition, light and mood. Add references when identity or visual continuity matters.</p>
+            </section>
+            <PromptCard
+              prompt={prompt}
+              onPromptChange={(value) => { setPrompt(value); setError(null) }}
+              maxLength={userPromptMax}
+              enhancerKey="enhancer-image"
+              targetModel={model}
+              mediaKind="image"
+              purpose="create"
+              style={style}
+              references={enhanceRefs}
+              contextKey={refImages.map((reference) => reference.id).join('|')}
+              onSpend={onSpend}
+              resizeMode="vertical"
+              footerEnd={(
+                <button
+                  type="button"
+                  className={`ef-story-scene-reference-trigger${refImages.length ? ' has-references' : ''}`}
+                  onClick={() => setReferenceDialogOpen(true)}
+                  disabled={phase !== 'form' || currentReferenceLimit === 0}
+                  aria-label={`Choose references for this image. ${refImages.length} of ${currentReferenceLimit} attached.`}
+                  aria-haspopup="dialog"
+                  aria-expanded={referenceDialogOpen}
+                  title={currentReferenceLimit === 0 ? 'The selected image model does not accept references' : 'Choose image references'}
+                >
+                  <Icon glyph="img" size={13} />
+                  <span>Refs</span>
+                  <b>{refImages.length}</b>
+                </button>
+              )}
+            />
             <ChipField label="STYLE" options={STYLES} selected={style} onSelect={setStyle} chipClassName="ef-style-chip" />
             {outputSettings}
           </>
@@ -518,6 +553,22 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
             <Icon glyph="spark" color="#0E0E13" size={13} /> Generate
           </button>
         </footer>
+      )}
+
+      {mode === 'image' && (
+        <StoryboardReferencePicker
+          open={referenceDialogOpen}
+          scope="image"
+          sceneLabel="References for this image"
+          images={refImages}
+          max={currentReferenceLimit}
+          locked={phase !== 'form'}
+          lockedHint="References are locked while this generation is running."
+          onAddFiles={addRefFiles}
+          onGrabPlayhead={grabPlayhead}
+          onRemove={removeRefAt}
+          onClose={() => setReferenceDialogOpen(false)}
+        />
       )}
 
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}

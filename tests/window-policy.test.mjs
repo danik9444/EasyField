@@ -46,6 +46,40 @@ test('window bounds stay inside small and negative-coordinate display work areas
   assert.deepEqual(resized, { x: -976, y: 16, width: 960, height: 768 })
 })
 
+test('full height reaches the usable display height instead of the profile ceiling', () => {
+  // Tall enough that the compact profile maximum (920) would otherwise bind.
+  const tall = { x: 0, y: 25, width: 1440, height: 1400 }
+  assert.deepEqual(windowBoundsForMode('compact', tall), { x: 1024, y: 41, width: 400, height: 820 })
+  assert.deepEqual(windowBoundsForMode('compact', tall, null, 'full'), { x: 1024, y: 41, width: 400, height: 1368 })
+
+  // A short display cannot be exceeded: full height still stops at the work area.
+  const short = { x: 0, y: 24, width: 800, height: 600 }
+  assert.deepEqual(windowBoundsForMode('compact', short, null, 'full'), { x: 384, y: 40, width: 400, height: 568 })
+
+  assert.throws(() => windowBoundsForMode('compact', tall, null, 'maximum'), /Invalid window height mode/)
+})
+
+test('full height raises the applied maximum so the taller bounds survive', () => {
+  const calls = []
+  const browserWindow = {
+    isDestroyed: () => false,
+    getBounds: () => ({ x: 1024, y: 41, width: 400, height: 820 }),
+    setMinimumSize: (width, height) => calls.push(['minimum', width, height]),
+    setMaximumSize: (width, height) => calls.push(['maximum', width, height]),
+    setBounds: (bounds, animate) => calls.push(['bounds', bounds, animate]),
+  }
+  const electronScreen = {
+    getDisplayMatching: () => ({ id: 7, workArea: { x: 0, y: 25, width: 1440, height: 1400 } }),
+    getPrimaryDisplay: () => ({ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+  }
+
+  const result = applyWindowMode(browserWindow, electronScreen, 'compact', { heightMode: 'full' })
+  assert.equal(result.bounds.height, 1368)
+  // A 920 ceiling here would clamp the window straight back to the standard height.
+  assert.equal(result.limits.maxHeight, 1368)
+  assert.deepEqual(calls.at(-1), ['maximum', 480, 1368])
+})
+
 test('mode application uses the window display, atomically replaces constraints and preserves its edge', () => {
   const calls = []
   const browserWindow = {
