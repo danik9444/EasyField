@@ -140,6 +140,12 @@ and every SHA-256 before swapping directories. A temporary recovery copy is
 used only during the atomic swap and is removed after successful verification.
 Restart Resolve after an update so its Electron host loads the new integration.
 
+A tracked `pre-push` hook republishes that local channel automatically, so a
+push surfaces an update in a panel that is already open. `npm install` installs
+it via the `prepare` script; run `npm run hooks:install` to install it by hand.
+The hook never blocks a push, and it restores `plugin/update-manifest.json` when
+only its build timestamp moved, so pushing does not leave a dirty tree.
+
 Local developer installs use the local channel described above. Production PKG
 installs contain a fixed public GitHub Release feed and an Ed25519 public key.
 The production updater accepts only that pinned repository, verifies the signed

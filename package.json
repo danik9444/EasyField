@@ -18,6 +18,8 @@
   "packageManager": "npm@10.9.8",
   "type": "module",
   "scripts": {
+    "prepare": "node scripts/install-git-hooks.mjs",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:plugin-ui": "vite build --base=./ --outDir plugin/ui --emptyOutDir",
