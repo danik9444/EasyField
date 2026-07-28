@@ -6,6 +6,8 @@ import {
   parseCheckoutStatusInput,
   parsePaymentWebhook,
   requireConfiguredCheckoutUrl,
+  WEBHOOK_MAX_AGE_SECONDS,
+  WEBHOOK_MAX_FUTURE_SKEW_SECONDS,
   verifyHostedCheckoutSession,
   verifyWebhookHmac,
 } from "./account_api.ts";
@@ -135,13 +137,36 @@ Deno.test("hosted checkout response must echo the exact operation, product, and 
   }, expected, new Set(["checkout.example.test"])), "identity does not match");
 });
 
-Deno.test("webhook HMAC covers exact raw bytes and comparison rejects changes", async () => {
+Deno.test("webhook HMAC covers its timestamp and exact raw bytes", async () => {
   const secret = "test-secret-that-is-at-least-thirty-two-bytes";
   const bytes = new TextEncoder().encode('{"event":"paid"}');
-  const signature = await computeWebhookHmacHex(secret, bytes);
-  assert(await verifyWebhookHmac(secret, bytes, signature));
-  assert(!await verifyWebhookHmac(secret, new TextEncoder().encode('{"event":"paid"}\n'), signature));
-  assert(!await verifyWebhookHmac(secret, bytes, "0".repeat(64)));
+  const timestamp = "1784106000";
+  const now = Number(timestamp) * 1000;
+  const signature = await computeWebhookHmacHex(secret, timestamp, bytes);
+  assert(await verifyWebhookHmac(secret, timestamp, bytes, signature, now));
+  assert(!await verifyWebhookHmac(
+    secret,
+    timestamp,
+    new TextEncoder().encode('{"event":"paid"}\n'),
+    signature,
+    now,
+  ));
+  assert(!await verifyWebhookHmac(secret, String(Number(timestamp) + 1), bytes, signature, now));
+  assert(!await verifyWebhookHmac(secret, timestamp, bytes, "0".repeat(64), now));
+});
+
+Deno.test("webhook HMAC rejects stale, future, missing, and non-canonical timestamps", async () => {
+  const secret = "test-secret-that-is-at-least-thirty-two-bytes";
+  const bytes = new TextEncoder().encode('{"event":"paid"}');
+  const nowSeconds = 1_784_106_000;
+  const stale = String(nowSeconds - WEBHOOK_MAX_AGE_SECONDS - 1);
+  const future = String(nowSeconds + WEBHOOK_MAX_FUTURE_SKEW_SECONDS + 1);
+  const staleSignature = await computeWebhookHmacHex(secret, stale, bytes);
+  const futureSignature = await computeWebhookHmacHex(secret, future, bytes);
+  assert(!await verifyWebhookHmac(secret, stale, bytes, staleSignature, nowSeconds * 1000));
+  assert(!await verifyWebhookHmac(secret, future, bytes, futureSignature, nowSeconds * 1000));
+  assert(!await verifyWebhookHmac(secret, null, bytes, staleSignature, nowSeconds * 1000));
+  assert(!await verifyWebhookHmac(secret, `0${nowSeconds}`, bytes, staleSignature, nowSeconds * 1000));
 });
 
 Deno.test("signed webhook normalization is strict and never authorizes entitlement", () => {

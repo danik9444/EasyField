@@ -69,11 +69,17 @@ test("payment webhook invokes one atomic, replay-safe reconciliation RPC", async
   const reconciliationMigration = await readFile(new URL("../supabase/migrations/202607150005_atomic_payment_reconciliation.sql", import.meta.url), "utf8");
   const recoveryMigration = await readFile(new URL("../supabase/migrations/202607150006_checkout_status_recovery.sql", import.meta.url), "utf8");
   const webhook = await readFile(new URL("../supabase/functions/easyfield-billing-webhook/index.ts", import.meta.url), "utf8");
+  const accountApi = await readFile(new URL("../supabase/functions/_shared/account_api.ts", import.meta.url), "utf8");
   const reconcileFunction = reconciliationMigration.slice(
     reconciliationMigration.indexOf("create or replace function public.easyfield_account_reconcile_payment_event"),
   );
   assert.match(webhook, /rpc\/easyfield_account_reconcile_payment_event/);
   assert.doesNotMatch(webhook, /rpc\/easyfield_account_record_payment_event/);
+  assert.match(webhook, /EASYFIELD_WEBHOOK_TIMESTAMP_HEADER/);
+  assert.match(webhook, /request\.headers\.get\(timestampHeader\),[\s\S]+rawBody/);
+  assert.match(accountApi, /WEBHOOK_MAX_AGE_SECONDS = 5 \* 60/);
+  assert.match(accountApi, /WEBHOOK_MAX_FUTURE_SKEW_SECONDS = 30/);
+  assert.match(accountApi, /timestampedWebhookBytes\(timestamp, bytes\)/);
   assert.match(reconcileFunction, /billing_private\.record_payment_event/);
   assert.match(reconcileFunction, /billing_private\.claim_payment_event/);
   assert.match(reconcileFunction, /billing_private\.finish_payment_event/);
