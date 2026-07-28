@@ -10,6 +10,7 @@ const https = require('https');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { verifyRuntimeExecutable } = require('./runtime-pack.cjs');
 
 const ENGINE = 'whisper.cpp';
 const MODELS = Object.freeze({
@@ -136,6 +137,7 @@ const DEFAULT_MODEL_DOWNLOAD_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 const MAX_JSON_BYTES = 16 * 1024;
 const MAX_PROCESS_OUTPUT = 8 * 1024 * 1024;
 const MAX_RESULT_JSON_BYTES = 256 * 1024 * 1024;
+const MAX_MODEL_MARKER_BYTES = 4096;
 const MAX_SEGMENTS = 250000;
 const MAX_WORDS = 1000000;
 const ALLOWED_DOWNLOAD_HOSTS = new Set(['huggingface.co', 'cdn-lfs.huggingface.co', 'cas-bridge.xethub.hf.co']);
@@ -393,7 +395,16 @@ async function probeRuntime(options = {}) {
         options.allowEnvironmentOverrides === true,
     );
     for (const candidate of candidates) {
-        if (candidate.includes(path.sep) && !fs.existsSync(candidate)) continue;
+        // Version/help output is not identity evidence. Refuse to spawn until
+        // the shared runtime-pack verifier authenticates the exact file.
+        if (!verifyRuntimeExecutable({
+            candidate,
+            componentId: 'whispercpp',
+            executableName: 'whisper-cli',
+            pluginRoot: options.runtimePackRoot,
+            catalogPath: options.runtimePackCatalogPath,
+            architecture: options.architecture,
+        })) continue;
         const versionResult = await runProcess(candidate, ['--version'], { timeoutMs: 10000 });
         const versionOutput = `${versionResult.stdout}\n${versionResult.stderr}`;
         const exactVersion = versionOutput.match(/whisper\.cpp\s+version\s*:\s*([0-9][^\s,]*)/i)?.[1];
@@ -417,19 +428,100 @@ function modelPaths(modelRoot, model) {
     };
 }
 
-function modelReady(modelRoot, model) {
+const verifiedModels = new Map();
+
+function modelMarkerReady(paths, model, definition) {
+    const stat = fs.lstatSync(paths.marker);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > MAX_MODEL_MARKER_BYTES) return false;
+    const marker = JSON.parse(fs.readFileSync(paths.marker, 'utf8'));
+    return marker.schemaVersion === 1 && marker.model === model
+        && marker.sha256 === definition.sha256 && marker.bytes === definition.bytes;
+}
+
+function modelFileStat(paths, definition) {
+    const stat = fs.lstatSync(paths.file);
+    return stat.isFile() && !stat.isSymbolicLink() && stat.size === definition.bytes ? stat : null;
+}
+
+function statFingerprint(stat) {
+    return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':');
+}
+
+function modelInstalled(modelRoot, model) {
     const definition = MODELS[model];
     const paths = modelPaths(modelRoot, model);
     try {
-        const marker = JSON.parse(fs.readFileSync(paths.marker, 'utf8'));
-        const stat = fs.statSync(paths.file);
-        return stat.isFile() && stat.size === definition.bytes && marker.sha256 === definition.sha256 && marker.bytes === definition.bytes;
+        return modelMarkerReady(paths, model, definition) && !!modelFileStat(paths, definition);
     } catch { return false; }
+}
+
+async function hashModelFile(filePath, definition, fingerprint) {
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    let handle;
+    try {
+        handle = await fs.promises.open(filePath, fs.constants.O_RDONLY | noFollow);
+        const before = await handle.stat();
+        if (!before.isFile() || before.size !== definition.bytes || statFingerprint(before) !== fingerprint) return false;
+        const hash = crypto.createHash('sha256');
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
+        let offset = 0;
+        while (offset < before.size) {
+            const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, before.size - offset), offset);
+            if (!bytesRead) return false;
+            hash.update(buffer.subarray(0, bytesRead));
+            offset += bytesRead;
+        }
+        const after = await handle.stat();
+        return statFingerprint(after) === fingerprint && hash.digest('hex') === definition.sha256;
+    } catch {
+        return false;
+    } finally {
+        try { await handle?.close(); } catch { /* best effort */ }
+    }
+}
+
+async function modelReady(modelRoot, model) {
+    const definition = MODELS[model];
+    const paths = modelPaths(modelRoot, model);
+    let fingerprint;
+    try {
+        if (!modelMarkerReady(paths, model, definition)) return false;
+        const stat = modelFileStat(paths, definition);
+        if (!stat) return false;
+        fingerprint = statFingerprint(stat);
+    } catch {
+        return false;
+    }
+    const cached = verifiedModels.get(paths.file);
+    if (cached && cached.fingerprint === fingerprint) return cached.result;
+    const result = hashModelFile(paths.file, definition, fingerprint).then((verified) => {
+        try {
+            const stat = modelFileStat(paths, definition);
+            return verified && !!stat && modelMarkerReady(paths, model, definition)
+                && statFingerprint(stat) === fingerprint;
+        } catch {
+            return false;
+        }
+    });
+    verifiedModels.set(paths.file, { fingerprint, result });
+    if (!await result && verifiedModels.get(paths.file)?.result === result) verifiedModels.delete(paths.file);
+    return result;
+}
+
+function rememberVerifiedModel(modelRoot, model) {
+    const definition = MODELS[model];
+    const paths = modelPaths(modelRoot, model);
+    const stat = modelFileStat(paths, definition);
+    if (!stat || !modelMarkerReady(paths, model, definition)) return;
+    verifiedModels.set(paths.file, { fingerprint: statFingerprint(stat), result: Promise.resolve(true) });
 }
 
 function publicModelState(modelRoot, downloading) {
     return Object.fromEntries(MODEL_IDS.map((model) => [model, {
-        state: downloading.has(model) ? 'downloading' : modelReady(modelRoot, model) ? 'ready' : 'missing',
+        // Status remains a cheap installation check. The large model bytes are
+        // hashed lazily before first use and cached only while their file
+        // identity and timestamps remain unchanged in this process.
+        state: downloading.has(model) ? 'downloading' : modelInstalled(modelRoot, model) ? 'ready' : 'missing',
         bytes: MODELS[model].bytes,
     }]));
 }
@@ -517,7 +609,7 @@ async function downloadModel(modelRoot, model, signal) {
     const definition = MODELS[model];
     fs.mkdirSync(modelRoot, { recursive: true, mode: 0o700 });
     try { fs.chmodSync(modelRoot, 0o700); } catch { /* best effort */ }
-    if (modelReady(modelRoot, model)) return { bytes: definition.bytes, alreadyReady: true };
+    if (await modelReady(modelRoot, model)) return { bytes: definition.bytes, alreadyReady: true };
     try {
         const stats = fs.statfsSync(modelRoot);
         const free = Number(stats.bavail) * Number(stats.bsize);
@@ -535,6 +627,7 @@ async function downloadModel(modelRoot, model, signal) {
         const verified = await streamDownload(downloadURL(model), partial, definition, signal);
         fs.renameSync(partial, paths.file);
         fs.writeFileSync(paths.marker, JSON.stringify({ schemaVersion: 1, model, bytes: verified.bytes, sha256: verified.sha256 }), { flag: 'wx', mode: 0o600 });
+        rememberVerifiedModel(modelRoot, model);
         return { bytes: verified.bytes, alreadyReady: false };
     } finally {
         try { fs.rmSync(partial, { force: true }); } catch { /* best effort */ }
@@ -660,6 +753,9 @@ function createTranscriptionService(options = {}) {
         runtimeRoot,
         cliCandidates: options.cliCandidates,
         allowEnvironmentOverrides: options.allowEnvironmentOverrides === true,
+        runtimePackRoot: options.runtimePackRoot,
+        runtimePackCatalogPath: options.runtimePackCatalogPath,
+        architecture: options.architecture,
     };
 
     const authorize = (req, res) => !options.authorizeRequest || options.authorizeRequest(req, res);
@@ -728,7 +824,7 @@ function createTranscriptionService(options = {}) {
 
     const handleTranscription = async (req, res) => {
         const transcriptionOptions = optionsFromHeaders(req.headers);
-        if (!modelReady(modelRoot, transcriptionOptions.model) && !options.allowUnmarkedModels) {
+        if (!options.allowUnmarkedModels && !await modelReady(modelRoot, transcriptionOptions.model)) {
             throw new TranscriptionError('Download and verify this Whisper model before transcription.', 'MODEL_NOT_READY', 409);
         }
         const runtime = await probeRuntime(runtimeProbeOptions);
@@ -765,6 +861,12 @@ function createTranscriptionService(options = {}) {
             if (transcriptionOptions.wordTimestamps) args.push('-ml', '84', '-sow');
             if (transcriptionOptions.initialVocabulary) args.push('--prompt', transcriptionOptions.initialVocabulary);
             if (!transcriptionOptions.conditionOnPreviousText) args.push('-mc', '0');
+            // Recheck the cached file fingerprint immediately before use. If
+            // anything changed during upload or decoding, modelReady re-hashes
+            // the replacement instead of passing its path to whisper.cpp.
+            if (!options.allowUnmarkedModels && !await modelReady(modelRoot, transcriptionOptions.model)) {
+                throw new TranscriptionError('Download and verify this Whisper model before transcription.', 'MODEL_NOT_READY', 409);
+            }
             const result = await runProcess(runtime.command, args, { signal: controller.signal, timeoutMs });
             if (result.cancelled) throw new TranscriptionError('Transcription cancelled.', 'CANCELLED', 499);
             if (result.timedOut) throw new TranscriptionError('Whisper transcription timed out.', 'TRANSCRIPTION_TIMEOUT', 504);
