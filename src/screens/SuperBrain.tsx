@@ -181,7 +181,7 @@ export function SuperBrain({ onBack, toast, onSpend }: SuperBrainProps) {
         <span className="ef-orb" />
         <span className="ef-brain-titles"><span className="ef-brain-title">SuperBrain</span><span className="ef-brain-status">{brainStatus}</span></span>
         <span className="ef-spacer" />
-        <Dropdown options={AGENT_MODELS} selected={model} onSelect={pickModel} label="Agent model" optionMeta={AGENT_MODEL_META} />
+        <Dropdown options={AGENT_MODELS} selected={model} onSelect={pickModel} label="Agent model" optionMeta={AGENT_MODEL_META} disabled={planning} />
       </div>
 
       <BrainModePicker value={mode} onChange={pickMode} locked={modeLocked} onReset={reset} />

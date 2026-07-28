@@ -1814,6 +1814,10 @@ textarea {
 }
 .ef-enhance-note.error {
   color: #ff6b6b;
+  align-self: stretch;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 /* Re-enhance (click again) button next to the cost. */

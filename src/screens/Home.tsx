@@ -210,14 +210,14 @@ export function Home({
   const onCategoryKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const tablist = event.currentTarget.parentElement
+    const toolbar = event.currentTarget.parentElement
     const nextIndex = event.key === 'Home'
       ? 0
       : event.key === 'End'
         ? HOME_CATEGORY_IDS.length - 1
         : (index + (event.key === 'ArrowRight' ? 1 : -1) + HOME_CATEGORY_IDS.length) % HOME_CATEGORY_IDS.length
     setActiveCategory(HOME_CATEGORY_IDS[nextIndex])
-    requestAnimationFrame(() => tablist?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus())
+    requestAnimationFrame(() => toolbar?.querySelectorAll<HTMLButtonElement>('button')[nextIndex]?.focus())
   }
 
   useEffect(() => {
@@ -684,13 +684,12 @@ export function Home({
           </div>
           <span className="ef-home-directory-total">{HOME_TOOL_COUNT} TOOLS</span>
         </header>
-        <div className="ef-category-tabs" role="tablist" aria-label="Filter tools by media type">
-          <button type="button" role="tab" aria-selected={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All tools <span>{HOME_TOOL_COUNT}</span></button>
+        <div className="ef-category-tabs" role="toolbar" aria-label="Filter tools by media type">
+          <button type="button" aria-pressed={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All tools <span>{HOME_TOOL_COUNT}</span></button>
           {HOME_WORKSPACES.map((group, index) => (
             <button
               type="button"
-              role="tab"
-              aria-selected={activeCategory === group.id}
+              aria-pressed={activeCategory === group.id}
               tabIndex={activeCategory === group.id ? 0 : -1}
               className={activeCategory === group.id ? 'is-active' : ''}
               style={{ '--ef-category-color': group.color } as CSSProperties}
