@@ -41,6 +41,44 @@ export interface TimedTimelineItem extends TimelineItem {
   offsetSeconds: number
 }
 
+const inFlightTimelinePlacements = new Map<string, Promise<void>>()
+
+function timelinePlacementIdentity(
+  items: TimelineItem[],
+  kind: 'image' | 'video' | 'audio',
+  placement: 'playhead' | 'append' | 'media-pool',
+  context?: TimelinePlacementContext,
+): string {
+  return JSON.stringify([
+    kind,
+    placement,
+    items.map((item) => [item.url, item.name]),
+    context
+      ? [
+          context.recordFrame,
+          context.projectId,
+          context.timelineId,
+          context.anchorItemId,
+          context.anchorItemStartFrame,
+          context.anchorItemEndFrame,
+          context.anchorItemSourceStartFrame,
+          context.anchorItemSourceEndFrame,
+          context.anchorMediaPoolItemId,
+          context.anchorTrackIndex,
+          context.validationAnchors?.map((anchor) => [
+            anchor.itemId,
+            anchor.startFrame,
+            anchor.endFrame,
+            anchor.sourceStartFrame,
+            anchor.sourceEndFrame,
+            anchor.mediaPoolItemId,
+            anchor.trackIndex,
+          ]),
+        ]
+      : null,
+  ])
+}
+
 export async function importAudioWithBeatMarkers(input: {
   url: string
   name: string
@@ -160,35 +198,56 @@ export async function sendToTimeline(
     toast('Replace selection is unavailable until Timeline Preview is installed')
     return
   }
-  for (const item of items) {
-    const res = await resolve.placeToTimeline({
-      url: item.url,
-      name: item.name,
-      kind,
-      placement,
-      recordFrame: capturedContext?.recordFrame,
-      projectId: capturedContext?.projectId,
-      timelineId: capturedContext?.timelineId,
-      anchorItemId: capturedContext?.anchorItemId,
-      anchorItemStartFrame: capturedContext?.anchorItemStartFrame,
-      anchorItemEndFrame: capturedContext?.anchorItemEndFrame,
-      anchorItemSourceStartFrame: capturedContext?.anchorItemSourceStartFrame,
-      anchorItemSourceEndFrame: capturedContext?.anchorItemSourceEndFrame,
-      anchorMediaPoolItemId: capturedContext?.anchorMediaPoolItemId,
-      anchorTrackIndex: capturedContext?.anchorTrackIndex,
-      validationAnchors: capturedContext?.validationAnchors,
-    })
-    if (res.ok) ok += 1
-    else if (!firstError) firstError = res.error
+
+  // A request remains identifiable only while it is active: a rapid repeat
+  // shares the first operation, while a deliberate send after completion still
+  // creates a new timeline placement.
+  const requestIdentity = timelinePlacementIdentity(items, kind, placement, capturedContext)
+  const existing = inFlightTimelinePlacements.get(requestIdentity)
+  if (existing) {
+    await existing
+    return
   }
 
-  const total = items.length
-  const fail = total - ok
-  if (fail === 0) {
-    toast(`${ok} sent to timeline`)
-  } else if (ok === 0) {
-    toast(firstError ? `Timeline send failed — ${firstError}` : 'Timeline send failed')
-  } else {
-    toast(`${ok}/${total} sent — ${fail} failed`)
+  const request = (async () => {
+    for (const item of items) {
+      const res = await resolve.placeToTimeline({
+        url: item.url,
+        name: item.name,
+        kind,
+        placement,
+        recordFrame: capturedContext?.recordFrame,
+        projectId: capturedContext?.projectId,
+        timelineId: capturedContext?.timelineId,
+        anchorItemId: capturedContext?.anchorItemId,
+        anchorItemStartFrame: capturedContext?.anchorItemStartFrame,
+        anchorItemEndFrame: capturedContext?.anchorItemEndFrame,
+        anchorItemSourceStartFrame: capturedContext?.anchorItemSourceStartFrame,
+        anchorItemSourceEndFrame: capturedContext?.anchorItemSourceEndFrame,
+        anchorMediaPoolItemId: capturedContext?.anchorMediaPoolItemId,
+        anchorTrackIndex: capturedContext?.anchorTrackIndex,
+        validationAnchors: capturedContext?.validationAnchors,
+      })
+      if (res.ok) ok += 1
+      else if (!firstError) firstError = res.error
+    }
+
+    const total = items.length
+    const fail = total - ok
+    if (fail === 0) {
+      toast(`${ok} sent to timeline`)
+    } else if (ok === 0) {
+      toast(firstError ? `Timeline send failed — ${firstError}` : 'Timeline send failed')
+    } else {
+      toast(`${ok}/${total} sent — ${fail} failed`)
+    }
+  })()
+  inFlightTimelinePlacements.set(requestIdentity, request)
+  try {
+    await request
+  } finally {
+    if (inFlightTimelinePlacements.get(requestIdentity) === request) {
+      inFlightTimelinePlacements.delete(requestIdentity)
+    }
   }
 }
