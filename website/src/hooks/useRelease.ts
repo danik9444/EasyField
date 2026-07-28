@@ -7,31 +7,61 @@ type ReleaseState =
   | { status: 'unavailable'; url: string; version: null }
 
 interface GitHubAsset {
-  name?: string
   browser_download_url?: string
 }
 
 interface GitHubRelease {
-  tag_name?: string
-  html_url?: string
   draft?: boolean
   assets?: GitHubAsset[]
 }
 
 const API_URL = 'https://api.github.com/repos/danik9444/EasyField/releases/latest'
+const RELEASE_ASSET_PATH = /^\/danik9444\/EasyField\/releases\/download\/v(\d+\.\d+\.\d+)\/EasyField-\1-macOS-universal\.pkg$/
+
+function parseReleaseAssetUrl(value: string | undefined): { url: string; version: string } | null {
+  if (!value) return null
+
+  try {
+    const url = new URL(value.trim())
+    const pathMatch = url.pathname.match(RELEASE_ASSET_PATH)
+
+    if (
+      url.protocol !== 'https:'
+      || url.hostname !== 'github.com'
+      || url.port
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+      || !pathMatch
+    ) {
+      return null
+    }
+
+    return { url: url.href, version: pathMatch[1] }
+  } catch {
+    return null
+  }
+}
 
 export function useRelease(): ReleaseState {
   const environment = typeof import.meta.env === 'object' ? import.meta.env : undefined
-  const configuredUrl = environment?.VITE_EASYFIELD_DOWNLOAD_URL?.trim()
+  const configuredValue = environment?.VITE_EASYFIELD_DOWNLOAD_URL?.trim()
+  const configuredAsset = parseReleaseAssetUrl(configuredValue)
+  const hasConfiguredValue = Boolean(configuredValue)
   const canCheckRelease = window.location.protocol === 'http:' || window.location.protocol === 'https:'
-  const [release, setRelease] = useState<ReleaseState>(() => configuredUrl
-    ? { status: 'available', url: configuredUrl, version: null }
-    : canCheckRelease
+  const [release, setRelease] = useState<ReleaseState>(() => {
+    if (configuredAsset) {
+      return { status: 'available', url: configuredAsset.url, version: null }
+    }
+
+    return canCheckRelease && !hasConfiguredValue
       ? { status: 'checking', url: RELEASES_URL, version: null }
-      : { status: 'unavailable', url: RELEASES_URL, version: null })
+      : { status: 'unavailable', url: RELEASES_URL, version: null }
+  })
 
   useEffect(() => {
-    if (configuredUrl || !canCheckRelease) return
+    if (hasConfiguredValue || !canCheckRelease) return
 
     const controller = new AbortController()
     let active = true
@@ -54,15 +84,16 @@ export function useRelease(): ReleaseState {
           return
         }
 
-        const installer = result.assets?.find((asset) => /macos-universal.*\.pkg$/i.test(asset.name ?? ''))
+        const installer = result.assets
+          ?.map((asset) => parseReleaseAssetUrl(asset.browser_download_url))
+          .find((asset) => asset !== null)
 
-        if (!installer?.browser_download_url) {
-          setRelease({ status: 'unavailable', url: result.html_url ?? RELEASES_URL, version: null })
+        if (!installer) {
+          setRelease({ status: 'unavailable', url: RELEASES_URL, version: null })
           return
         }
 
-        const version = (result.tag_name ?? 'latest').replace(/^v/i, '')
-        setRelease({ status: 'available', url: installer.browser_download_url, version })
+        setRelease({ status: 'available', url: installer.url, version: installer.version })
       })
       .catch(() => {
         if (active) {
@@ -76,7 +107,7 @@ export function useRelease(): ReleaseState {
       window.clearTimeout(timeout)
       controller.abort()
     }
-  }, [canCheckRelease, configuredUrl])
+  }, [canCheckRelease, hasConfiguredValue])
 
   return release
 }
