@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": [
+      "./node_modules/@types",
+      "./node_modules/electron/node_modules/@types"
+    ]
+  },
+  "include": [
+    "src/vite-env.d.ts",
+    "tests/**/*.ts",
+    "vite-*.ts",
+    "vite.config.ts",
+    "remotion.config.ts"
+  ]
+}

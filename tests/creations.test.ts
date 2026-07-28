@@ -235,7 +235,10 @@ test('Beat Detection companions stay linked to their media Library item', () => 
       summary: { bpm: 120, detectedBeats: 8, markerCount: 4, confidence: 0.9, durationSeconds: 4, engine: 'librosa', engineVersion: '0.11', markerColor: 'Cyan' },
     })
     assert.equal(updated?.companions?.length, 1)
-    assert.equal(getCreations().find((item) => item.id === creation.id)?.companions?.[0].summary.markerCount, 4)
+    const companion = getCreations().find((item) => item.id === creation.id)?.companions?.[0]
+    assert.equal(companion?.kind, 'beat-analysis')
+    if (companion?.kind !== 'beat-analysis') throw new Error('Expected a Beat analysis companion')
+    assert.equal(companion.summary.markerCount, 4)
   } finally {
     removeCreations([creation.id])
   }

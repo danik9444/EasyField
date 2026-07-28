@@ -55,7 +55,9 @@ function isTrustedDevelopmentMode() {
 const PLUGIN_ID = 'com.easyfield.panel';
 const PORT = (environmentOverridesAllowed() ? parseInt(process.env.EF_PORT, 10) : 0) || 18832;
 const SERVER_ONLY = environmentOverridesAllowed() && process.env.EF_SERVER_ONLY === '1';
-const UI_DIR = path.join(__dirname, 'ui');
+const UI_DIR = (environmentOverridesAllowed() && process.env.EF_TEST_UI_DIR)
+    ? path.resolve(process.env.EF_TEST_UI_DIR)
+    : path.join(__dirname, 'ui');
 const MEDIA_DIR = path.join(os.homedir(), 'Movies', 'EasyField Media');
 const ARTIFACT_DIR = path.join(os.homedir(), 'Movies', 'EasyField', '_Artifacts');
 // Every bridge request must prove that it came from this EasyField process.
