@@ -106,8 +106,9 @@ export function JobCenter({ onOpenLibrary, bottomInset = DOCK_MARGIN }: JobCente
     return () => window.removeEventListener('resize', keepDockInView)
   }, [bottomInset])
 
-  // Surface a new generation once when it starts and surface the same job again
-  // when its artifact is ready. Closing the panel in between is respected.
+  // Reveal the Activity control for a new generation and its terminal update.
+  // The live region announces those changes without opening the panel or
+  // disturbing the user's current focus.
   useEffect(() => {
     const previous = previousLatestRef.current
     if (!latest) {
@@ -119,7 +120,6 @@ export function JobCenter({ onOpenLibrary, bottomInset = DOCK_MARGIN }: JobCente
     const restoredActiveJob = !previous && ACTIVE.has(latest.status)
     if (latest.autoOpen !== false && ((isNewJob && ACTIVE.has(latest.status)) || becameReady || restoredActiveJob)) {
       setTriggerHidden(false)
-      setOpen(true)
     }
     previousLatestRef.current = { id: latest.id, status: latest.status }
   }, [latest?.id, latest?.status])
