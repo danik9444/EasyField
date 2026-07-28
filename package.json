@@ -66,5 +66,10 @@
     "hyperframes": "^0.7.37",
     "typescript": "~5.8.3",
     "vite": "^6.3.5"
+  },
+  "overrides": {
+    "sharp": "^0.35.3",
+    "adm-zip": "^0.6.0",
+    "@hono/node-server": "^2.0.12"
   }
 }
