@@ -1,6 +1,7 @@
 node_modules
 dist
-website/
+.parcel-cache
+.parcel-dist
 plugin/ui
 plugin/python/.venv
 .claude/
