@@ -559,6 +559,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
   const [draft, setDraft] = useState<StoryboardDraft>(() => createDefaultStoryboardDraft())
   const [hydrated, setHydrated] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('loading')
+  const [restoreFailed, setRestoreFailed] = useState(false)
   const [enhancerModel, setEnhancerModel] = useState(() => {
     const saved = loadValue(ENHANCER_PREF_KEY)
     return saved && AGENT_MODELS.includes(saved) ? saved : DEFAULT_AGENT_MODEL
@@ -586,6 +587,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
   const libraryPersistenceState = usePersistenceState()
   const draftRef = useRef(draft)
   const hydratedRef = useRef(hydrated)
+  const restoreFailedRef = useRef(restoreFailed)
   const mountedRef = useRef(true)
   const saveTimerRef = useRef<number | null>(null)
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -603,6 +605,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
 
   draftRef.current = draft
   hydratedRef.current = hydrated
+  restoreFailedRef.current = restoreFailed
   referenceImagesRef.current = referenceImages
 
   const creationsById = useMemo(
@@ -763,26 +766,32 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     })
   }, [creationsById, draft.nextStoryboardCreationId, draft.previousStoryboardCreationId, hydrated, libraryPersistenceState])
 
-  useEffect(() => {
-    mountedRef.current = true
-    let active = true
-    void host.getState<StoryboardDraft>('drafts', STORYBOARD_DRAFT_KEY).then((stored) => {
-      if (!active) return
+  const restoreDraft = useCallback(async () => {
+    if (mountedRef.current) setSaveState('loading')
+    try {
+      const stored = await host.getState<StoryboardDraft>('drafts', STORYBOARD_DRAFT_KEY)
+      if (!mountedRef.current) return
       const restored = normalizeStoryboardDraft(stored)
       setDraft(restored)
       draftRef.current = restored
       setHydrated(true)
+      setRestoreFailed(false)
       setSaveState('saved')
-    }).catch(() => {
-      if (!active) return
+    } catch {
+      if (!mountedRef.current) return
       setHydrated(true)
+      setRestoreFailed(true)
       setSaveState('error')
-    })
-    return () => {
-      active = false
-      mountedRef.current = false
     }
   }, [])
+
+  useEffect(() => {
+    mountedRef.current = true
+    void restoreDraft()
+    return () => {
+      mountedRef.current = false
+    }
+  }, [restoreDraft])
 
   const persistDraft = useCallback((value: StoryboardDraft): Promise<void> => {
     const snapshot = normalizeStoryboardDraft(value)
@@ -800,7 +809,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
   }, [])
 
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || restoreFailed) return
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = null
@@ -812,7 +821,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         saveTimerRef.current = null
       }
     }
-  }, [draft, hydrated, persistDraft])
+  }, [draft, hydrated, persistDraft, restoreFailed])
 
   useEffect(() => () => {
     batchCancelRef.current = true
@@ -821,17 +830,21 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     sceneJobIdsRef.current.clear()
     boardJobIdRef.current = null
     releaseReferenceImages(referenceImagesRef.current)
-    if (hydratedRef.current) void persistDraft(draftRef.current)
+    if (hydratedRef.current && !restoreFailedRef.current) void persistDraft(draftRef.current)
   }, [persistDraft])
 
   const updateDraft = useCallback((mutate: (current: StoryboardDraft) => StoryboardDraft) => {
+    if (restoreFailed) {
+      toast('Retry restoring the saved Storyboard before editing.')
+      return
+    }
     setDraft((current) => {
       const proposed = mutate(current)
       const next = applyAutomaticStoryboardTiming(proposed)
       draftRef.current = next
       return next
     })
-  }, [])
+  }, [restoreFailed, toast])
 
   const updateScene = useCallback((sceneId: string, mutate: (scene: StoryboardScene) => StoryboardScene) => {
     updateDraft((current) => ({
@@ -1105,7 +1118,13 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
       window.clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
-    void persistDraft(draftRef.current).finally(onBack)
+    if (restoreFailed) {
+      onBack()
+      return
+    }
+    void persistDraft(draftRef.current).then(onBack).catch(() => {
+      toast('Storyboard was not saved. This screen will stay open so your work is not lost.')
+    })
   }
 
   const addScene = () => {
@@ -2828,7 +2847,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     sceneOrdinal,
     sceneCount: draft.scenes.length,
   }))
-  const referenceInputsLocked = referencesBlocked || referenceImporting || batchRunning || briefBusy || anySceneBusy || boardBusy
+  const referenceInputsLocked = restoreFailed || referencesBlocked || referenceImporting || batchRunning || briefBusy || anySceneBusy || boardBusy
   const sceneReferenceCompiles = draft.scenes.map((scene, index) => compileStoryboardSceneReferenceManifest(
     draft,
     draft.workflowMode === 'scenes' ? scene.referenceCreationIds : draft.referenceCreationIds,
@@ -3123,12 +3142,16 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         <span className="ef-sub-title">Storyboard</span>
         <span className="ef-spacer" />
         <Dropdown options={IMAGE_MODELS} selected={draft.model} onSelect={changeModel} label="Image model" optionMeta={IMAGE_MODEL_META} />
+        <span className={`ef-story-save-state is-${saveState}`} role="status" aria-live="polite">
+          {saveState === 'loading' ? 'RESTORING' : saveState === 'saving' ? 'SAVING…' : saveState === 'error' ? 'NOT SAVED' : 'SAVED'}
+        </span>
         <span className="ef-sr-only" aria-live="polite">
-          {saveState === 'loading' ? 'Loading storyboard' : saveState === 'saving' ? 'Saving storyboard' : saveState === 'error' ? 'Storyboard save issue' : 'Storyboard saved'} · {approvedCount} of {draft.scenes.length} scenes approved
+          {approvedCount} of {draft.scenes.length} scenes approved
         </span>
       </header>
 
       <div className="ef-scroll ef-create-scroll ef-storyboard-scroll">
+        {saveState === 'error' && <div className="ef-inline-warning ef-story-save-warning" role="alert"><span><strong>{restoreFailed ? 'The saved Storyboard could not be restored.' : 'Storyboard changes are not saved.'}</strong>{restoreFailed ? ' The existing saved draft has not been overwritten. Retry restore before editing.' : ' EasyField kept this screen open so your text, approvals, and candidate links are still available.'}</span><button type="button" onClick={() => restoreFailed ? void restoreDraft() : void persistDraft(draftRef.current)}>{restoreFailed ? 'Retry restore' : 'Retry save'}</button></div>}
         <section className="ef-story-setup" aria-labelledby="ef-story-setup-title">
           <div className="ef-story-setup-copy">
             <span>ONE IDEA · COMPLETE STORY</span>
