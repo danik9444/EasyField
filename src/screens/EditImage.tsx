@@ -486,16 +486,20 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
         >
           <MaskCanvas
             source={source}
-            maskable={mode === 'inpaint' && !utilityAction}
-            brushSize={brushSize}
-            color={maskColor}
+            {...(mode === 'inpaint' && !utilityAction
+              ? {
+                  maskable: true as const,
+                  brushSize,
+                  color: maskColor,
+                  onClearRef: registerClear,
+                  onMaskExportRef: registerMaskExport,
+                  onMaskChange: setHasMask,
+                }
+              : { maskable: false as const })}
             onPick={pickSource}
             onGrab={() => { void grabPrimarySource() }}
             grabPending={sourceGrabPending}
             disabled={phase === 'generating'}
-            onClearRef={registerClear}
-            onMaskExportRef={registerMaskExport}
-            onMaskChange={setHasMask}
           />
         </MediaActionMenu>
 
