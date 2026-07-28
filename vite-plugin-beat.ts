@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
+import type { AuthorizeDevRequest } from './vite-dev-security'
 
 interface BeatService {
   handleRequest: (
@@ -16,6 +17,7 @@ interface BeatService {
 
 interface BeatServiceModule {
   createBeatDetectionService: (options: {
+    authorizeRequest: AuthorizeDevRequest
     scriptPath: string
     ffmpegPath?: string
     maxBytes?: number
@@ -25,10 +27,12 @@ interface BeatServiceModule {
 const require = createRequire(import.meta.url)
 const { createBeatDetectionService } = require('./plugin/beat-detection.cjs') as BeatServiceModule
 
-export function beatDetectionPlugin(): Plugin {
+export function beatDetectionPlugin(authorizeRequest: AuthorizeDevRequest): Plugin {
+  if (typeof authorizeRequest !== 'function') throw new TypeError('Beat-detection development authorization is required')
   const homebrewFfmpeg = '/opt/homebrew/bin/ffmpeg'
   const intelHomebrewFfmpeg = '/usr/local/bin/ffmpeg'
   const service = createBeatDetectionService({
+    authorizeRequest,
     scriptPath: fileURLToPath(new URL('./plugin/python/beat_detect.py', import.meta.url)),
     ffmpegPath: existsSync(homebrewFfmpeg) ? homebrewFfmpeg : existsSync(intelHomebrewFfmpeg) ? intelHomebrewFfmpeg : 'ffmpeg',
     maxBytes: 1024 * 1024 * 1024,

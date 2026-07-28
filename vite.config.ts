@@ -5,9 +5,11 @@ import { beatDetectionPlugin } from './vite-plugin-beat'
 import { whisperTranscriptionPlugin } from './vite-plugin-whisper'
 import { secureProviderDevProxyPlugin } from './vite-plugin-secure-provider'
 import { urlContextPlugin } from './vite-plugin-url-context'
+import { createViteDevSecurity } from './vite-dev-security'
 
 const cloudApiHost = (process.env.EF_CLOUD_API_HOST || Buffer.from('YXBpLmtpZS5haQ==', 'base64').toString('utf8')).trim()
 const cloudUploadHost = (process.env.EF_CLOUD_UPLOAD_HOST || Buffer.from('a2llYWkucmVkcGFuZGFhaS5jbw==', 'base64').toString('utf8')).trim()
+const devSecurity = createViteDevSecurity()
 
 // Dev proxies let the browser call the cloud provider without hitting CORS.
 // Browser-only development uses these targets with its session key. The secure
@@ -15,19 +17,38 @@ const cloudUploadHost = (process.env.EF_CLOUD_UPLOAD_HOST || Buffer.from('a2llYW
 // rules run, so neither the stored key nor Main's decrypt step enters Vite.
 // renderPlugin adds POST /api/render for local HyperFrames/Remotion MP4 export.
 export default defineConfig({
-  plugins: [react(), secureProviderDevProxyPlugin(), urlContextPlugin(), whisperTranscriptionPlugin(), beatDetectionPlugin(), renderPlugin()],
+  plugins: [
+    react(),
+    devSecurity.plugin,
+    secureProviderDevProxyPlugin(),
+    urlContextPlugin(devSecurity.authorizeRequest),
+    whisperTranscriptionPlugin(devSecurity.authorizeRequest),
+    beatDetectionPlugin(devSecurity.authorizeRequest),
+    renderPlugin(),
+  ],
   server: {
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       '/provider-upload': {
         target: `https://${cloudUploadHost}`,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/provider-upload/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.removeHeader('x-ef-bridge-token')
+          })
+        },
       },
       '/provider': {
         target: `https://${cloudApiHost}`,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/provider/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.removeHeader('x-ef-bridge-token')
+          })
+        },
       },
       '/bridge': {
         target: 'http://127.0.0.1:18832',

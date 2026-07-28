@@ -3,6 +3,7 @@
 // content-sanitisation policy identical during browser development.
 import { createRequire } from 'node:module'
 import type { Plugin } from 'vite'
+import type { AuthorizeDevRequest } from './vite-dev-security'
 
 interface UrlContextService {
   handleRequest: (
@@ -13,14 +14,17 @@ interface UrlContextService {
 }
 
 interface UrlContextModule {
-  createUrlContextService: () => UrlContextService
+  createUrlContextService: (options: {
+    authorizeRequest: AuthorizeDevRequest
+  }) => UrlContextService
 }
 
 const require = createRequire(import.meta.url)
 const { createUrlContextService } = require('./plugin/url-context.cjs') as UrlContextModule
 
-export function urlContextPlugin(): Plugin {
-  const service = createUrlContextService()
+export function urlContextPlugin(authorizeRequest: AuthorizeDevRequest): Plugin {
+  if (typeof authorizeRequest !== 'function') throw new TypeError('URL-context development authorization is required')
+  const service = createUrlContextService({ authorizeRequest })
 
   return {
     name: 'ef-safe-url-context',
