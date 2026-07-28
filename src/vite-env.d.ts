@@ -8,6 +8,12 @@ interface Window {
       set: (name: string, value: string) => Promise<void>
       delete: (name: string) => Promise<void>
     }
+    directCloud?: {
+      connect: (candidate: string) => Promise<{ credits: number }>
+      hasExisting: () => Promise<boolean>
+      hasScoped: () => Promise<boolean>
+      adoptExisting: () => Promise<{ credits: number }>
+    }
     state?: {
       get: (namespace: string, key: string) => Promise<unknown | null>
       list: (namespace: string) => Promise<Array<{ key: string; value: unknown; updatedAt: number }>>
@@ -17,12 +23,17 @@ interface Window {
     window?: {
       setMode: (mode: 'compact' | 'expanded') => Promise<void>
     }
+    billing?: {
+      openCreditPurchase: () => Promise<void>
+    }
+    account?: import('./core/accountBridge').AccountBridgeApi
     updates?: {
       check: () => Promise<import('./services/host').PluginUpdateStatus>
       install: () => Promise<import('./services/host').PluginUpdateInstallResult>
     }
     artifacts?: {
       ingestUrl: (input: { url: string; name: string; kind: 'image' | 'video' | 'audio' }) => Promise<{ id: string; url: string; checksum: string }>
+      ingestBytes: (input: { bytes: ArrayBuffer; name: string; kind: 'image' | 'video' | 'audio' }) => Promise<{ id: string; url: string; checksum: string }>
     }
   }
 }

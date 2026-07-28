@@ -3,14 +3,33 @@ const fs = require('fs');
 
 function createStateStore(userDataPath) {
     const { DatabaseSync } = require('node:sqlite');
-    fs.mkdirSync(userDataPath, { recursive: true });
+    fs.mkdirSync(userDataPath, { recursive: true, mode: 0o700 });
+    const userDataInfo = fs.lstatSync(userDataPath);
+    if (!userDataInfo.isDirectory() || userDataInfo.isSymbolicLink()) {
+        throw new Error('EasyField state directory must be a local directory');
+    }
+    // Drafts, transcripts and job metadata can contain private project data.
+    // Do not inherit a permissive umask from Resolve for the SQLite directory
+    // or its WAL/SHM sidecars.
+    fs.chmodSync(userDataPath, 0o700);
     const databasePath = path.join(userDataPath, 'easyfield.sqlite3');
     const db = new DatabaseSync(databasePath);
+
+    function hardenDatabaseFiles() {
+        for (const filePath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
+            try { fs.chmodSync(filePath, 0o600); } catch (error) {
+                if (error && error.code !== 'ENOENT') throw error;
+            }
+        }
+    }
+
+    hardenDatabaseFiles();
     db.exec(`
         PRAGMA journal_mode = WAL;
         PRAGMA foreign_keys = ON;
         PRAGMA synchronous = NORMAL;
         PRAGMA busy_timeout = 5000;
+        PRAGMA secure_delete = ON;
         CREATE TABLE IF NOT EXISTS app_state (
             namespace TEXT NOT NULL,
             key TEXT NOT NULL,
@@ -24,7 +43,7 @@ function createStateStore(userDataPath) {
         );
         INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, unixepoch() * 1000);
     `);
-    try { fs.chmodSync(databasePath, 0o600); } catch (e) { /* best effort */ }
+    hardenDatabaseFiles();
 
     const getStatement = db.prepare('SELECT value_json FROM app_state WHERE namespace = ? AND key = ?');
     const listStatement = db.prepare('SELECT key, value_json, updated_at FROM app_state WHERE namespace = ? ORDER BY updated_at DESC');
@@ -54,10 +73,18 @@ function createStateStore(userDataPath) {
             const json = JSON.stringify(value);
             if (json === undefined) throw new TypeError('State value is not JSON serializable');
             setStatement.run(namespace, key, json, Date.now());
+            hardenDatabaseFiles();
             return true;
         },
-        delete(namespace, key) { deleteStatement.run(namespace, key); return true; },
-        close() { db.close(); },
+        delete(namespace, key) {
+            deleteStatement.run(namespace, key);
+            hardenDatabaseFiles();
+            return true;
+        },
+        close() {
+            hardenDatabaseFiles();
+            db.close();
+        },
     });
 }
 

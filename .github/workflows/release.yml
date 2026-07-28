@@ -111,11 +111,33 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Materialize protected public account configuration
+        shell: bash
+        env:
+          ACCOUNT_CONFIG_BASE64: ${{ secrets.EASYFIELD_ACCOUNT_CONFIG_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ACCOUNT_CONFIG_BASE64:-}" ]]; then
+            echo "The protected release account configuration is missing." >&2
+            exit 1
+          fi
+          umask 077
+          TEMPORARY_CONFIG="plugin/.account-config.json.tmp"
+          trap 'rm -f "$TEMPORARY_CONFIG"' EXIT
+          printf '%s' "$ACCOUNT_CONFIG_BASE64" | /usr/bin/base64 -D > "$TEMPORARY_CONFIG"
+          test -s "$TEMPORARY_CONFIG"
+          chmod 600 "$TEMPORARY_CONFIG"
+          mv "$TEMPORARY_CONFIG" plugin/account-config.json
+          npm run release:validate-account
+
       - name: Audit shipped dependencies
         run: npm audit --omit=dev
 
       - name: Test and assemble plugin
         run: npm run verify
+
+      - name: Verify signed portable runtime payloads
+        run: npm run release:validate-runtimes
 
       - name: Prepare release notes
         shell: bash
@@ -237,9 +259,10 @@ jobs:
             release/output/SHA256SUMS
           gh release edit "$TAG" --draft=false
 
-      - name: Remove temporary signing keychain
+      - name: Remove temporary signing material and account configuration
         if: always()
         shell: bash
         run: |
           security delete-keychain "$RUNNER_TEMP/easyfield-signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/easyfield-installer.p12" "$RUNNER_TEMP"/AuthKey_*.p8
+          rm -f "$GITHUB_WORKSPACE/plugin/account-config.json" "$GITHUB_WORKSPACE/plugin/.account-config.json.tmp"

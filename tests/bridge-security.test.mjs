@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -220,6 +220,10 @@ async function startBridgeServer(extraEnv = {}) {
       EF_MAX_MEDIA_BYTES: '128',
       EF_PORT: String(port),
       EF_SERVER_ONLY: '1',
+      // Keep the bridge harness independent from a developer's gitignored
+      // live account build configuration.
+      EF_SUPABASE_URL: 'disabled://bridge-security-test',
+      EF_SUPABASE_ANON_KEY: 'disabled-for-bridge-security-test',
       EF_TEST_USER_DATA: userDataPath,
       EF_TEST_RESOLVE_LOG: resolveLogPath,
       HOME: temporaryHome,
@@ -506,6 +510,10 @@ test('the real /bridge HTTP boundary enforces its security policy', async (t) =>
     assert.doesNotMatch(connectDirective, /(?:^|\s)data:(?:\s|$)/, 'connect-src should not permit arbitrary data URLs')
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
     assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
+    assert.equal(response.headers.get('cross-origin-resource-policy'), 'same-origin')
+    assert.match(response.headers.get('permissions-policy') ?? '', /camera=\(\)/)
+    assert.match(response.headers.get('permissions-policy') ?? '', /microphone=\(\)/)
+    assert.match(response.headers.get('permissions-policy') ?? '', /payment=\(\)/)
   })
 
   await t.test('rejects encoded traversal and malformed paths without crashing the server', async () => {
@@ -719,8 +727,12 @@ test('the real /bridge HTTP boundary enforces its security policy', async (t) =>
     assert.equal(response.status, 503)
     const payload = await response.json()
     assert.equal(payload.code, 'RESOLVE_CLOSED')
-    assert.match(payload.path, /valid image-[a-z0-9]+\.png$/)
-    assert.deepEqual(await readFile(payload.path), png)
+    assert.equal(Object.hasOwn(payload, 'path'), false)
+    assert.equal(Object.hasOwn(payload, 'mediaId'), false)
+    const mediaDirectory = path.join(server.temporaryHome, 'Movies', 'EasyField Media')
+    const saved = (await readdir(mediaDirectory)).find((entry) => /^valid image-[a-z0-9]+\.png$/.test(entry))
+    assert.ok(saved, 'the authenticated upload should still be saved locally')
+    assert.deepEqual(await readFile(path.join(mediaDirectory, saved)), png)
   })
 })
 
@@ -801,7 +813,11 @@ test('managed Artifact Store placement resolves only a verified Main-owned artif
     const payload = await response.json()
     assert.equal(payload.ok, true)
     assert.equal(payload.appended, true)
-    assert.equal(payload.path, artifactPath)
+    assert.match(payload.mediaId, /^[0-9a-f-]{36}$/)
+    assert.equal(Object.hasOwn(payload, 'path'), false)
+    const receipt = store.get('placement-media', payload.mediaId)
+    assert.equal(receipt.localPath, await realpath(artifactPath))
+    assert.equal(receipt.kind, 'image')
 
     const events = (await readFile(server.resolveLogPath, 'utf8'))
       .trim()
@@ -914,7 +930,53 @@ test('failed A/V linking rolls back both placed timeline items', async (t) => {
   })
 })
 
-test('generic timeline clip Grab fails closed when both exact-trim exports fail', async (t) => {
+test('generic timeline clip Grab always transcodes to Chromium-compatible H.264/AAC MP4', async (t) => {
+  const fixtureDirectory = await mkdtemp(path.join(tmpdir(), 'easyfield-compatible-grab-'))
+  t.after(() => rm(fixtureDirectory, { force: true, recursive: true }))
+  const sourcePath = path.join(fixtureDirectory, 'camera-original.mov')
+  const fakeFfmpeg = path.join(fixtureDirectory, 'ffmpeg-capture')
+  const argsPath = path.join(fixtureDirectory, 'ffmpeg-args.txt')
+  await writeFile(sourcePath, Buffer.from('synthetic source codec'))
+  await writeFile(fakeFfmpeg, [
+    '#!/bin/sh',
+    'printf "%s\\n" "$@" > "$EF_TEST_FFMPEG_ARGS"',
+    'for arg in "$@"; do output="$arg"; done',
+    'printf "chromium compatible mp4" > "$output"',
+    '',
+  ].join('\n'))
+  await chmod(fakeFfmpeg, 0o755)
+
+  const server = await startBridgeServer({
+    EF_TEST_RESOLVE_PLACEMENT: '1',
+    EF_TEST_GRAB_CLIP: '1',
+    EF_TEST_SOURCE_FILE: sourcePath,
+    EF_FFMPEG_PATH: fakeFfmpeg,
+    EF_TEST_FFMPEG_ARGS: argsPath,
+  })
+  t.after(server.stop)
+
+  const response = await fetch(`${server.baseUrl}/bridge/grab/clip`, {
+    headers: { Origin: server.baseUrl, 'X-EF-Bridge-Token': TEST_TOKEN },
+  })
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type') ?? '', /^video\/mp4/i)
+  assert.equal(Buffer.from(await response.arrayBuffer()).toString(), 'chromium compatible mp4')
+
+  const args = (await readFile(argsPath, 'utf8')).trim().split('\n')
+  assert.equal(args.includes('copy'), false)
+  assert.equal(args[args.indexOf('-ss') + 1], '1')
+  assert.equal(args[args.indexOf('-t') + 1], '1')
+  assert.deepEqual(
+    args.flatMap((arg, index) => arg === '-map' ? [args[index + 1]] : []),
+    ['0:v:0', '0:a:0?'],
+  )
+  assert.equal(args[args.indexOf('-vf') + 1], 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p')
+  assert.equal(args[args.indexOf('-c:v') + 1], 'libx264')
+  assert.equal(args[args.indexOf('-c:a') + 1], 'aac')
+  assert.equal(args[args.indexOf('-movflags') + 1], '+faststart')
+})
+
+test('generic timeline clip Grab fails closed when the compatible exact-trim transcode fails', async (t) => {
   const fixtureDirectory = await mkdtemp(path.join(tmpdir(), 'easyfield-exact-trim-'))
   t.after(() => rm(fixtureDirectory, { force: true, recursive: true }))
   const sourcePath = path.join(fixtureDirectory, 'whole-source.mp4')

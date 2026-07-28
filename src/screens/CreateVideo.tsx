@@ -26,7 +26,7 @@ import {
   supportsExtendMultiShot,
   supportsKlingElementsForWorkflow,
 } from '../data/extendVideoConfig'
-import { TRANSITION_VIDEO_MODELS } from '../data/transitionVideoConfig'
+import { initialTransitionPrompt, TRANSITION_VIDEO_MODELS } from '../data/transitionVideoConfig'
 import { loadGenPrefs, saveGenPrefs } from '../data/prefs'
 import { getSpendApproval } from '../services/spendGuard'
 import { loadSettings } from '../settings'
@@ -59,7 +59,6 @@ const EXTEND_VIDEO_PREFS_KEY = 'extend-video'
 const TRANSITION_VIDEO_PREFS_KEY = 'transition-video'
 const DEFAULT_CREATE_PROMPT = 'Slow push-in on a neon-lit street at night, rain reflecting the signs'
 const DEFAULT_EXTEND_PROMPT = 'Continue the action naturally from the final frame, preserving subject, camera movement, lighting and scene continuity'
-const DEFAULT_TRANSITION_PROMPT = 'Create a seamless cinematic bridge that preserves motion, lighting, perspective and visual continuity between these shots'
 
 type Phase = 'form' | 'generating' | 'done'
 
@@ -315,12 +314,13 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
   const isTransition = workspaceMode === 'transition'
   const availableModels = isTransition ? TRANSITION_VIDEO_MODELS : isExtend ? EXTEND_VIDEO_MODELS : VIDEO_MODELS
   const prefsKey = isTransition ? TRANSITION_VIDEO_PREFS_KEY : isExtend ? EXTEND_VIDEO_PREFS_KEY : CREATE_VIDEO_PREFS_KEY
-  const defaultPrompt = isTransition ? DEFAULT_TRANSITION_PROMPT : isExtend ? DEFAULT_EXTEND_PROMPT : DEFAULT_CREATE_PROMPT
+  const defaultPrompt = isExtend ? DEFAULT_EXTEND_PROMPT : DEFAULT_CREATE_PROMPT
   const screenTitle = isTransition ? 'Transition' : isExtend ? 'Extend Video' : 'Create Video'
   const modelLabel = isTransition ? 'Transition model' : isExtend ? 'Extend model' : 'Video model'
   const jobTitle = isTransition ? 'Create transition' : isExtend ? 'Extend video' : 'Create video'
   const libraryPrefix = isTransition ? 'Transition · ' : isExtend ? 'Extended · ' : ''
   const enhancerKey = isTransition ? 'enhancer-transition-video' : isExtend ? 'enhancer-extend-video' : 'enhancer-video'
+  const promptEnhancementPurpose = isTransition ? 'transition' : isExtend ? 'extend' : 'create'
   const actionLabel = isTransition ? 'Generate transition' : isExtend ? 'Extend' : 'Generate'
   const progressLabel = isTransition ? 'GENERATING TRANSITION' : isExtend ? 'EXTENDING' : 'RENDERING'
   const retryLabel = isTransition ? 'Create another transition' : isExtend ? 'Extend another' : 'Create another'
@@ -346,7 +346,9 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
   const [resolution, setResolution] = useState(init.resolution)
   const [duration, setDuration] = useState(init.duration)
   const [extraOptionValues, setExtraOptionValues] = useState(init.extraOptionValues)
-  const [prompt, setPrompt] = useState(prefsRef.current.prompt ?? defaultPrompt)
+  const [prompt, setPrompt] = useState(() => isTransition
+    ? initialTransitionPrompt(prefsRef.current.prompt)
+    : prefsRef.current.prompt ?? defaultPrompt)
 
   const idCounterRef = useRef(0)
   const nextId = () => `img-${idCounterRef.current++}`
@@ -856,7 +858,13 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
       url: g.blobUrl,
       durationSeconds: g.durationSeconds,
     }
-    setter((prev) => (prev.length >= max ? prev : [...prev, item]))
+    setter((prev) => {
+      if (prev.length >= max) {
+        revokeMedia(item)
+        return prev
+      }
+      return [...prev, item]
+    })
     if (item.kind === 'upload' && grabber === resolve.grabClip) {
       void probeVideoMetadata(item.url).then((metadata) => {
         setter((prev) => prev.map((currentItem) => currentItem.id === item.id && currentItem.kind === 'upload'
@@ -933,6 +941,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
       if (!firstFrame && !lastFrame) return 'Add both transition frames before generating.'
       if (!firstFrame) return 'Add the rendered end frame of the outgoing shot.'
       if (!lastFrame) return 'Add the rendered start frame of the incoming shot.'
+      if (!prompt.trim()) return 'Describe the transition, or use Enhance to create an Auto prompt from both frames.'
       const outgoing = frameCaptures.first
       const incoming = frameCaptures.last
       if (outgoing && incoming) {
@@ -1423,7 +1432,19 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
             onSpend={onSpend}
           />
         ) : (
-          <PromptCard prompt={prompt} onPromptChange={setPrompt} maxLength={standardPromptMax} enhancerKey={enhancerKey} targetModel={model} mediaKind="video" references={enhanceRefs} onSpend={onSpend} />
+          <PromptCard
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            maxLength={standardPromptMax}
+            enhancerKey={enhancerKey}
+            targetModel={model}
+            mediaKind="video"
+            purpose={promptEnhancementPurpose}
+            references={enhanceRefs}
+            contextKey={isTransition ? `${firstFrame?.id ?? ''}:${lastFrame?.id ?? ''}` : ''}
+            placeholder={isTransition ? 'Describe the transition, or leave blank and Enhance from both frames automatically…' : undefined}
+            onSpend={onSpend}
+          />
         )}
 
         {showAspectPicker && (

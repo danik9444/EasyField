@@ -5,9 +5,16 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { assertReleaseAccountBuildMode } from './release-account-config.mjs'
+import { assertReleaseRuntimeBuildMode } from './release-runtime-packs.mjs'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pluginRoot = path.join(projectRoot, 'plugin')
+const accountBuildMode = assertReleaseAccountBuildMode(projectRoot)
+const runtimeBuildMode = assertReleaseRuntimeBuildMode(projectRoot)
+if (runtimeBuildMode.kind !== accountBuildMode.kind) {
+  throw new Error('Account and runtime release gates must use the same build mode')
+}
 const require = createRequire(import.meta.url)
 const updater = require(path.join(pluginRoot, 'plugin-updater.cjs'))
 const args = process.argv.slice(2)
@@ -76,7 +83,11 @@ if (manifest.files.some((entry) => entry.path === 'WorkflowIntegration.node')) {
 }
 const feedPath = path.join(outDirectory, 'easyfield-update.json')
 if (!fs.existsSync(feedPath)) throw new Error('Build the signed update feed before building the PKG')
-const release = updater.validateRemoteRelease(JSON.parse(fs.readFileSync(feedPath, 'utf8')), descriptor)
+const release = updater.validateRemoteRelease(
+  JSON.parse(fs.readFileSync(feedPath, 'utf8')),
+  descriptor,
+  { allowCiStructure: accountBuildMode.kind === 'ci-structure' },
+)
 if (release.manifest.version !== manifest.version || release.manifest.buildId !== manifest.buildId) {
   throw new Error('The signed update feed does not match the plugin being packaged')
 }
@@ -85,6 +96,9 @@ const unsigned = args.includes('--unsigned')
 const identity = option('--sign', process.env.APPLE_INSTALLER_IDENTITY)
 if (!unsigned && !identity) throw new Error('Provide --sign/APPLE_INSTALLER_IDENTITY, or pass --unsigned for a local test package')
 if (unsigned && identity) throw new Error('Choose either --unsigned or a signing identity')
+if (accountBuildMode.kind === 'ci-structure' && !unsigned) {
+  throw new Error('CI account structure packages must remain unsigned and non-distributable')
+}
 
 fs.mkdirSync(outDirectory, { recursive: true })
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'easyfield-pkg-'))
@@ -142,7 +156,9 @@ try {
     componentPath,
   ])
 
-  const suffix = unsigned ? '-unsigned' : ''
+  const suffix = accountBuildMode.kind === 'ci-structure'
+    ? '-ci-structure-unsigned'
+    : unsigned ? '-unsigned' : ''
   const outputPath = path.join(outDirectory, `EasyField-${manifest.version}-macOS-universal${suffix}.pkg`)
   const productArgs = ['--package', componentPath]
   if (identity) productArgs.push('--sign', identity)
@@ -152,7 +168,11 @@ try {
   if (!fs.statSync(outputPath).isFile() || fs.statSync(outputPath).size <= 0) throw new Error('productbuild did not create a package')
   console.log(`Created ${outputPath}`)
   console.log(`PKG SHA-256: ${sha256File(outputPath)}`)
-  if (unsigned) console.log('This is an unsigned local verification package and must not be published.')
+  if (accountBuildMode.kind === 'ci-structure') {
+    console.log('This CI structure package contains no account config, is unsigned, and must never be published.')
+  } else if (unsigned) {
+    console.log('This is an unsigned local verification package and must not be published.')
+  }
 } finally {
   fs.rmSync(temporaryRoot, { recursive: true, force: true })
 }

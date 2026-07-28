@@ -3,6 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { validateReleaseRuntimeCatalogFile } from './release-runtime-packs.mjs'
+import { appendRuntimePackagesToSpdx } from './release-runtime-sbom.mjs'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -65,8 +67,16 @@ try {
   if (missing.length) throw new Error(`SPDX is missing production dependencies: ${missing.join(', ')}`)
   if (leaked.length) throw new Error(`SPDX includes development-only dependencies: ${leaked.join(', ')}`)
 
+  const runtimeCatalog = validateReleaseRuntimeCatalogFile(path.join(projectRoot, 'plugin', 'runtime-packs.json'))
+  const runtimePackages = appendRuntimePackagesToSpdx(
+    sbom,
+    runtimeCatalog,
+    packageJson.name,
+    packageJson.version,
+  )
+
   atomicWrite(outputPath, `${JSON.stringify(sbom, null, 2)}\n`)
-  console.log(`Created SPDX 2.3 SBOM with ${sbom.packages.length} packages at ${outputPath}`)
+  console.log(`Created SPDX 2.3 SBOM with ${sbom.packages.length} packages (${runtimePackages.added} portable runtime targets) at ${outputPath}`)
 } finally {
   fs.rmSync(temporaryRoot, { recursive: true, force: true })
 }

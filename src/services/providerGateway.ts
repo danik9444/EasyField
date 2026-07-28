@@ -152,8 +152,17 @@ export function isRecoverableProviderTrackingError(error: unknown): boolean {
   return error instanceof ProviderError && error.kind === 'tracking-recoverable'
 }
 
-function authHeaders(apiKey: string): HeadersInit {
-  return { Authorization: `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' }
+function authHeaders(apiKey: string, gatewayOperationId?: string): HeadersInit {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey.trim()}`,
+    'Content-Type': 'application/json',
+  }
+  // Customer billing uses this opaque, locally durable identity to bind one
+  // reviewed Activity job (or one fan-out child) to exactly one server-side
+  // reservation and provider submission. Direct-account traffic may ignore
+  // the header, but the account gateway must reject paid creates without it.
+  if (gatewayOperationId) headers['X-EasyField-Operation-Id'] = gatewayOperationId
+  return headers
 }
 
 // Response codes that mean the request was REJECTED (so no task was created and
@@ -168,6 +177,48 @@ const FATAL_CODES = new Set([401, 402, 403, 404, 422, 501, 505])
 // retries to explicit transient HTTP/provider codes; raw fetch failures are
 // still retried because they have no response code at all.
 const POLL_RETRYABLE = new Set([408, 425, 429, 433, 455, 500, 502, 503, 504])
+
+function createResponseError(
+  response: Response,
+  json: { code?: unknown; msg?: unknown } | null,
+): ProviderError {
+  const providerCode = typeof json?.code === 'number' && Number.isFinite(json.code)
+    ? json.code
+    : undefined
+  const message = neutralizeProviderMessage(
+    typeof json?.msg === 'string' ? json.msg : undefined,
+    `Create task failed (${response.status})`,
+  )
+
+  // A gateway timeout/5xx without a provider application code does not prove
+  // that the POST was rejected. The upstream may have accepted (and charged)
+  // it before the proxy response was lost. Keep that outcome ambiguous and,
+  // critically, never retry it as a second paid request.
+  if (providerCode == null && (response.status === 408 || response.status === 425 || response.status >= 500)) {
+    return new ProviderError(
+      `${message}. The submission outcome is unknown; check Activity or cloud task history before generating again.`,
+      undefined,
+      'submission-uncertain',
+    )
+  }
+
+  return new ProviderError(message, providerCode ?? response.status, 'request-rejected')
+}
+
+function requireCompletedMedia(urls: string[]): string[] {
+  const completed = urls.filter((url) => typeof url === 'string' && url.trim().length > 0)
+  if (!completed.length) {
+    // A paid task ID must remain recoverable until a concrete media result is
+    // available. Treating a malformed/early "success" response as completion
+    // would remove it from the durable ledger with nothing saved to Library.
+    throw new ProviderError(
+      'EasyField Cloud reported completion before returning media. Tracking remains available in Activity.',
+      undefined,
+      'tracking-recoverable',
+    )
+  }
+  return completed
+}
 
 const isCancel = (e: unknown) => e instanceof ProviderError && e.kind === 'cancelled'
 const asTrackingError = (e: unknown) => e instanceof ProviderError
@@ -338,7 +389,7 @@ export async function createTask(
       try {
         res = await fetch(`${BASE}/jobs/createTask`, {
           method: 'POST',
-          headers: authHeaders(apiKey),
+          headers: authHeaders(apiKey, opts.gatewayOperationId),
           body: JSON.stringify({ model, input }),
           signal: opts.signal,
         })
@@ -353,7 +404,7 @@ export async function createTask(
       const json = (await res.json().catch(() => null)) as { code?: number; msg?: string; data?: { taskId?: string } } | null
       const taskId = json?.data?.taskId
       if (json?.code === 200 && taskId) return taskId
-      throw new ProviderError(neutralizeProviderMessage(json?.msg, `Create task failed (${res.status})`), json?.code ?? res.status, 'request-rejected')
+      throw createResponseError(res, json)
     },
     { retries: 4, signal: opts.signal, onRetry: opts.onRetry, isRetryable: (e) => e instanceof ProviderError && e.code != null && CREATE_RETRYABLE.has(e.code) },
   )
@@ -386,6 +437,8 @@ export interface PollOptions {
   /** Removes completed or explicitly failed children from the recovery ledger. */
   onTaskSettled?: (taskId: string, family: ProviderFamily, outcome: 'succeeded' | 'failed') => void | Promise<void>
   onRetry?: (attempt: number, err: unknown) => void // fired when a transient call is retried
+  /** Stable server-side billing identity; fan-out siblings use distinct suffixes. */
+  gatewayOperationId?: string
 }
 // A single failed poll is a blip, not a failure — give up only after this many
 // consecutive read errors so we don't abandon a job that's actually running.
@@ -414,7 +467,13 @@ export async function pollTask(apiKey: string, taskId: string, opts: PollOptions
       if (!res.ok || !data) throw new ProviderError(neutralizeProviderMessage(json?.msg, `Poll failed (${res.status})`), json?.code ?? res.status)
       errors = 0
       if (data.state) onState?.(data.state)
-      if (data.state === 'success') return { urls: extractUrls(data.resultJson), creditsConsumed: data.creditsConsumed ?? null, raw: data }
+      if (data.state === 'success') {
+        return {
+          urls: requireCompletedMedia(extractUrls(data.resultJson)),
+          creditsConsumed: data.creditsConsumed ?? null,
+          raw: data,
+        }
+      }
       if (data.state === 'fail') throw new ProviderError(data.failMsg || 'Generation failed', undefined, 'provider-terminal')
     } catch (e) {
       if (isCancel(e)) throw e
@@ -487,7 +546,12 @@ async function createDedicated(apiKey: string, path: string, body: Record<string
       if (opts.signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
       let res: Response
       try {
-        res = await fetch(`${ROOT}${path}`, { method: 'POST', headers: authHeaders(apiKey), body: JSON.stringify(body), signal: opts.signal })
+        res = await fetch(`${ROOT}${path}`, {
+          method: 'POST',
+          headers: authHeaders(apiKey, opts.gatewayOperationId),
+          body: JSON.stringify(body),
+          signal: opts.signal,
+        })
       } catch {
         if (opts.signal?.aborted) throw new ProviderError('Cancelled', undefined, 'cancelled')
         throw new ProviderError(
@@ -499,7 +563,7 @@ async function createDedicated(apiKey: string, path: string, body: Record<string
       const json = (await res.json().catch(() => null)) as { code?: number; msg?: string; data?: { taskId?: string } } | null
       const taskId = json?.data?.taskId
       if (json?.code === 200 && taskId) return taskId
-      throw new ProviderError(neutralizeProviderMessage(json?.msg, `Create task failed (${res.status})`), json?.code ?? res.status, 'request-rejected')
+      throw createResponseError(res, json)
     },
     { retries: 4, signal: opts.signal, onRetry: opts.onRetry, isRetryable: (e) => e instanceof ProviderError && e.code != null && CREATE_RETRYABLE.has(e.code) },
   )
@@ -532,7 +596,11 @@ async function pollDedicated(
       if (failed) throw new ProviderError(failMsg || 'Generation failed', undefined, 'provider-terminal')
       if (done) {
         onState?.('success')
-        return { urls, creditsConsumed: typeof data.creditsConsumed === 'number' ? (data.creditsConsumed as number) : null, raw: data }
+        return {
+          urls: requireCompletedMedia(urls),
+          creditsConsumed: typeof data.creditsConsumed === 'number' ? (data.creditsConsumed as number) : null,
+          raw: data,
+        }
       }
       onState?.('generating')
     } catch (e) {
@@ -664,7 +732,7 @@ export async function runProviderModel(apiKey: string, req: ProviderRequest, opt
 
 export async function fetchCredits(apiKey: string): Promise<CreditsResult> {
   const key = apiKey.trim()
-  if (!key) return { ok: false, error: 'No API key' }
+  if (!key) return { ok: false, error: 'No cloud credential' }
   try {
     const res = await fetch(`${BASE}/chat/credit`, {
       headers: { Authorization: `Bearer ${key}` },
@@ -672,7 +740,7 @@ export async function fetchCredits(apiKey: string): Promise<CreditsResult> {
     // The gateway can return HTTP 200 with the real status in the body `code`.
     const json = (await res.json().catch(() => null)) as { code?: number; msg?: string; data?: unknown } | null
     if (res.status === 401 || res.status === 403 || json?.code === 401 || json?.code === 403) {
-      return { ok: false, error: 'Invalid API key' }
+      return { ok: false, error: 'Invalid cloud credential' }
     }
     if (!res.ok || !json) return { ok: false, error: `Request failed (${res.status})` }
     if (json.code !== 200 || typeof json.data !== 'number') {

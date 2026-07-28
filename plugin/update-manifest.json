@@ -9,13 +9,28 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.2.0",
-  "createdAt": "2026-07-14T13:30:51.000Z",
-  "buildId": "19d5c920aa1c69f1a632bdb8598d53dd20c26e905a0d5d88bc7a4de3f396407f",
+  "createdAt": "2026-07-15T09:11:02.000Z",
+  "buildId": "99ffb84afbd7b0aaffaf5427b3fcfe9d922351cb9d8506e10fdf27be9b77f264",
   "files": [
     {
+      "path": "account-config.example.json",
+      "size": 292,
+      "sha256": "c2de56a7bb2ef092e558a7d294362c43a437c24e448442536921903f92826462"
+    },
+    {
+      "path": "account-config.json",
+      "size": 268,
+      "sha256": "4d2f01df8d056722b38d11be5681b4b313df218ce8e00a7140916d8f4f026210"
+    },
+    {
+      "path": "account-service.cjs",
+      "size": 87345,
+      "sha256": "418f71e6abe03d868a64e16a1080bedbe2033588d207ac6d3027488394fa9aca"
+    },
+    {
       "path": "animation-render.cjs",
-      "size": 33083,
-      "sha256": "bddf5a78bd425e5d8194046ea0dad16b9d389eb76212aba2ceb80e785b836ef2"
+      "size": 34492,
+      "sha256": "aa4003a97bae38f6431df0f4eab32068b2a6e5629f365849d0a3d3c0db4885c5"
     },
     {
       "path": "audio-capture.cjs",
@@ -24,13 +39,13 @@
     },
     {
       "path": "beat-detection.cjs",
-      "size": 13848,
-      "sha256": "a36d6c6c836d55ffddaca62a5134f84211505bd77159d3139636373fd2e2735e"
+      "size": 14704,
+      "sha256": "9dca364c540a8ac05b4d161d7f0948e41a485a9680c66787d8b244355f1fc0f4"
     },
     {
       "path": "beat-markers.cjs",
-      "size": 9669,
-      "sha256": "8b0df88afbdb28f4145c47590acd345a9a8bbd9114f9797ee3262595d0a44d71"
+      "size": 9663,
+      "sha256": "09df4763fe3671683de6aecd623604addbfa5f1dcd69dbf2600442d66907768c"
     },
     {
       "path": "edit-image-capture.cjs",
@@ -44,8 +59,8 @@
     },
     {
       "path": "main.cjs",
-      "size": 94513,
-      "sha256": "319569eff139bc0ec38e90caadb2e9f1d9fa80ab7ae8600731e8758106be894e"
+      "size": 133434,
+      "sha256": "34bb38255b793f81444a460363f401cef0c4f60c96d1e1f85f859f6673c7d936"
     },
     {
       "path": "manifest.xml",
@@ -59,13 +74,13 @@
     },
     {
       "path": "plugin-updater.cjs",
-      "size": 43340,
-      "sha256": "783442355f016519db36d01de14fae9ac702e52918ccc1075b091409acc60cc0"
+      "size": 43753,
+      "sha256": "5b391e1340a6b007ace8812531169c75255a81cc6db055892998a1331f477a71"
     },
     {
       "path": "preload.cjs",
-      "size": 1399,
-      "sha256": "9170b40d71dc5150d0ba23291846e0c6cfc68d814ce0785f304cfaf210708e09"
+      "size": 4438,
+      "sha256": "c48221fad81f446a6d4810441c3e38a8e70d1073706a6a06a78e5ea50dee762a"
     },
     {
       "path": "python/beat_detect.py",
@@ -74,8 +89,8 @@
     },
     {
       "path": "python/README.md",
-      "size": 702,
-      "sha256": "cdce504fd6868e336bce8b4b7a27f6e96cf0fa943e1fc86e98ddde832868558a"
+      "size": 839,
+      "sha256": "b9df2a6678a3f813f2f5977099b81a0de043f160de13bbb7a13a24c6d76164c7"
     },
     {
       "path": "python/requirements-beat.txt",
@@ -83,14 +98,24 @@
       "sha256": "54d9631e9d59131a8fee0731cde806ba5f8a52690dded2097270acff7d5300ab"
     },
     {
+      "path": "runtime-pack.cjs",
+      "size": 6452,
+      "sha256": "7ede23f43c1c04fc0ca9bc6fa8210d07a716f24ba4f0d9047fd9835d8854f7af"
+    },
+    {
+      "path": "runtime-packs.json",
+      "size": 800,
+      "sha256": "08e75a43cbe18c1f367824f01acb611800342e1125f34b3a7e5de41d2932c446"
+    },
+    {
       "path": "state-store.cjs",
-      "size": 2614,
-      "sha256": "b39561c843b6deef5349a77ef60097252e4f3a91aad80b9893992d78f4b38284"
+      "size": 3531,
+      "sha256": "8e035184a725b5e8ddf57373d184ebb9974f4a16618c84ce3ebe361ad643bb90"
     },
     {
       "path": "THIRD_PARTY_NOTICES.txt",
-      "size": 9390,
-      "sha256": "db42778c934b493657ca3c766939fe63eab340538953da8d3c1b69ef0668f654"
+      "size": 10025,
+      "sha256": "9ae1834119aa541614792202a6d57a1fa23e6cc6e34293f20c20b2fc79497f32"
     },
     {
       "path": "timecode.cjs",
@@ -108,14 +133,19 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-BTkwwyXE.js",
+      "path": "ui/assets/AnimationRenderHost-B1lVwOYc.js",
       "size": 247271,
-      "sha256": "a503f2cebdf4a16e0743c4075054b8ed0a3e4587dd2ca1544e1a0cdc8eab9f60"
+      "sha256": "a8442ce798704d285baec6c5ca2914f2b59d98770ce0703b993c0ba4b817893e"
     },
     {
-      "path": "ui/assets/App-BNoyLtjm.js",
-      "size": 939324,
-      "sha256": "b5cd7806f85cc97768b467cc0287a1acbddd5c05328ff750770aaab57cef6791"
+      "path": "ui/assets/App-BntRZFGO.js",
+      "size": 1033645,
+      "sha256": "fda431c894e5515a7aa774531a85b8d7d6dbc82fbfa4dba785cb0c24e87cddc1"
+    },
+    {
+      "path": "ui/assets/App-CS6kTDyC.css",
+      "size": 50009,
+      "sha256": "59059320fe9b24ea5742b6c0699dc3072dff1513038c8750bbc6824693cba6d7"
     },
     {
       "path": "ui/assets/body-type-atlas-NP73N7QF.jpg",
@@ -158,19 +188,19 @@
       "sha256": "5b3391f991449172eb3d91264615b3f7020cb4edb2c565e4fb44010f5e1f4b39"
     },
     {
-      "path": "ui/assets/index--vjYjRqO.css",
-      "size": 491480,
-      "sha256": "145656ee57053b9da69d3ccc42f72c9ec58dd4ed68ff55849241e06f67744176"
-    },
-    {
-      "path": "ui/assets/index-DD5pFm74.js",
-      "size": 196577,
-      "sha256": "30d68da1dd49de4e0eaea4cbc6dbc53dc80e2fb664efc1675e37c573033cd4a1"
-    },
-    {
-      "path": "ui/assets/index-NNWr-pMk.js",
+      "path": "ui/assets/index-awqQbjlQ.js",
       "size": 66,
-      "sha256": "4cc7f0ec64a6d1b288e8e9f56f897547e01ca5f1a6b3c2f3b86a8b0d3ec66224"
+      "sha256": "c61c6210f7dd2d76dfddddc7f3555da0ddfcae7fc773ca99b6f5956b81b3926f"
+    },
+    {
+      "path": "ui/assets/index-BoLGaoUr.css",
+      "size": 494196,
+      "sha256": "03173563b2d196b2eede81c373eefef091bcde52206b5050b82c0a8f5b326feb"
+    },
+    {
+      "path": "ui/assets/index-BsGGn7YJ.js",
+      "size": 196600,
+      "sha256": "1f7c8adc33fa0a36d14ec22b2538c42c45925ef6efb0bf09db21e6e1537d130b"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -240,7 +270,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "8ef9bf39bfaf55fc61571f64e46bc85409a8028dc504ac85d71cbfeb3141d104"
+      "sha256": "1beabbc0ce4d8b34c0f2b62b9bf043923002227f6274ee9576bfdf46965abda4"
     },
     {
       "path": "url-context.cjs",
@@ -249,8 +279,13 @@
     },
     {
       "path": "whisper-transcription.cjs",
-      "size": 36702,
-      "sha256": "08113b9bf378aea7aa1969a01b3ac4fe9e52bcc14922deb5bf735e962895d120"
+      "size": 37160,
+      "sha256": "cc55233a66aced689f50fff1bdc5890a904dd5c068b2c87e4c1c9ad97458ea2c"
+    },
+    {
+      "path": "window-policy.cjs",
+      "size": 11120,
+      "sha256": "f905af6600ee19adeedc911020823188c5e52cbfcf2307dd49dbb04fa9900ceb"
     },
     {
       "path": "workflow-integration.cjs",

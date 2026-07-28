@@ -12,34 +12,20 @@ function values(collection) {
     return [];
 }
 
-function createBeatMarkerService({ getContext, withTimelineOperationLock, mediaRoot, EFError }) {
+function createBeatMarkerService({ getContext, withTimelineOperationLock, resolveMediaReference, EFError }) {
     const canonicalPath = (candidate) => {
         try { return fs.realpathSync(String(candidate)); } catch (e) { return path.resolve(String(candidate)); }
     };
 
-    const containedMediaPath = (candidate) => {
-        if (typeof candidate !== 'string' || !path.isAbsolute(candidate)) {
-            throw new EFError('Invalid EasyField media path', 'BAD_REQUEST', 400);
-        }
-        let root;
-        let target;
-        try {
-            root = fs.realpathSync(mediaRoot);
-            target = fs.realpathSync(candidate);
-        } catch (e) {
-            throw new EFError('The imported EasyField media file is unavailable', 'SOURCE_OFFLINE', 409);
-        }
-        if (target !== root && !target.startsWith(root + path.sep)) {
-            throw new EFError('Markers can only be attached to EasyField-imported media', 'UNSAFE_PATH', 400);
-        }
-        return target;
-    };
-
     const normalizePayload = (payload) => {
         if (!payload || typeof payload !== 'object') throw new EFError('Invalid marker request', 'BAD_REQUEST', 400);
+        if (Object.prototype.hasOwnProperty.call(payload, 'path')) {
+            throw new EFError('Filesystem paths are not accepted for marker operations', 'BAD_REQUEST', 400);
+        }
         const target = payload.target === 'timeline' ? 'timeline' : payload.target === 'media-pool' ? 'media-pool' : null;
         if (!target) throw new EFError('Choose a marker destination', 'BAD_REQUEST', 400);
-        const filePath = containedMediaPath(payload.path);
+        if (typeof payload.mediaId !== 'string') throw new EFError('Invalid imported media reference', 'BAD_REQUEST', 400);
+        const filePath = canonicalPath(resolveMediaReference(payload.mediaId));
         const analysisId = typeof payload.analysisId === 'string' && /^[a-z0-9_-]{6,120}$/i.test(payload.analysisId)
             ? payload.analysisId
             : null;
@@ -64,7 +50,7 @@ function createBeatMarkerService({ getContext, withTimelineOperationLock, mediaR
                     : `Beat ${String(index + 1).padStart(3, '0')}`,
             };
         });
-        return { target, filePath, analysisId, color, markers };
+        return { target, mediaId: payload.mediaId, filePath, analysisId, color, markers };
     };
 
     const findMediaPoolItem = async (project, filePath) => {
@@ -162,12 +148,16 @@ function createBeatMarkerService({ getContext, withTimelineOperationLock, mediaR
             applied: applied.length,
             fps,
             operationId,
-            undoToken: { path: payload.filePath, target: payload.target, customData: applied.map((marker) => marker.customData) },
+            undoToken: { mediaId: payload.mediaId, target: payload.target, customData: applied.map((marker) => marker.customData) },
         };
     });
 
     const undoMarkers = (rawPayload) => withTimelineOperationLock(async () => {
-        const filePath = containedMediaPath(rawPayload && rawPayload.path);
+        if (!rawPayload || typeof rawPayload !== 'object' || Object.prototype.hasOwnProperty.call(rawPayload, 'path')) {
+            throw new EFError('Invalid marker undo token', 'BAD_REQUEST', 400);
+        }
+        if (typeof rawPayload.mediaId !== 'string') throw new EFError('Invalid imported media reference', 'BAD_REQUEST', 400);
+        const filePath = canonicalPath(resolveMediaReference(rawPayload.mediaId));
         const targetKind = rawPayload && rawPayload.target === 'timeline' ? 'timeline' : rawPayload && rawPayload.target === 'media-pool' ? 'media-pool' : null;
         const customData = Array.isArray(rawPayload && rawPayload.customData)
             ? rawPayload.customData.filter((value) => typeof value === 'string' && value.startsWith('easyfield-beat-')).slice(0, MAX_MARKERS)

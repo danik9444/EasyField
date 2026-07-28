@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,6 +11,21 @@ import { fileURLToPath } from 'node:url'
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pluginMain = path.join(projectRoot, 'plugin', 'main.cjs')
 const pluginPreload = path.join(projectRoot, 'plugin', 'preload.cjs')
+
+test('packaged Main ignores development trust and environment configuration overrides', async () => {
+  const source = await readFile(pluginMain, 'utf8')
+  assert.match(source, /function environmentOverridesAllowed\(\) \{\s*return app\?\.isPackaged !== true;\s*\}/)
+  assert.match(source, /function isTrustedDevelopmentMode\(\) \{\s*return environmentOverridesAllowed\(\) && process\.env\.EF_DEV === '1';\s*\}/)
+  assert.equal((source.match(/process\.env\.EF_DEV === '1'/g) || []).length, 1)
+  assert.match(source, /const environmentConfig = environmentOverridesAllowed\(\) \? \{/)
+  assert.match(source, /return isTrustedDevelopmentMode\(\) \? 'http:\/\/localhost:5173'/)
+  assert.match(source, /const PROVIDER_API_HOST = \(\(environmentOverridesAllowed\(\) && process\.env\.EF_CLOUD_API_HOST\)/)
+  assert.match(source, /const runtimePack = resolveRuntimePack\(\{ pluginRoot: __dirname, architecture: process\.arch \}\)/)
+  assert.match(source, /const FFMPEG = runtimePack\.available/)
+  assert.match(source, /runtimePack\.strict \? unavailableRuntimeExecutable\('ffmpeg'\) : developmentFfmpeg\(\)/)
+  assert.match(source, /const hasSingleInstanceLock = app\?\.isPackaged !== true\s*\|\| \(typeof app\.requestSingleInstanceLock === 'function' && app\.requestSingleInstanceLock\(\)\)/)
+  assert.match(source, /app\.on\('second-instance'/)
+})
 
 async function reservePort() {
   const socket = createServer()
@@ -39,6 +54,7 @@ const realDns = require('node:dns')
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
 let capturedProxyAuthorization = ''
 let capturedProxyBridgeToken = ''
+const openedExternalUrls = []
 const fakeHttps = {
   ...realHttps,
   get: (_options, callback) => {
@@ -81,6 +97,9 @@ const safeStorage = {
   encryptString: (value) => Buffer.from('encrypted:' + Buffer.from(value).toString('base64')),
   decryptString: (bytes) => Buffer.from(String(Buffer.from(bytes)).slice('encrypted:'.length), 'base64').toString(),
 }
+const shell = {
+  openExternal: async (url) => { openedExternalUrls.push(url) },
+}
 
 class FakeWebContents extends EventEmitter {
   constructor() {
@@ -88,7 +107,12 @@ class FakeWebContents extends EventEmitter {
     this.id = 77
     this.mainFrame = { url: '' }
     this.openHandler = null
-    this.session = { webRequest: { onBeforeSendHeaders: (filter, listener) => { this.requestFilter = filter; this.requestListener = listener } } }
+    this.session = {
+      webRequest: { onBeforeSendHeaders: (filter, listener) => { this.requestFilter = filter; this.requestListener = listener } },
+      setPermissionRequestHandler: (handler) => { this.permissionRequestHandler = handler },
+      setPermissionCheckHandler: (handler) => { this.permissionCheckHandler = handler },
+      setDevicePermissionHandler: (handler) => { this.devicePermissionHandler = handler },
+    }
   }
   setWindowOpenHandler(handler) { this.openHandler = handler }
   getURL() { return this.mainFrame.url }
@@ -100,10 +124,21 @@ class FakeBrowserWindow extends EventEmitter {
     this.options = options
     this.webContents = new FakeWebContents()
     this.destroyed = false
+    this.focused = false
+    this.bounds = { x: options.x, y: options.y, width: options.width, height: options.height }
+    this.minimumSize = null
+    this.maximumSize = null
+    this.alwaysOnTopCalls = []
     FakeBrowserWindow.last = this
   }
   setMenu() {}
-  setContentSize() {}
+  getBounds() { return { ...this.bounds } }
+  setBounds(bounds) { this.bounds = { ...bounds } }
+  setMinimumSize(width, height) { this.minimumSize = [width, height] }
+  setMaximumSize(width, height) { this.maximumSize = [width, height] }
+  setAlwaysOnTop(...args) { this.alwaysOnTopCalls.push(args) }
+  setVisibleOnAllWorkspaces() {}
+  isFocused() { return this.focused }
   isDestroyed() { return this.destroyed }
   loadURL(url) { this.webContents.mainFrame.url = url; return Promise.resolve() }
   destroy() { this.destroyed = true }
@@ -113,10 +148,13 @@ const app = new EventEmitter()
 app.whenReady = () => Promise.resolve()
 app.quit = () => {}
 app.getPath = () => process.env.EF_TEST_USER_DATA
+const screen = new EventEmitter()
+screen.getPrimaryDisplay = () => ({ id: 1, workArea: { x: 0, y: 25, width: 1440, height: 875 } })
+screen.getDisplayMatching = () => screen.getPrimaryDisplay()
 
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
-  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage }
+  if (request === 'electron') return { app, BrowserWindow: FakeBrowserWindow, ipcMain, safeStorage, screen, shell }
   if (request === 'https' || request === 'node:https') return fakeHttps
   if (request === 'dns' || request === 'node:dns') return fakeDns
   if (request.endsWith('WorkflowIntegration.node')) throw new Error('native Resolve bridge disabled by the IPC test')
@@ -127,7 +165,7 @@ require(process.argv[1])
 
 async function waitForReady() {
   for (let i = 0; i < 100; i += 1) {
-    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url')) return
+    if (FakeBrowserWindow.last && handlers.has('ef:artifacts:ingest-url') && handlers.has('ef:billing:open-credit-purchase') && handlers.has('ef:account:restore')) return
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('Main IPC did not become ready')
@@ -139,6 +177,11 @@ void (async () => {
   const trusted = { sender: win.webContents, senderFrame: win.webContents.mainFrame }
   const secret = 'synthetic-ipc-test-secret'
 
+  await handlers.get('ef:window:set-mode')(trusted, 'expanded')
+  let arbitraryWindowModeRejected = false
+  try { await handlers.get('ef:window:set-mode')(trusted, { width: 10000, height: 10000 }) }
+  catch { arbitraryWindowModeRejected = true }
+
   const legacyCredentialName = Buffer.from('a2llLWFwaS1rZXk=', 'base64').toString()
   const legacyCredentialPath = path.join(process.env.EF_TEST_USER_DATA, legacyCredentialName + '.safe')
   const credentialPath = path.join(process.env.EF_TEST_USER_DATA, 'cloud-generation-api-key.safe')
@@ -148,6 +191,34 @@ void (async () => {
   const rendererCredential = await handlers.get('ef:credentials:get')(trusted, 'cloud-generation-api-key')
   const legacyCredentialMigrated = fs.existsSync(credentialPath) && !fs.existsSync(legacyCredentialPath)
   await handlers.get('ef:credentials:set')(trusted, 'cloud-generation-api-key', secret)
+  await handlers.get('ef:billing:open-credit-purchase')(trusted, 'https://attacker.invalid/checkout')
+  let untrustedBillingRejected = false
+  try {
+    await handlers.get('ef:billing:open-credit-purchase')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+      'https://attacker.invalid/checkout',
+    )
+  } catch { untrustedBillingRejected = true }
+  let privateAccountCredentialRejected = false
+  try { await handlers.get('ef:credentials:get')(trusted, 'account-session-v1') }
+  catch { privateAccountCredentialRejected = true }
+  const accountRestore = await handlers.get('ef:account:restore')(trusted)
+  let untrustedAccountRejected = false
+  try { await handlers.get('ef:account:restore')({ sender: {}, senderFrame: { url: 'https://attacker.invalid' } }) }
+  catch { untrustedAccountRejected = true }
+  let untrustedDirectConnectRejected = false
+  try {
+    await handlers.get('ef:direct-cloud:connect')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+      'synthetic-untrusted-candidate',
+    )
+  } catch { untrustedDirectConnectRejected = true }
+  let untrustedDirectAdoptionRejected = false
+  try {
+    await handlers.get('ef:direct-cloud:adopt-existing')(
+      { sender: {}, senderFrame: { url: 'https://attacker.invalid' } },
+    )
+  } catch { untrustedDirectAdoptionRejected = true }
   const stored = fs.readFileSync(credentialPath)
   const credentialMode = fs.statSync(credentialPath).mode & 0o777
 
@@ -188,8 +259,33 @@ void (async () => {
   })
   const response = await fetch('http://127.0.0.1:' + process.env.EF_PORT + artifact.url)
   const bytes = Buffer.from(await response.arrayBuffer())
+  const byteArtifact = await handlers.get('ef:artifacts:ingest-bytes')(trusted, {
+    bytes: png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+    name: 'Local storyboard',
+    kind: 'image',
+  })
+  const byteResponse = await fetch('http://127.0.0.1:' + process.env.EF_PORT + byteArtifact.url)
+  const committedBytes = Buffer.from(await byteResponse.arrayBuffer())
+  let mismatchedArtifactRejected = false
+  try {
+    await handlers.get('ef:artifacts:ingest-bytes')(trusted, {
+      bytes: png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+      name: 'Mislabeled output',
+      kind: 'video',
+    })
+  } catch { mismatchedArtifactRejected = true }
   const artifactDir = path.join(process.env.HOME, 'Movies', 'EasyField', '_Artifacts')
   const partials = fs.readdirSync(artifactDir).filter((name) => name.endsWith('.download') || name.endsWith('.tmp'))
+  const permissionRequestDenied = await new Promise((resolve) => {
+    win.webContents.permissionRequestHandler(win.webContents, 'camera', (allowed) => resolve(allowed === false))
+  })
+  const permissionCheckDenied = win.webContents.permissionCheckHandler(win.webContents, 'microphone') === false
+  const devicePermissionDenied = win.webContents.devicePermissionHandler({ deviceType: 'hid' }) === false
+  const billingOpenedFixedUrl = openedExternalUrls.length === 1
+    && openedExternalUrls[0] === Buffer.from('aHR0cHM6Ly9raWUuYWkvYmlsbGluZw==', 'base64').toString('utf8')
+  const credentialWindowDenied = win.webContents.openHandler?.({ url: 'https://user:password@attacker.invalid' }).action === 'deny'
+  const credentialWindowNotOpened = openedExternalUrls.length === 1
+  const newWindowDenied = win.webContents.openHandler?.({ url: 'https://attacker.invalid' }).action === 'deny'
 
   console.log(JSON.stringify({
     rendererGotSentinel: rendererCredential === '__easyfield_secure__',
@@ -199,13 +295,30 @@ void (async () => {
     plaintextOnDisk: stored.includes(Buffer.from(secret)),
     credentialMode,
     untrustedRejected,
+    untrustedBillingRejected,
+    privateAccountCredentialRejected,
+    accountRestoreSignedOut: accountRestore?.ok === true && accountRestore.value?.session?.status === 'signed-out',
+    accountRestoreLeaksToken: /(?:access|refresh)[_-]?token/i.test(JSON.stringify(accountRestore)),
+    untrustedAccountRejected,
+    untrustedDirectConnectRejected,
+    untrustedDirectAdoptionRejected,
+    billingOpenedFixedUrl,
+    rendererBillingUrlIgnored: !openedExternalUrls.includes('https://attacker.invalid/checkout'),
     artifactNamespaceRejected,
     navigationPrevented,
     webviewPrevented,
-    newWindowDenied: win.webContents.openHandler?.({ url: 'https://attacker.invalid' }).action === 'deny',
+    credentialWindowDenied,
+    credentialWindowNotOpened,
+    newWindowDenied,
+    permissionRequestDenied,
+    permissionCheckDenied,
+    devicePermissionDenied,
     sandbox: win.options.webPreferences.sandbox,
     contextIsolation: win.options.webPreferences.contextIsolation,
     nodeIntegration: win.options.webPreferences.nodeIntegration,
+    webviewDisabled: win.options.webPreferences.webviewTag === false,
+    dragNavigationDisabled: win.options.webPreferences.navigateOnDragDrop === false,
+    experimentalFeaturesDisabled: win.options.webPreferences.experimentalFeatures === false,
     bridgeTokenInjectedByMain: injectedHeaders['X-EF-Bridge-Token'] === process.env.EF_BRIDGE_TOKEN,
     devProviderAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/provider/*'),
     devUploadAuthenticatedByMain: win.webContents.requestFilter.urls.includes('http://localhost:5173/provider-upload/*'),
@@ -215,8 +328,16 @@ void (async () => {
     secureProxyForwardedSentinel: capturedProxyAuthorization === 'Bearer __easyfield_secure__',
     secureProxyForwardedBridgeToken: capturedProxyBridgeToken !== '',
     bridgeTokenArgumentExposed: Array.isArray(win.options.webPreferences.additionalArguments),
+    expandedWindowBounds: win.bounds,
+    expandedWindowMinimum: win.minimumSize,
+    expandedWindowMaximum: win.maximumSize,
+    arbitraryWindowModeRejected,
     artifactStatus: response.status,
     artifactMatches: bytes.equals(png),
+    localArtifactStatus: byteResponse.status,
+    localArtifactMatches: committedBytes.equals(png),
+    mismatchedArtifactRejected,
+    localChecksumLength: byteArtifact.checksum.length,
     checksumLength: artifact.checksum.length,
     partialCount: partials.length,
   }))
@@ -241,6 +362,11 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
       EF_TEST_USER_DATA: userDataPath,
       EF_BRIDGE_TOKEN: 'synthetic-ipc-bridge-token',
       EF_DEV: '1',
+      EF_ALLOW_LEGACY_DIRECT_PROVIDER: '1',
+      // Keep this isolated IPC harness on the legacy test path even when a
+      // gitignored live account config is present for local packaging.
+      EF_SUPABASE_URL: 'disabled://host-ipc-security-test',
+      EF_SUPABASE_ANON_KEY: 'disabled-for-host-ipc-security-test',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -265,13 +391,30 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     plaintextOnDisk: false,
     credentialMode: 0o600,
     untrustedRejected: true,
+    untrustedBillingRejected: true,
+    privateAccountCredentialRejected: true,
+    accountRestoreSignedOut: true,
+    accountRestoreLeaksToken: false,
+    untrustedAccountRejected: true,
+    untrustedDirectConnectRejected: true,
+    untrustedDirectAdoptionRejected: true,
+    billingOpenedFixedUrl: true,
+    rendererBillingUrlIgnored: true,
     artifactNamespaceRejected: true,
     navigationPrevented: true,
     webviewPrevented: true,
+    credentialWindowDenied: true,
+    credentialWindowNotOpened: true,
     newWindowDenied: true,
+    permissionRequestDenied: true,
+    permissionCheckDenied: true,
+    devicePermissionDenied: true,
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
+    webviewDisabled: true,
+    dragNavigationDisabled: true,
+    experimentalFeaturesDisabled: true,
     bridgeTokenInjectedByMain: true,
     devProviderAuthenticatedByMain: true,
     devUploadAuthenticatedByMain: true,
@@ -281,8 +424,16 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     secureProxyForwardedSentinel: false,
     secureProxyForwardedBridgeToken: false,
     bridgeTokenArgumentExposed: false,
+    expandedWindowBounds: { x: 464, y: 41, width: 960, height: 800 },
+    expandedWindowMinimum: [720, 560],
+    expandedWindowMaximum: [1200, 843],
+    arbitraryWindowModeRejected: true,
     artifactStatus: 200,
     artifactMatches: true,
+    localArtifactStatus: 200,
+    localArtifactMatches: true,
+    mismatchedArtifactRejected: true,
+    localChecksumLength: 64,
     checksumLength: 64,
     partialCount: 0,
   })
@@ -292,24 +443,43 @@ test('the sandboxed preload does not expose the Main-only bridge token', async (
   const bootstrap = String.raw`
 const Module = require('node:module')
 let exposed
+const calls = []
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
   if (request === 'electron') {
     return {
       contextBridge: { exposeInMainWorld: (_name, value) => { exposed = value } },
-      ipcRenderer: { invoke: async () => null },
+      ipcRenderer: {
+        invoke: async (...args) => { calls.push(args); return null },
+        on: () => {},
+        removeListener: () => {},
+      },
     }
   }
   return originalLoad.call(this, request, parent, isMain)
 }
 process.argv.push('--ef-bridge-token=synthetic-token-that-must-stay-hidden')
 require(process.argv[1])
-console.log(JSON.stringify({
-  keys: Object.keys(exposed).sort(),
-  frozen: Object.isFrozen(exposed),
-  hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
-  hasCredentials: typeof exposed.credentials?.get === 'function',
-}))
+void exposed.billing.openCreditPurchase('https://attacker.invalid/checkout').then(() => {
+  console.log(JSON.stringify({
+    keys: Object.keys(exposed).sort(),
+    frozen: Object.isFrozen(exposed),
+    hasBridgeToken: Object.prototype.hasOwnProperty.call(exposed, 'bridgeToken'),
+    hasCredentials: typeof exposed.credentials?.get === 'function',
+    hasDirectCloudConnect: typeof exposed.directCloud?.connect === 'function',
+    hasDirectCloudAvailability: typeof exposed.directCloud?.hasExisting === 'function',
+    hasDirectCloudScopedPresence: typeof exposed.directCloud?.hasScoped === 'function',
+    hasDirectCloudAdoption: typeof exposed.directCloud?.adoptExisting === 'function',
+    hasArtifactBytes: typeof exposed.artifacts?.ingestBytes === 'function',
+    hasAccountRestore: typeof exposed.account?.restore === 'function',
+    hasPasswordRecovery: typeof exposed.account?.requestPasswordReset === 'function'
+      && typeof exposed.account?.completePasswordRecovery === 'function'
+      && typeof exposed.account?.cancelPasswordRecovery === 'function'
+      && typeof exposed.account?.onPasswordRecoveryCompleted === 'function',
+    hasProfileUpdate: typeof exposed.account?.updateProfile === 'function',
+    billingCall: calls.at(-1),
+  }))
+})
 `
   const child = spawn(process.execPath, ['-e', bootstrap, pluginPreload], {
     cwd: projectRoot,
@@ -326,5 +496,14 @@ console.log(JSON.stringify({
   assert.equal(result.frozen, true)
   assert.equal(result.hasBridgeToken, false)
   assert.equal(result.hasCredentials, true)
-  assert.deepEqual(result.keys, ['artifacts', 'credentials', 'plugin', 'state', 'updates', 'window'])
+  assert.equal(result.hasDirectCloudConnect, true)
+  assert.equal(result.hasDirectCloudAvailability, true)
+  assert.equal(result.hasDirectCloudScopedPresence, true)
+  assert.equal(result.hasDirectCloudAdoption, true)
+  assert.equal(result.hasArtifactBytes, true)
+  assert.equal(result.hasAccountRestore, true)
+  assert.equal(result.hasPasswordRecovery, true)
+  assert.equal(result.hasProfileUpdate, true)
+  assert.deepEqual(result.billingCall, ['ef:billing:open-credit-purchase'])
+  assert.deepEqual(result.keys, ['account', 'artifacts', 'billing', 'credentials', 'directCloud', 'plugin', 'state', 'updates', 'window'])
 })

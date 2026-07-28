@@ -283,13 +283,13 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
   const refVideosMax = cfg?.refVideos ?? 0
   const refAudiosMax = cfg?.refAudios ?? 0
 
-  // Feed the prompt enhancer: the source clip + any video refs contribute their
-  // label/tag as text (vision can't watch video); reference images are shown.
+  // Feed the prompt enhancer sampled frames from the edit source and supporting
+  // video references. Audio remains role/name/duration metadata only.
   const enhanceRefs: EnhanceReference[] = [
     ...(source
       ? [
           source.kind === 'upload'
-            ? ({ role: 'primary video being edited', label: source.name } as EnhanceReference)
+            ? ({ role: 'primary video being edited', label: source.name, videoUrl: source.url, durationSeconds: source.durationSeconds } as EnhanceReference)
             : ({ role: 'primary video being edited', note: `timeline clip at ${source.timecode}` } as EnhanceReference),
         ]
       : []),
@@ -302,13 +302,13 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
     ...refVideos.map(
       (m): EnhanceReference =>
         m.kind === 'upload'
-          ? { role: 'supporting video reference — not the edit source', label: m.name }
+          ? { role: 'supporting video reference — not the edit source', label: m.name, videoUrl: m.url, durationSeconds: m.durationSeconds }
           : { role: 'supporting video reference — not the edit source', note: `timeline clip at ${m.timecode}` },
     ),
     ...refAudios.map(
       (m): EnhanceReference =>
         m.kind === 'upload'
-          ? { role: 'supporting audio reference', label: m.name }
+          ? { role: 'supporting audio reference', label: m.name, durationSeconds: m.durationSeconds, note: 'Audio content is attached to generation; prompt enhancement receives its role and metadata only.' }
           : { role: 'supporting audio reference', note: `timeline audio at ${m.timecode}` },
     ),
   ]
@@ -391,7 +391,13 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
       return
     }
     const item: ReferenceImage = { id: nextId(), kind: 'upload', name: g.name, url: g.blobUrl }
-    setRefImages((prev) => (prev.length >= refImagesMax ? prev : [...prev, item]))
+    setRefImages((prev) => {
+      if (prev.length >= refImagesMax) {
+        revokeRef(item)
+        return prev
+      }
+      return [...prev, item]
+    })
   }
   const removeRefImage = (id: string) =>
     setRefImages((prev) => {
@@ -417,7 +423,13 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
       return
     }
     const item: MediaFile = { id: nextId(), kind: 'upload', name: g.name, url: g.blobUrl }
-    setRefVideos((prev) => (prev.length >= refVideosMax ? prev : [...prev, item]))
+    setRefVideos((prev) => {
+      if (prev.length >= refVideosMax) {
+        revokeMedia(item)
+        return prev
+      }
+      return [...prev, item]
+    })
   }
   const removeRefVideo = (id: string) =>
     setRefVideos((prev) => {
@@ -631,7 +643,7 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
           </section>
         ) : (
           <>
-            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={activePromptMax} enhancerKey="enhancer-edit-video" targetModel={activeModel} mediaKind="video" references={enhanceRefs} onSpend={onSpend} />
+            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={activePromptMax} enhancerKey="enhancer-edit-video" targetModel={activeModel} mediaKind="video" purpose="edit" references={enhanceRefs} onSpend={onSpend} />
 
             {refImagesMax > 0 && (
               <ReferenceImageGrid

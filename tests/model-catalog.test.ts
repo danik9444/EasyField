@@ -14,7 +14,7 @@ import {
   supportsExtendMultiShot,
   supportsKlingElementsForWorkflow,
 } from '../src/data/extendVideoConfig.ts'
-import { TRANSITION_VIDEO_MODELS } from '../src/data/transitionVideoConfig.ts'
+import { LEGACY_TRANSITION_PROMPT, initialTransitionPrompt, TRANSITION_VIDEO_MODELS } from '../src/data/transitionVideoConfig.ts'
 
 test('Character belongs to Image while Avatar belongs to Video', () => {
   const image = TOOL_DEFINITIONS.filter((tool) => tool.category === 'image')
@@ -23,6 +23,14 @@ test('Character belongs to Image while Avatar belongs to Video', () => {
   assert.equal(image.some((tool) => tool.id === 'character' && tool.name === 'Character'), true)
   assert.equal(image.some((tool) => tool.id === 'avatar'), false)
   assert.equal(video.some((tool) => tool.id === 'avatar' && tool.name === 'Avatar'), true)
+})
+
+test('tools without a production dispatcher are catalogued as review-only', () => {
+  const reviewOnly = TOOL_DEFINITIONS
+    .filter((tool) => tool.execution === 'review-only')
+    .map((tool) => tool.id)
+    .sort()
+  assert.deepEqual(reviewOnly, ['broll', 'captions', 'culling'])
 })
 
 test('Upscale is a Footage tool backed by the two verified Topaz source adapters', () => {
@@ -159,6 +167,12 @@ test('Transition exposes only models with verified ordered first and last frame 
   assert.equal(TRANSITION_VIDEO_MODELS.every((model) => (
     VIDEO_MODEL_CONFIG[model].firstFrame && VIDEO_MODEL_CONFIG[model].lastFrame
   )), true)
+})
+
+test('Transition opens in reference-led Auto while preserving a real saved user prompt', () => {
+  assert.equal(initialTransitionPrompt(undefined), '')
+  assert.equal(initialTransitionPrompt(LEGACY_TRANSITION_PROMPT), '')
+  assert.equal(initialTransitionPrompt('Whip-pan from the outgoing frame into the incoming frame.'), 'Whip-pan from the outgoing frame into the incoming frame.')
 })
 
 test('every selectable generation and agent model has a complete registry entry', () => {
