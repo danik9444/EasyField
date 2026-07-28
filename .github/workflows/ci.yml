@@ -61,6 +61,22 @@ jobs:
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" npm run plugin:assemble
 
+      # plugin:assemble overwrites the manifest, so a stale committed copy would
+      # otherwise pass unnoticed. buildId is derived from file contents alone and
+      # ignores createdAt, which makes it the one field safe to compare.
+      - name: Verify committed manifest describes committed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          buildId() { node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).buildId)'; }
+          COMMITTED="$(git show HEAD:plugin/update-manifest.json | buildId)"
+          REBUILT="$(buildId < plugin/update-manifest.json)"
+          if [[ "$COMMITTED" != "$REBUILT" ]]; then
+            echo "::error file=plugin/update-manifest.json::Committed manifest is stale. Committed buildId $COMMITTED but the source rebuilds to $REBUILT. Run 'npm run plugin:assemble' and commit the result."
+            exit 1
+          fi
+          echo "Committed manifest matches source: $COMMITTED"
+
       - name: Exercise signed update builder
         run: |
           npm run release:keygen -- --out-dir release/ci-keys
