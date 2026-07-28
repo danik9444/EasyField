@@ -22,6 +22,7 @@ const { createBeatDetectionService } = require('./beat-detection.cjs');
 const { createTranscriptionService } = require('./whisper-transcription.cjs');
 const { createUrlContextService } = require('./url-context.cjs');
 const { createStateStore } = require('./state-store.cjs');
+const { createStateDocumentStore, isDocumentReference } = require('./state-document-store.cjs');
 const { createAccountService } = require('./account-service.cjs');
 const { createPluginUpdater } = require('./plugin-updater.cjs');
 const { resolveRuntimePack } = require('./runtime-pack.cjs');
@@ -67,6 +68,8 @@ const ARTIFACT_DIR = path.join(os.homedir(), 'Movies', 'EasyField', '_Artifacts'
 const BRIDGE_TOKEN = (environmentOverridesAllowed() && process.env.EF_BRIDGE_TOKEN)
     || crypto.randomBytes(32).toString('hex');
 const JSON_BODY_LIMIT = 64 * 1024;
+const STATE_VALUE_LIMIT = 2 * 1024 * 1024;
+const DOCUMENT_STATE_VALUE_LIMIT = 512 * 1024 * 1024;
 const parsedMediaLimit = environmentOverridesAllowed() ? Number(process.env.EF_MAX_MEDIA_BYTES) : NaN;
 const MAX_MEDIA_BYTES = Number.isFinite(parsedMediaLimit) && parsedMediaLimit > 0
     ? parsedMediaLimit
@@ -1872,6 +1875,7 @@ function startServer() {
 
 let mainWindow = null;
 let stateStore = null;
+let stateDocumentStore = null;
 let stateStoreDegradation = null;
 let accountService = null;
 let currentWindowMode = 'compact';
@@ -2022,6 +2026,64 @@ const PRIVATE_CREDENTIALS = new Set([
 function assertStateKey(namespace, key) {
     if (!VALID_RENDERER_STATE_NAMESPACES.has(namespace)) throw new Error('Invalid state namespace');
     if (typeof key !== 'string' || !key || key.length > 240) throw new Error('Invalid state key');
+}
+
+function readRendererState(namespace, key) {
+    const stored = stateStore.get(namespace, key);
+    if (!isDocumentReference(stored)) return stored;
+    if (!stateDocumentStore) throw new Error('Large document storage is unavailable');
+    return stateDocumentStore.read(stored);
+}
+
+function listRendererState(namespace) {
+    return stateStore.list(namespace).map((item) => ({
+        ...item,
+        value: isDocumentReference(item.value) ? readDocumentState(item.value) : item.value,
+    }));
+}
+
+function readDocumentState(reference) {
+    if (!stateDocumentStore) throw new Error('Large document storage is unavailable');
+    return stateDocumentStore.read(reference);
+}
+
+function removeDocumentReference(reference) {
+    if (!isDocumentReference(reference) || !stateDocumentStore) return;
+    if (!stateDocumentStore.deleteReference(reference)) {
+        console.warn('[EasyField] Obsolete document state could not be removed.');
+    }
+}
+
+function writeRendererState(namespace, key, value, valueJson) {
+    const previous = stateStore.get(namespace, key);
+    const bytes = Buffer.byteLength(valueJson);
+    if (bytes <= STATE_VALUE_LIMIT) {
+        stateStore.set(namespace, key, value);
+        removeDocumentReference(previous);
+        return true;
+    }
+    if (bytes > DOCUMENT_STATE_VALUE_LIMIT) throw new Error('State document is too large');
+    if (!stateDocumentStore) throw new Error('Large document storage is unavailable');
+
+    // The document is complete on disk before its opaque SQLite reference is
+    // committed. A failed reference write leaves the previous value readable
+    // and removes the unreferenced replacement.
+    const reference = stateDocumentStore.write(valueJson);
+    try {
+        stateStore.set(namespace, key, reference);
+    } catch (error) {
+        stateDocumentStore.deleteReference(reference);
+        throw error;
+    }
+    removeDocumentReference(previous);
+    return true;
+}
+
+function deleteRendererState(namespace, key) {
+    const previous = stateStore.get(namespace, key);
+    stateStore.delete(namespace, key);
+    removeDocumentReference(previous);
+    return true;
 }
 
 function credentialPath(name) {
@@ -2577,7 +2639,13 @@ function artifactBytesFromIpc(value) {
 
 function registerHostIpc() {
     if (!ipcMain || typeof ipcMain.handle !== 'function') return;
-    stateStore = openStateStoreWithRecovery(app.getPath('userData'));
+    const userDataPath = app.getPath('userData');
+    stateStore = openStateStoreWithRecovery(userDataPath);
+    try {
+        stateDocumentStore = createStateDocumentStore(userDataPath);
+    } catch (error) {
+        console.error('[EasyField] Large document storage failed to open:', error && error.message);
+    }
 
     const accountConfig = loadAccountPublicConfig();
     accountService = createAccountService({
@@ -2689,22 +2757,21 @@ function registerHostIpc() {
     registerTrustedHandler('ef:account:save-auto-reload', (input) => accountService.saveAutoReload(input));
     registerTrustedHandler('ef:state:get', (namespace, key) => {
         assertStateKey(namespace, key);
-        return stateStore.get(namespace, key);
+        return readRendererState(namespace, key);
     });
     registerTrustedHandler('ef:state:list', (namespace) => {
         if (!VALID_RENDERER_STATE_NAMESPACES.has(namespace)) throw new Error('Invalid state namespace');
-        return stateStore.list(namespace);
+        return listRendererState(namespace);
     });
     registerTrustedHandler('ef:state:set', (namespace, key, value) => {
         assertStateKey(namespace, key);
         const json = JSON.stringify(value);
         if (json === undefined) throw new Error('State value is not JSON serializable');
-        if (Buffer.byteLength(json) > 2 * 1024 * 1024) throw new Error('State value is too large');
-        return stateStore.set(namespace, key, value);
+        return writeRendererState(namespace, key, value, json);
     });
     registerTrustedHandler('ef:state:delete', (namespace, key) => {
         assertStateKey(namespace, key);
-        return stateStore.delete(namespace, key);
+        return deleteRendererState(namespace, key);
     });
     registerTrustedHandler('ef:window:set-mode', (mode) => {
         if (!mainWindow || mainWindow.isDestroyed()) return;

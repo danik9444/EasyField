@@ -1352,6 +1352,8 @@ body::before {
   white-space: nowrap;
 }
 .ef-draft-state i { width: 5px; height: 5px; border-radius: 50%; background: var(--ef-green); box-shadow: 0 0 9px rgba(66,223,162,.55); }
+.ef-draft-state.is-error { color: var(--ef-red); }
+.ef-draft-state.is-error i { background: var(--ef-red); box-shadow: 0 0 9px color-mix(in srgb,var(--ef-red) 55%,transparent); }
 .ef-workspace-slot--intro,
 .ef-workspace-slot--recipes,
 .ef-workspace-slot--stage,
@@ -3836,6 +3838,9 @@ body::before {
 .ef-story-save-state.is-saving::before { background: var(--ef-amber); animation: efpulse 1s ease-in-out infinite; }
 .ef-story-save-state.is-error { color: var(--ef-red); }
 .ef-story-save-state.is-error::before { background: var(--ef-red); }
+.ef-story-save-warning { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ef-story-save-warning span { display:grid; gap:2px; }
+.ef-story-save-warning button { min-height:30px; padding:0 10px; flex:none; border:1px solid currentColor; border-radius:8px; color:inherit; background:rgba(0,0,0,.18); font-size:8.5px; cursor:pointer; }
 .ef-story-progress { min-width: 42px; padding: 0 8px; color: var(--ef-ink-muted); background: rgba(255,255,255,.04); }
 .ef-story-progress strong { color: var(--ef-ink); font-size: 10px; }
 
@@ -4427,7 +4432,7 @@ button.ef-story-frame { padding: 0; cursor: zoom-in; }
 
 @media (max-width:699px) {
   .ef-storyboard-scroll { padding-inline: 14px; }
-  .ef-story-save-state { display: none; }
+  .ef-story-save-state:not(.is-error) { display: none; }
   .ef-story-setup { padding: 14px; }
   .ef-story-setup-copy h1 { font-size: 23px; }
   .ef-story-setup-copy p { font-size: 10.5px; }
@@ -5874,12 +5879,18 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
 .ef-transcribe-runtime-card small { color:var(--ef-ink-faint); font-size:8.5px; }
 .ef-transcribe-runtime-card > button { min-height:36px; padding:0 12px; border:1px solid color-mix(in srgb,var(--ef-tool-accent) 48%,var(--ef-line)); border-radius:10px; color:var(--ef-ink); background:color-mix(in srgb,var(--ef-tool-accent) 9%,rgba(0,0,0,.2)); font-size:9px; cursor:pointer; }
 .ef-transcribe-error { margin:0; }
+.ef-transcribe-error:has(> button) { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ef-transcribe-error > button { min-height:30px; padding:0 10px; flex:none; border:1px solid currentColor; border-radius:8px; color:inherit; background:rgba(0,0,0,.18); font-size:8.5px; cursor:pointer; }
 .ef-transcribe-result { padding:16px; display:grid; gap:13px; border-color:color-mix(in srgb,var(--ef-tool-accent) 26%,var(--ef-line)); }
 .ef-transcribe-result > header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
 .ef-transcribe-result > header > div { min-width:0; display:grid; gap:4px; }
 .ef-transcribe-result > header p { margin:0; color:var(--ef-ink-muted); font-size:10px; }
 .ef-transcribe-result > header > span { flex:none; padding:6px 8px; display:flex; align-items:center; gap:6px; border:1px solid color-mix(in srgb,var(--ef-tool-accent) 38%,var(--ef-line)); border-radius:9px; color:var(--ef-tool-accent); background:color-mix(in srgb,var(--ef-tool-accent) 7%,rgba(0,0,0,.13)); font-family:'JetBrains Mono Variable',monospace; font-size:8px; letter-spacing:.09em; }
 .ef-transcribe-result > header > span i { width:7px; height:7px; border-radius:50%; background:var(--ef-tool-accent); box-shadow:0 0 8px color-mix(in srgb,var(--ef-tool-accent) 55%,transparent); }
+.ef-transcribe-result > header > span.is-saving { color:var(--ef-amber); border-color:color-mix(in srgb,var(--ef-amber) 38%,var(--ef-line)); }
+.ef-transcribe-result > header > span.is-saving i { background:var(--ef-amber); box-shadow:0 0 8px color-mix(in srgb,var(--ef-amber) 55%,transparent); }
+.ef-transcribe-result > header > span.is-error { color:var(--ef-red); border-color:color-mix(in srgb,var(--ef-red) 38%,var(--ef-line)); }
+.ef-transcribe-result > header > span.is-error i { background:var(--ef-red); box-shadow:0 0 8px color-mix(in srgb,var(--ef-red) 55%,transparent); }
 .ef-transcribe-result-tools { display:flex; align-items:center; gap:8px; }
 .ef-transcribe-result-tools label { min-width:0; flex:1; min-height:38px; padding:0 11px; display:flex; align-items:center; gap:8px; border:1px solid var(--ef-line); border-radius:10px; color:var(--ef-ink-muted); background:rgba(0,0,0,.16); }
 .ef-transcribe-result-tools input { min-width:0; width:100%; border:0; outline:0; color:var(--ef-ink); background:transparent; font-size:10px; }
