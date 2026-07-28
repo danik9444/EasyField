@@ -12,12 +12,18 @@ export interface VoiceAuditionRunOptions {
   onJobCreated: (jobId: string) => void
 }
 
+export interface VoiceAuditionCache {
+  urls: Map<string, string>
+  keyFor: (voiceId: string) => string
+}
+
 interface VoicePickerProps {
   voices: TtsVoice[]
   value: string
   onChange: (voiceId: string) => void
   label?: string
   onAudition?: (voiceId: string, options: VoiceAuditionRunOptions) => Promise<string>
+  auditionCache?: VoiceAuditionCache
   auditionPriceLabel?: string
 }
 
@@ -60,7 +66,7 @@ function useCase(label: string): Exclude<VoiceFilter, 'all' | 'favorites'> {
   return 'conversation'
 }
 
-export function VoicePicker({ voices, value, onChange, label = 'Voice', onAudition, auditionPriceLabel }: VoicePickerProps) {
+export function VoicePicker({ voices, value, onChange, label = 'Voice', onAudition, auditionCache, auditionPriceLabel }: VoicePickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<VoiceFilter>('all')
@@ -75,7 +81,6 @@ export function VoicePicker({ voices, value, onChange, label = 'Voice', onAuditi
   const triggerRef = useRef<HTMLButtonElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const auditionCacheRef = useRef(new Map<string, string>())
   const auditionGeneration = useGenerationJobControl()
   const selected = voices.find((voice) => voice.id === value) ?? voices[0]
   const selectedParts = voiceParts(selected?.label ?? 'Choose a voice')
@@ -211,7 +216,8 @@ export function VoicePicker({ voices, value, onChange, label = 'Voice', onAuditi
     audioRef.current?.pause()
     setPlayingId(null)
     setAuditioningId(voiceId)
-    const cachedUrl = auditionCacheRef.current.get(voiceId)
+    const cacheKey = auditionCache?.keyFor(voiceId)
+    const cachedUrl = cacheKey ? auditionCache?.urls.get(cacheKey) : undefined
     const controller = cachedUrl ? null : auditionGeneration.begin()
     setAuditionGenerating(!!controller)
     try {
@@ -220,7 +226,7 @@ export function VoicePicker({ voices, value, onChange, label = 'Voice', onAuditi
         onJobCreated: auditionGeneration.attachJob,
       })
       if (controller?.signal.aborted) return
-      auditionCacheRef.current.set(voiceId, url)
+      if (cacheKey) auditionCache?.urls.set(cacheKey, url)
       const audio = new Audio(url)
       audioRef.current = audio
       audio.onended = () => setPlayingId((current) => current === voiceId ? null : current)
@@ -319,7 +325,7 @@ export function VoicePicker({ voices, value, onChange, label = 'Voice', onAuditi
                 noun="voice sample"
               />
             )}
-            <footer className="ef-voice-sheet-foot"><span><i /> Voice clone is planned but disabled for beta</span><small className={auditionError ? 'is-error' : ''} role={auditionError ? 'alert' : auditionNotice ? 'status' : undefined}>{auditionError ?? auditionNotice ?? (onAudition ? `Sample${auditionPriceLabel ? ` · ${auditionPriceLabel}` : ''} · cached for this session` : 'Choose a voice to continue.')}</small></footer>
+            <footer className="ef-voice-sheet-foot"><span><i /> Voice clone is planned but disabled for beta</span><small className={auditionError ? 'is-error' : ''} role={auditionError ? 'alert' : auditionNotice ? 'status' : undefined}>{auditionError ?? auditionNotice ?? (onAudition ? `Sample${auditionPriceLabel ? ` · ${auditionPriceLabel}` : ''}${auditionCache ? ' · cached while this screen is open' : ''}` : 'Choose a voice to continue.')}</small></footer>
           </div>,
         document.body,
       )}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../icons'
 import { Dropdown } from '../components/Dropdown'
 import { PriceEstimate } from '../components/PriceEstimate'
-import { VoicePicker, type VoiceAuditionRunOptions } from '../components/VoicePicker'
+import { VoicePicker, type VoiceAuditionCache, type VoiceAuditionRunOptions } from '../components/VoicePicker'
 import { GenerationCancelControl, useGenerationJobControl } from '../components/GenerationCancelControl'
 import { runTts, runDialogue, isConnected, isGenerationExit } from '../services/run'
 import { sendToTimeline } from '../services/timeline'
@@ -71,6 +71,21 @@ interface TtsModelState extends TtsSettings {
   text: string
 }
 
+function voiceAuditionCacheKey(modelId: string, voiceId: string, settings: TtsSettings): string {
+  return JSON.stringify({
+    voiceId,
+    modelId,
+    text: AUDITION_TEXT,
+    stability: settings.stability,
+    similarity: settings.similarity,
+    style: settings.style,
+    speed: settings.speed,
+    previousText: settings.previousText,
+    nextText: settings.nextText,
+    languageCode: modelId === 'turbo-2-5' ? settings.languageCode.trim().toLowerCase() : '',
+  })
+}
+
 function loadVoiceState(): VoicePrefs {
   try {
     const raw = loadValue(PREFS_KEY)
@@ -124,6 +139,9 @@ const DEFAULT_LINES: DialogueLine[] = [
 
 export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   const saved = useRef(loadVoiceState()).current
+  // runTts returns Library-owned URLs. This screen cache borrows them and must
+  // leave object URL revocation to the Library when a creation is removed.
+  const auditionCacheUrls = useRef(new Map<string, string>()).current
   const [phase, setPhase] = useState<Phase>('form')
   const [charged, setCharged] = useState<number | null>(null)
   const [model, setModel] = useState(() =>
@@ -164,6 +182,12 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   const kind = modelKind(model)
   const ttsState = settingsByModel[model] ?? normalizeTtsState(undefined, model)
   const { voice, text, timestamps, previousText, nextText } = ttsState
+  const auditionModel = kind === 'tts' ? model : 'turbo-2-5'
+  const auditionSettings = settingsByModel[auditionModel] ?? normalizeTtsState(undefined, auditionModel)
+  const auditionCache: VoiceAuditionCache = {
+    urls: auditionCacheUrls,
+    keyFor: (voiceId) => voiceAuditionCacheKey(auditionModel, voiceId, auditionSettings),
+  }
   const sliders = ttsState as unknown as Record<string, number>
   const setTtsState = (patch: Partial<TtsModelState>) =>
     setSettingsByModel((previous) => ({
@@ -202,8 +226,6 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   }
 
   const auditionVoice = async (voiceId: string, options: VoiceAuditionRunOptions): Promise<string> => {
-    const auditionModel = kind === 'tts' ? model : 'turbo-2-5'
-    const auditionSettings = settingsByModel[auditionModel] ?? normalizeTtsState(undefined, auditionModel)
     const result = await runTts(auditionModel, voiceId, AUDITION_TEXT, auditionSettings, {
       autoOpenJob: false,
       signal: options.signal,
@@ -263,7 +285,6 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   const modelOptions = ELEVEN_MODELS.map((m) => m.label)
   const connected = isConnected()
   const estimate = ttsRunEstimate(model, chars)
-  const auditionModel = kind === 'tts' ? model : 'turbo-2-5'
   const auditionPriceLabel = formatEstimate(ttsRunEstimate(auditionModel, AUDITION_TEXT.length))
   const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
   const spendBlocked = connected && !spendApproval.approved
@@ -306,7 +327,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
 
         {kind === 'tts' ? (
           <>
-            <VoicePicker voices={ELEVEN_VOICES} value={voice} onChange={(value) => setTtsState({ voice: value })} onAudition={auditionVoice} auditionPriceLabel={auditionPriceLabel} />
+            <VoicePicker voices={ELEVEN_VOICES} value={voice} onChange={(value) => setTtsState({ voice: value })} onAudition={auditionVoice} auditionCache={auditionCache} auditionPriceLabel={auditionPriceLabel} />
 
             <div className="ef-field">
               <div className="ef-ref-header">
@@ -421,7 +442,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
                 {lines.map((line) => (
                   <div className="ef-dialogue-line" key={line.id}>
                     <div className="ef-dialogue-line-head">
-                      <VoicePicker voices={ELEVEN_VOICES} value={line.voice} onChange={(voiceId) => setLineVoice(line.id, voiceId)} label="Speaker" onAudition={auditionVoice} auditionPriceLabel={auditionPriceLabel} />
+                      <VoicePicker voices={ELEVEN_VOICES} value={line.voice} onChange={(voiceId) => setLineVoice(line.id, voiceId)} label="Speaker" onAudition={auditionVoice} auditionCache={auditionCache} auditionPriceLabel={auditionPriceLabel} />
                       <button
                         className="ef-dialogue-remove"
                         aria-label="Remove line"
