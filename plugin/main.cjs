@@ -144,8 +144,7 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // --- Resolve bridge state -------------------------------------------------
 
-// A bundled module is accepted only for legacy local installs. Release builds
-// use the module installed by Resolve's official SamplePlugin. Standalone
+// Load only the module installed by Resolve's official SamplePlugin. Standalone
 // Electron or an ABI mismatch leaves this null; UI and proxies remain usable.
 const WorkflowIntegration = loadWorkflowIntegration();
 
@@ -1810,20 +1809,22 @@ const server = http.createServer((req, res) => {
     // response and never crashes the server.
     if (pathname.startsWith('/bridge/')) {
         if (!authorizeBridge(req, res)) return;
-        const run = (fn, timeoutMs, expectedCodes) => promiseWithTimeout(
-            Promise.resolve().then(() => fn(req, res)),
-            timeoutMs,
-            'bridge operation timed out',
-        ).catch((err) => {
-            // "Nothing under the playhead" is an expected capture outcome, not
-            // a broken HTTP request. Return a typed 200 response so Chromium
-            // does not emit a console-level failed-resource error; callers must
-            // still check `ok` before creating an artifact.
-            if (!res.headersSent && err instanceof EFError && expectedCodes && expectedCodes.has(err.code)) {
-                sendJSON(res, 200, { ok: false, error: err.message, code: err.code });
-            } else if (!res.headersSent) sendError(res, err);
-            else res.destroy();
-        });
+        const run = (fn, timeoutMs, expectedCodes) => {
+            const operation = Promise.resolve().then(() => fn(req, res));
+            const guarded = timeoutMs == null
+                ? operation
+                : promiseWithTimeout(operation, timeoutMs, 'bridge operation timed out');
+            return guarded.catch((err) => {
+                // "Nothing under the playhead" is an expected capture outcome,
+                // not a broken HTTP request. Return a typed 200 response so
+                // Chromium does not emit a console-level failed-resource error;
+                // callers must still check `ok` before creating an artifact.
+                if (!res.headersSent && err instanceof EFError && expectedCodes && expectedCodes.has(err.code)) {
+                    sendJSON(res, 200, { ok: false, error: err.message, code: err.code });
+                } else if (!res.headersSent) sendError(res, err);
+                else res.destroy();
+            });
+        };
         if (pathname === '/bridge/status' && req.method === 'GET') return void run(bridgeStatus, 3000);
         const expectedGrabCodes = new Set(['NO_ITEM', 'NO_TIMELINE']);
         const expectedBoundaryCodes = new Set(['NO_ITEM', 'NO_TIMELINE', 'RESOLVE_CLOSED', 'TIMELINE_CHANGED', 'PLAYHEAD_CHANGED', 'CAPTURE_CANCELLED', 'FRAME_EXPORT_FAILED']);
@@ -1836,7 +1837,9 @@ const server = http.createServer((req, res) => {
         if (pathname === '/bridge/grab/shot-end-frame' && req.method === 'GET') return void run(grabShotEndFrame, 20000, expectedBoundaryCodes);
         if (pathname === '/bridge/grab/clip' && req.method === 'GET') return void run((request, response) => withTimelineOperationLock(() => grabClip(request, response)), 15 * 60 * 1000, expectedGrabCodes);
         if (pathname === '/bridge/grab/audio' && req.method === 'GET') return void run(grabAudio, 30000, expectedEditVideoCodes);
-        if (pathname === '/bridge/place' && req.method === 'POST') return void run(place, 115000);
+        // Once placement starts, Resolve offers no safe cancellation primitive.
+        // Keep the response pending until the mutation has a truthful outcome.
+        if (pathname === '/bridge/place' && req.method === 'POST') return void run(place);
         if (pathname === '/bridge/beat/apply-markers' && req.method === 'POST') return void run(applyBeatMarkers, 30000);
         if (pathname === '/bridge/beat/undo-markers' && req.method === 'POST') return void run(undoBeatMarkers, 30000);
         sendJSON(res, 404, { ok: false, error: 'unknown bridge endpoint', code: 'BAD_REQUEST' });

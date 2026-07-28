@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
 const {
-  LEGACY_WORKFLOW_INTEGRATION_MODULE,
   OFFICIAL_WORKFLOW_INTEGRATION_MODULE,
   loadWorkflowIntegration,
 } = require('../plugin/workflow-integration.cjs')
@@ -18,15 +17,11 @@ const {
   validateManifest,
 } = require('../plugin/plugin-updater.cjs')
 
-function missingModule(message = 'missing') {
-  return Object.assign(new Error(message), { code: 'MODULE_NOT_FOUND' })
-}
-
-test('loads a legacy bundled native module before Resolve’s official copy', () => {
-  const expected = { source: 'legacy' }
+test('loads Resolve’s official native module without attempting a bundled copy', () => {
+  const expected = { source: 'resolve' }
   const attempts = []
   const actual = loadWorkflowIntegration({
-    logger: { error: () => assert.fail('a successful legacy load must not log an error') },
+    logger: { error: () => assert.fail('a successful official load must not log an error') },
     load: (modulePath) => {
       attempts.push(modulePath)
       return expected
@@ -34,52 +29,25 @@ test('loads a legacy bundled native module before Resolve’s official copy', ()
   })
 
   assert.equal(actual, expected)
-  assert.deepEqual(attempts, [LEGACY_WORKFLOW_INTEGRATION_MODULE])
+  assert.deepEqual(attempts, [OFFICIAL_WORKFLOW_INTEGRATION_MODULE])
 })
 
-test('falls back to the official Resolve SamplePlugin module', () => {
-  const expected = { source: 'resolve' }
+test('fails closed when Resolve’s official native module cannot be loaded', () => {
   const attempts = []
   const errors = []
   const actual = loadWorkflowIntegration({
     logger: { error: (...args) => errors.push(args) },
     load: (modulePath) => {
       attempts.push(modulePath)
-      if (modulePath === LEGACY_WORKFLOW_INTEGRATION_MODULE) throw missingModule()
-      return expected
+      throw Object.assign(new Error('wrong ABI'), { code: 'ERR_DLOPEN_FAILED' })
     },
   })
 
-  assert.equal(actual, expected)
-  assert.deepEqual(attempts, [
-    LEGACY_WORKFLOW_INTEGRATION_MODULE,
-    OFFICIAL_WORKFLOW_INTEGRATION_MODULE,
-  ])
-  assert.deepEqual(errors, [])
-})
-
-test('continues to the official module when a legacy binary cannot be loaded', () => {
-  const expected = { source: 'resolve' }
-  const attempts = []
-  const errors = []
-  const actual = loadWorkflowIntegration({
-    logger: { error: (...args) => errors.push(args) },
-    load: (modulePath) => {
-      attempts.push(modulePath)
-      if (modulePath === LEGACY_WORKFLOW_INTEGRATION_MODULE) {
-        throw Object.assign(new Error('wrong ABI'), { code: 'ERR_DLOPEN_FAILED' })
-      }
-      return expected
-    },
-  })
-
-  assert.equal(actual, expected)
-  assert.equal(errors.length, 1)
-  assert.match(errors[0][0], /bundled legacy/)
-  assert.deepEqual(attempts, [
-    LEGACY_WORKFLOW_INTEGRATION_MODULE,
-    OFFICIAL_WORKFLOW_INTEGRATION_MODULE,
-  ])
+  assert.equal(actual, null)
+  assert.deepEqual(attempts, [OFFICIAL_WORKFLOW_INTEGRATION_MODULE])
+  assert.equal(errors.length, 2)
+  assert.match(errors[0][0], /Resolve SDK/)
+  assert.match(errors[1][0], /unavailable/)
 })
 
 test('release manifests reject WorkflowIntegration.node', () => {

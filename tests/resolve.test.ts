@@ -668,6 +668,7 @@ test('captured-cut placement sends the frozen project, timeline and record frame
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     assert.equal(url, '/bridge/place')
+    assert.equal(init?.signal, undefined)
     placementBody = JSON.parse(String(init?.body)) as Record<string, unknown>
     return new Response(JSON.stringify({ ok: true, mediaId: 'b5eec575-003b-47ad-882b-c6f2a68298d3' }), {
       status: 200,
