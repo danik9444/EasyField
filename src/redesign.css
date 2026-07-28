@@ -810,7 +810,7 @@ body::before {
   font-size: 8px;
   letter-spacing: .12em;
 }
-.ef-library-sidebar-head { display: none; }
+.ef-library-sidebar-head { min-height: 35px; padding: 7px 12px 0; }
 .ef-library-sidebar-head button { width: 28px; height: 28px; border: 1px solid var(--ef-line); border-radius: 8px; color: var(--ef-ink-soft); background: rgba(255,255,255,.04); }
 .ef-library-collections { padding: 7px 12px; display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
 .ef-library-collections::-webkit-scrollbar { display: none; }
@@ -5221,8 +5221,19 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   font-weight: 620;
 }
 
+/* Two lines at every width. The base .ef-tool-desc truncates to a single
+   ellipsised line, which made the expanded panel show LESS description than
+   the compact one — the three-column grid leaves a narrower text column than
+   compact's full-width card. Clamping here instead of only under 410px keeps
+   the amount of visible text monotonic as the panel widens. */
 .ef-screen--home .ef-tool-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-size: 8.5px;
+  line-height: 1.35;
 }
 
 .ef-screen--home .ef-tool-arrow {
@@ -12141,15 +12152,6 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   gap: 1px;
 }
 .ef-screen--home .ef-tool-name { font-size: 12px; font-weight: 570; }
-.ef-screen--home .ef-tool-desc {
-  display: block;
-  overflow: hidden;
-  color: var(--ef-ink-muted);
-  font-size: 9.5px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .ef-home-superbrain-wrap { z-index: 12; }
 .ef-home-superbrain-bar {
   min-height: 44px;
