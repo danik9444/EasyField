@@ -25,8 +25,10 @@ test('duration options preserve Full as a semantic source-length value', () => {
 
 test('duration formatting is compact visually and explicit for assistive technology', () => {
   assert.equal(formatDurationValue('1'), '1s')
+  assert.equal(formatDurationValue('1.5s'), '1.5s')
   assert.equal(formatDurationValue('15s'), '15s')
   assert.equal(formatDurationAriaValue('1'), '1 second')
+  assert.equal(formatDurationAriaValue('1.5s'), '1.5 seconds')
   assert.equal(formatDurationAriaValue('15s'), '15 seconds')
 })
 

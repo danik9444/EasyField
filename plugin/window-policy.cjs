@@ -54,6 +54,13 @@ function assertWindowMode(mode) {
     return mode;
 }
 
+function assertWindowHeightMode(heightMode) {
+    if (heightMode !== 'standard' && heightMode !== 'full') {
+        throw new Error('Invalid window height mode');
+    }
+    return heightMode;
+}
+
 function clamp(value, minimum, maximum) {
     if (maximum <= minimum) return minimum;
     return Math.min(maximum, Math.max(minimum, value));
@@ -69,13 +76,19 @@ function availableAxis(origin, length) {
     };
 }
 
-function profileLimitsForWorkArea(mode, workArea) {
+function profileLimitsForWorkArea(mode, workArea, heightMode = 'standard') {
     const profile = WINDOW_PROFILES[assertWindowMode(mode)];
+    assertWindowHeightMode(heightMode);
     const area = normalizeRectangle(workArea);
     const horizontal = availableAxis(area.x, area.width);
     const vertical = availableAxis(area.y, area.height);
     const maxWidth = Math.min(profile.maxWidth, horizontal.length);
-    const maxHeight = Math.min(profile.maxHeight, vertical.length);
+    // Full height deliberately lifts the profile ceiling: the point of the mode
+    // is to reach the usable height of the current display, which is routinely
+    // taller than the profile maximum tuned for the standard panel.
+    const maxHeight = heightMode === 'full'
+        ? vertical.length
+        : Math.min(profile.maxHeight, vertical.length);
     return {
         profile,
         area,
@@ -110,10 +123,12 @@ function coordinateForResize(currentStart, currentLength, nextLength, axis) {
  * Compact is intentionally portrait; expanded is intentionally landscape.
  * An existing rectangle keeps its display and edge/centre affinity.
  */
-function windowBoundsForMode(mode, workArea, currentBounds = null) {
-    const limits = profileLimitsForWorkArea(mode, workArea);
+function windowBoundsForMode(mode, workArea, currentBounds = null, heightMode = 'standard') {
+    const limits = profileLimitsForWorkArea(mode, workArea, heightMode);
     const width = clamp(limits.profile.preferredWidth, limits.minWidth, limits.maxWidth);
-    const height = clamp(limits.profile.preferredHeight, limits.minHeight, limits.maxHeight);
+    const height = heightMode === 'full'
+        ? limits.maxHeight
+        : clamp(limits.profile.preferredHeight, limits.minHeight, limits.maxHeight);
     const current = currentBounds ? normalizeRectangle(currentBounds) : null;
     return {
         x: current
@@ -140,11 +155,12 @@ function displayForWindow(electronScreen, currentBounds) {
 
 function applyWindowMode(browserWindow, electronScreen, mode, options = {}) {
     assertWindowMode(mode);
+    const heightMode = assertWindowHeightMode(options.heightMode ?? 'standard');
     if (!browserWindow || browserWindow.isDestroyed?.()) return null;
     const currentBounds = typeof browserWindow.getBounds === 'function' ? browserWindow.getBounds() : null;
     const display = displayForWindow(electronScreen, currentBounds);
-    const limits = profileLimitsForWorkArea(mode, display.workArea);
-    const bounds = windowBoundsForMode(mode, display.workArea, options.initial ? null : currentBounds);
+    const limits = profileLimitsForWorkArea(mode, display.workArea, heightMode);
+    const bounds = windowBoundsForMode(mode, display.workArea, options.initial ? null : currentBounds, heightMode);
 
     // Release the previous profile before applying the next one. Otherwise an
     // expanded minimum can prevent compact bounds (or a compact maximum can
@@ -162,12 +178,13 @@ function applyWindowMode(browserWindow, electronScreen, mode, options = {}) {
     } };
 }
 
-function clampWindowToWorkArea(browserWindow, electronScreen, mode) {
+function clampWindowToWorkArea(browserWindow, electronScreen, mode, heightMode = 'standard') {
     assertWindowMode(mode);
+    assertWindowHeightMode(heightMode);
     if (!browserWindow || browserWindow.isDestroyed?.()) return null;
     const current = normalizeRectangle(browserWindow.getBounds?.());
     const display = displayForWindow(electronScreen, current);
-    const limits = profileLimitsForWorkArea(mode, display.workArea);
+    const limits = profileLimitsForWorkArea(mode, display.workArea, heightMode);
     const width = clamp(current.width, limits.minWidth, limits.maxWidth);
     const height = clamp(current.height, limits.minHeight, limits.maxHeight);
     const bounds = {
@@ -272,6 +289,7 @@ function createResolveAwareFloatingController(browserWindow, options = {}) {
 module.exports = {
     WINDOW_PROFILES,
     applyWindowMode,
+    assertWindowHeightMode,
     clampWindowToWorkArea,
     createResolveAwareFloatingController,
     frontmostBundleIdFromInfo,

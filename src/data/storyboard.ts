@@ -2,14 +2,16 @@ import { IMAGE_MODEL_CONFIG, resolveImageOptions } from './imageModelConfig.ts'
 import { IMAGE_MODEL_ALIASES, IMAGE_MODELS } from './models.ts'
 import { truncatePrompt } from './promptLimits.ts'
 
-export const STORYBOARD_SCHEMA_VERSION = 4 as const
+export const STORYBOARD_SCHEMA_VERSION = 9 as const
 export const STORYBOARD_MIN_SCENES = 1
-export const STORYBOARD_MAX_SCENES = 20
+export const STORYBOARD_MAX_SCENES = 15
 export const STORYBOARD_DEFAULT_SCENE_COUNT = 1
-export const STORYBOARD_DEFAULT_TOTAL_DURATION_SECONDS = 30
+export const STORYBOARD_DEFAULT_TOTAL_DURATION_SECONDS = 5
 export const STORYBOARD_MIN_TOTAL_DURATION_SECONDS = 5
-export const STORYBOARD_MAX_TOTAL_DURATION_SECONDS = 1_800
+export const STORYBOARD_MAX_TOTAL_DURATION_SECONDS = 90
 export const STORYBOARD_MIN_SCENE_DURATION_SECONDS = 1
+export const STORYBOARD_MAX_SCENE_DURATION_SECONDS = 5
+export const STORYBOARD_SCENE_DURATION_STEP_SECONDS = 0.5
 export const STORYBOARD_DEFAULT_MODEL = 'Seedream 5 Pro'
 export const STORYBOARD_DEFAULT_ASPECT = '16:9'
 export const STORYBOARD_DEFAULT_RESOLUTION = '1K'
@@ -22,6 +24,10 @@ export const STORYBOARD_MAX_STORY_BRIEF_LENGTH = 12_000
 export const STORYBOARD_MAX_STORY_SUMMARY_LENGTH = 4_000
 export const STORYBOARD_MAX_STYLE_LENGTH = 800
 export const STORYBOARD_MAX_CANDIDATES_PER_SCENE = 24
+export const STORYBOARD_MAX_BOARD_CANDIDATES = 24
+export const STORYBOARD_MIN_VERSIONS = 1
+export const STORYBOARD_MAX_VERSIONS = 4
+export const STORYBOARD_DEFAULT_VERSIONS = 1
 export const STORYBOARD_STYLE_OPTIONS = Object.freeze([
   'None',
   'Cinematic',
@@ -37,6 +43,35 @@ const VALID_STORYBOARD_STYLES = new Set(STORYBOARD_STYLE_OPTIONS.filter((style) 
 export interface StoryboardSceneCandidate {
   creationId: string
   promptSnapshot: string
+  /**
+   * Durable fingerprint of every input that shaped this frame (prompt,
+   * references, continuity boards and generation settings). Older candidates
+   * predate this field and remain readable until a caller supplies an expected
+   * fingerprint for strict freshness checks.
+   */
+  inputFingerprint?: string
+  model: string
+  aspect: string
+  resolution: string
+  extras: Record<string, string>
+  createdAt: number
+}
+
+export type StoryboardOutputStrategy = 'single-generation' | 'scene-composite'
+
+/**
+ * A durable complete-board result. Direct generations retain the one raw
+ * generated contact-sheet Library ID used by their local metadata wrapper;
+ * deterministic composites retain the exact ordered scene frame IDs.
+ */
+export interface StoryboardBoardCandidate {
+  creationId: string
+  /** Durable Job Center association for complete-board recovery. */
+  jobId?: string
+  strategy: StoryboardOutputStrategy
+  promptSnapshot: string
+  inputFingerprint: string
+  sourceSceneCreationIds: string[]
   model: string
   aspect: string
   resolution: string
@@ -49,6 +84,12 @@ export interface StoryboardScene {
   title: string
   prompt: string
   explanation: string
+  /** Library image IDs attached only to this row in Storyboard by scenes. */
+  referenceCreationIds: string[]
+  /** Number of alternatives requested when this scene is generated directly. */
+  versionCount: number
+  /** By-scenes timing can be inferred independently for every row. */
+  durationMode: StoryboardSceneDurationMode
   durationSeconds: number
   candidates: StoryboardSceneCandidate[]
   approvedCreationId: string | null
@@ -57,11 +98,24 @@ export interface StoryboardScene {
 
 export type StoryboardWorkflowMode = 'full' | 'scenes'
 export type StoryboardTimingMode = 'none' | 'auto' | 'manual'
+export type StoryboardSceneDurationMode = 'auto' | 'manual'
 
 export interface StoryboardDraft {
   schemaVersion: typeof STORYBOARD_SCHEMA_VERSION
   workflowMode: StoryboardWorkflowMode
+  /**
+   * The workflow-safe execution strategy. Complete-story drafts always run as
+   * one generation; by-scenes drafts always compose their approved frames.
+   * Candidate.strategy remains the durable provenance of existing results.
+   */
+  outputStrategy: StoryboardOutputStrategy
+  /** Also generate standalone scene frames before creating a full storyboard. */
+  includeSeparateSceneFrames: boolean
   timingMode: StoryboardTimingMode
+  /** Optional adjacent board used only to continue into this board's opening. */
+  previousStoryboardCreationId: string | null
+  /** Optional adjacent board used only to lead out of this board's ending. */
+  nextStoryboardCreationId: string | null
   referenceCreationIds: string[]
   title: string
   storyBrief: string
@@ -71,6 +125,11 @@ export interface StoryboardDraft {
   resolution: string
   extras: Record<string, string>
   style: string
+  /** Number of alternatives generated for every missing scene in a board run. */
+  versionCount: number
+  /** Complete-board results survive strategy switches and application restarts. */
+  boardCandidates: StoryboardBoardCandidate[]
+  approvedBoardCreationId: string | null
   totalDurationSeconds: number
   scenes: StoryboardScene[]
 }
@@ -85,6 +144,16 @@ export interface StoryboardSceneTiming {
 export interface StoryboardTimingMutation {
   totalDurationSeconds: number
   scenes: StoryboardScene[]
+}
+
+/** A provider-resolved duration for one authored scene. */
+export interface StoryboardSceneDurationResolution {
+  sceneId: string
+  durationSeconds: number
+}
+
+export interface EffectiveStoryboardTiming extends StoryboardTimingMutation {
+  timingMode: StoryboardTimingMode
 }
 
 export function storyboardCompleteStory(
@@ -102,36 +171,55 @@ export function storyboardCompleteStory(
  * selected.
  */
 export function buildStoryboardEnhancementContext(
-  draft: Pick<StoryboardDraft, 'workflowMode' | 'timingMode' | 'title' | 'storyBrief' | 'storySummary' | 'model' | 'aspect' | 'resolution' | 'style' | 'totalDurationSeconds' | 'scenes'>,
+  draft: Pick<StoryboardDraft, 'workflowMode' | 'timingMode' | 'previousStoryboardCreationId' | 'nextStoryboardCreationId' | 'referenceCreationIds' | 'title' | 'storyBrief' | 'storySummary' | 'model' | 'aspect' | 'resolution' | 'style' | 'totalDurationSeconds' | 'scenes'>,
   currentSceneId?: string,
 ): string {
   const completeStory = storyboardCompleteStory(draft)
   const modeLabel = draft.workflowMode === 'scenes' ? 'Storyboard by scenes' : 'Full storyboard'
-  const hasTiming = draft.timingMode !== 'none'
-  const timings = hasTiming
-    ? storyboardSceneTimings(scaleStoryboardDurations(draft.scenes, draft.totalDurationSeconds))
-    : []
+  const effectiveTiming = effectiveStoryboardTiming(draft)
+  const hasTiming = effectiveTiming.timingMode !== 'none'
+  const totalDurationSeconds = effectiveTiming.totalDurationSeconds
+  const commonContext = [
+    `Storyboard mode: ${modeLabel}`,
+    `Storyboard title: ${draft.title.trim() || '(not provided)'}`,
+    `Complete story context: ${completeStory || (draft.workflowMode === 'full' ? '(not provided)' : '(not provided — preserve only facts present in the scene rows)')}`,
+    hasTiming ? `Timing mode: ${effectiveTiming.timingMode === 'auto' ? 'Automatic pacing will be chosen only when the final storyboard is created' : 'Manual exact timing'}` : '',
+    hasTiming && effectiveTiming.timingMode === 'manual' ? `Total story duration: ${totalDurationSeconds} seconds` : '',
+    `Output model: ${draft.model}`,
+    `Visual direction: ${draft.style.trim() || 'None selected'}`,
+    `Frame format: ${draft.aspect}${draft.resolution ? ` · ${draft.resolution}` : ''}`,
+    `Global visual references: ${draft.referenceCreationIds.length || 'none'}${draft.referenceCreationIds.length ? ` attached to ${draft.workflowMode === 'scenes' ? 'every scene and the complete board' : 'the complete board'}` : ''}`,
+    draft.previousStoryboardCreationId
+      ? 'Previous storyboard: attached as incoming continuity context only. Continue its established identity, world and visible end state into this storyboard; do not repeat its events or treat it as output to recreate.'
+      : '',
+    draft.nextStoryboardCreationId
+      ? 'Next storyboard: attached as outgoing continuity context only. Guide this storyboard toward its established opening state without depicting its future events early or treating it as output to recreate.'
+      : '',
+  ].filter((line) => line !== '')
+
+  // In Full Storyboard the Story Brief is the single authoritative plan.
+  // Persisted rows may belong to an earlier By-Scenes session and must never
+  // leak into prompt improvement while Full is selected.
+  if (draft.workflowMode === 'full') return commonContext.join('\n\n')
+
+  const timings = hasTiming ? storyboardSceneTimings(effectiveTiming.scenes) : []
   const sceneRows = draft.scenes.map((scene, index) => {
     const current = scene.id === currentSceneId ? ' · CURRENT SCENE' : ''
     const timing = timings[index]
     return [
       `SCENE ${String(index + 1).padStart(2, '0')}${current}`,
-      timing ? `Timing: ${timing.startSeconds}s–${timing.endSeconds}s · ${timing.durationSeconds}s` : '',
+      scene.durationMode === 'auto'
+        ? 'Timing: Auto — decide from the complete story only when creating the final storyboard'
+        : timing ? `Timing: ${timing.startSeconds}s–${timing.endSeconds}s · ${timing.durationSeconds}s` : '',
       `Title: ${scene.title.trim() || '(not provided)'}`,
       `Prompt: ${scene.prompt.trim() || '(not provided)'}`,
       `Story note / explanation: ${scene.explanation.trim() || '(not provided)'}`,
+      `Visual references: ${scene.referenceCreationIds.length || 'none'}${scene.referenceCreationIds.length ? ' attached to this scene' : ''}`,
     ].filter(Boolean).join('\n')
   })
 
   return [
-    `Storyboard mode: ${modeLabel}`,
-    `Storyboard title: ${draft.title.trim() || '(not provided)'}`,
-    `Complete story context: ${completeStory || '(not provided — preserve only facts present in the scene rows)'}`,
-    hasTiming ? `Timing mode: ${draft.timingMode === 'auto' ? 'Automatic pacing chosen from the story' : 'Manual exact timing'}` : '',
-    hasTiming ? `Total story duration: ${draft.totalDurationSeconds} seconds` : '',
-    `Output model: ${draft.model}`,
-    `Visual direction: ${draft.style.trim() || 'None selected'}`,
-    `Frame format: ${draft.aspect}${draft.resolution ? ` · ${draft.resolution}` : ''}`,
+    ...commonContext,
     '',
     'ORDERED SCENE ROWS',
     ...sceneRows,
@@ -190,14 +278,71 @@ function normalizeTimestamp(value: unknown): number {
     : 0
 }
 
-function normalizeSceneDuration(value: unknown): number {
+export function clampStoryboardSceneDuration(
+  value: unknown,
+  fallback = STORYBOARD_MIN_SCENE_DURATION_SECONDS,
+): number {
   const parsed = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(parsed)) return STORYBOARD_MIN_SCENE_DURATION_SECONDS
-  return Math.max(STORYBOARD_MIN_SCENE_DURATION_SECONDS, Math.round(parsed))
+  const parsedFallback = typeof fallback === 'number' ? fallback : Number(fallback)
+  const safeFallback = Number.isFinite(parsedFallback)
+    ? Math.round(parsedFallback / STORYBOARD_SCENE_DURATION_STEP_SECONDS) * STORYBOARD_SCENE_DURATION_STEP_SECONDS
+    : STORYBOARD_MIN_SCENE_DURATION_SECONDS
+  if (!Number.isFinite(parsed)) {
+    return Math.min(
+      STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+      Math.max(STORYBOARD_MIN_SCENE_DURATION_SECONDS, safeFallback),
+    )
+  }
+  const quantized = Math.round(parsed / STORYBOARD_SCENE_DURATION_STEP_SECONDS)
+    * STORYBOARD_SCENE_DURATION_STEP_SECONDS
+  return Math.min(
+    STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+    Math.max(STORYBOARD_MIN_SCENE_DURATION_SECONDS, quantized),
+  )
+}
+
+export function isStoryboardSceneDuration(value: unknown): boolean {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= STORYBOARD_MIN_SCENE_DURATION_SECONDS
+    && value <= STORYBOARD_MAX_SCENE_DURATION_SECONDS
+    && Number.isInteger(value / STORYBOARD_SCENE_DURATION_STEP_SECONDS)
+}
+
+function normalizeSceneDurationMode(
+  value: unknown,
+  fallback: StoryboardSceneDurationMode,
+): StoryboardSceneDurationMode {
+  return value === 'auto' || value === 'manual' ? value : fallback
 }
 
 function normalizeWorkflowMode(value: unknown): StoryboardWorkflowMode {
   return value === 'scenes' ? 'scenes' : 'full'
+}
+
+function storyboardExecutionStrategy(workflowMode: StoryboardWorkflowMode): StoryboardOutputStrategy {
+  return workflowMode === 'full' ? 'single-generation' : 'scene-composite'
+}
+
+function normalizeIncludeSeparateSceneFrames(
+  source: Record<string, unknown>,
+  persistedSchemaVersion: number,
+  workflowMode: StoryboardWorkflowMode,
+): boolean {
+  if (workflowMode !== 'full' || !Number.isFinite(persistedSchemaVersion)) return false
+  if (persistedSchemaVersion === 7) return source.outputStrategy === 'scene-composite'
+  if (persistedSchemaVersion >= 8 && persistedSchemaVersion <= STORYBOARD_SCHEMA_VERSION) {
+    return source.includeSeparateSceneFrames === true
+  }
+  return false
+}
+
+export function normalizeStoryboardOutputStrategy(value: unknown): StoryboardOutputStrategy {
+  return value === 'single-generation' ? 'single-generation' : 'scene-composite'
+}
+
+function isStoryboardOutputStrategy(value: unknown): value is StoryboardOutputStrategy {
+  return value === 'single-generation' || value === 'scene-composite'
 }
 
 function normalizeTimingMode(value: unknown, schemaVersion: unknown): StoryboardTimingMode {
@@ -206,7 +351,7 @@ function normalizeTimingMode(value: unknown, schemaVersion: unknown): Storyboard
 }
 
 function normalizeReferenceCreationIds(value: unknown, maximum: number): string[] {
-  if (!Array.isArray(value)) return []
+  if (!Array.isArray(value) || maximum <= 0) return []
   const seen = new Set<string>()
   const ids: string[] = []
   for (const item of value) {
@@ -224,10 +369,19 @@ function normalizeStyle(value: unknown): string {
   return VALID_STORYBOARD_STYLES.has(style) ? style : ''
 }
 
+export function clampStoryboardVersionCount(value: unknown, fallback = STORYBOARD_DEFAULT_VERSIONS): number {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  const normalizedFallback = Number.isFinite(fallback) ? Math.round(fallback) : STORYBOARD_DEFAULT_VERSIONS
+  const safeFallback = Math.min(STORYBOARD_MAX_VERSIONS, Math.max(STORYBOARD_MIN_VERSIONS, normalizedFallback))
+  if (!Number.isFinite(parsed)) return safeFallback
+  return Math.min(STORYBOARD_MAX_VERSIONS, Math.max(STORYBOARD_MIN_VERSIONS, Math.round(parsed)))
+}
+
 function normalizeCandidate(value: unknown): StoryboardSceneCandidate | null {
   const source = safeRecord(value)
   const creationId = safeText(source.creationId, 240, true)
   if (!creationId) return null
+  const inputFingerprint = safeText(source.inputFingerprint, 512, true)
 
   const model = normalizeModel(source.model)
   const options = resolveImageOptions(model, {
@@ -239,6 +393,7 @@ function normalizeCandidate(value: unknown): StoryboardSceneCandidate | null {
   return {
     creationId,
     promptSnapshot: safeText(source.promptSnapshot, STORYBOARD_MAX_PROMPT_LENGTH),
+    ...(inputFingerprint ? { inputFingerprint } : {}),
     model,
     aspect: options.aspect,
     resolution: options.resolution,
@@ -259,10 +414,60 @@ function normalizeCandidates(value: unknown): StoryboardSceneCandidate[] {
     normalized.push(candidate)
   }
 
-  return normalized.slice(-STORYBOARD_MAX_CANDIDATES_PER_SCENE)
+  return normalized
 }
 
-function normalizeScene(value: unknown, usedIds: Set<string>): StoryboardScene {
+function normalizeBoardCandidate(value: unknown): StoryboardBoardCandidate | null {
+  const source = safeRecord(value)
+  const creationId = safeText(source.creationId, 240, true)
+  const jobId = safeText(source.jobId, 240, true)
+  const inputFingerprint = safeText(source.inputFingerprint, 512, true)
+  if (!creationId || !inputFingerprint || !isStoryboardOutputStrategy(source.strategy)) return null
+
+  const model = normalizeModel(source.model)
+  const options = resolveImageOptions(model, {
+    aspect: safeText(source.aspect, 32, true),
+    resolution: safeText(source.resolution, 32, true),
+    extraOptionValues: safeRecord(source.extras) as Record<string, string>,
+  })
+
+  return {
+    creationId,
+    ...(jobId ? { jobId } : {}),
+    strategy: source.strategy,
+    promptSnapshot: safeText(source.promptSnapshot, STORYBOARD_MAX_PROMPT_LENGTH),
+    inputFingerprint,
+    sourceSceneCreationIds: normalizeReferenceCreationIds(
+      source.sourceSceneCreationIds,
+      source.strategy === 'scene-composite' ? STORYBOARD_MAX_SCENES : 1,
+    ),
+    model,
+    aspect: options.aspect,
+    resolution: options.resolution,
+    extras: options.extraOptionValues,
+    createdAt: normalizeTimestamp(source.createdAt),
+  }
+}
+
+function normalizeBoardCandidates(
+  value: unknown,
+  approvedBoardCreationId: string | null,
+): StoryboardBoardCandidate[] {
+  if (!Array.isArray(value)) return []
+  const candidates = value.flatMap((entry) => {
+    const candidate = normalizeBoardCandidate(entry)
+    return candidate ? [candidate] : []
+  })
+  return appendStoryboardBoardCandidates({ boardCandidates: [], approvedBoardCreationId }, candidates)
+}
+
+function normalizeScene(
+  value: unknown,
+  usedIds: Set<string>,
+  referenceLimit: number,
+  legacyReferenceCreationIds: readonly string[] = [],
+  durationModeFallback: StoryboardSceneDurationMode = 'auto',
+): StoryboardScene {
   const source = safeRecord(value)
   const persistedId = safeText(source.id, 160, true)
   const id = persistedId && !usedIds.has(persistedId) ? persistedId : makeSceneId(usedIds)
@@ -278,8 +483,17 @@ function normalizeScene(value: unknown, usedIds: Set<string>): StoryboardScene {
     title: safeText(source.title, STORYBOARD_MAX_TITLE_LENGTH),
     prompt: safeText(source.prompt, STORYBOARD_MAX_PROMPT_LENGTH),
     explanation: safeText(source.explanation, STORYBOARD_MAX_EXPLANATION_LENGTH),
-    durationSeconds: normalizeSceneDuration(source.durationSeconds),
-    candidates: normalizeCandidates(source.candidates),
+    referenceCreationIds: normalizeReferenceCreationIds(
+      Array.isArray(source.referenceCreationIds) ? source.referenceCreationIds : legacyReferenceCreationIds,
+      referenceLimit,
+    ),
+    versionCount: clampStoryboardVersionCount(source.versionCount),
+    durationMode: normalizeSceneDurationMode(source.durationMode, durationModeFallback),
+    durationSeconds: clampStoryboardSceneDuration(source.durationSeconds),
+    candidates: appendStoryboardCandidates({
+      candidates: normalizeCandidates(source.candidates),
+      approvedCreationId,
+    }, []),
     approvedCreationId,
     approvedPromptSnapshot: approvedCreationId ? approvedPromptSnapshot : null,
   }
@@ -292,44 +506,68 @@ export function clampStoryboardSceneCount(value: unknown, fallback = STORYBOARD_
   return Math.min(STORYBOARD_MAX_SCENES, Math.max(STORYBOARD_MIN_SCENES, Math.round(parsed)))
 }
 
+/**
+ * Full Storyboard is one story-level generation, so its runtime is not
+ * constrained by the number of hidden/persisted scene rows. By-scenes timing
+ * continues to use `clampStoryboardTotalDuration` below.
+ */
+export function clampFullStoryboardDuration(
+  value: unknown,
+  fallback = STORYBOARD_DEFAULT_TOTAL_DURATION_SECONDS,
+): number {
+  const normalizedFallback = Number.isFinite(fallback)
+    ? Math.round(fallback)
+    : STORYBOARD_DEFAULT_TOTAL_DURATION_SECONDS
+  const safeFallback = Math.min(
+    STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
+    Math.max(STORYBOARD_MIN_TOTAL_DURATION_SECONDS, normalizedFallback),
+  )
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed)) return safeFallback
+  return Math.min(
+    STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
+    Math.max(STORYBOARD_MIN_TOTAL_DURATION_SECONDS, Math.round(parsed)),
+  )
+}
+
 export function clampStoryboardTotalDuration(
   value: unknown,
   sceneCount = STORYBOARD_DEFAULT_SCENE_COUNT,
   fallback = STORYBOARD_DEFAULT_TOTAL_DURATION_SECONDS,
 ): number {
   const safeSceneCount = clampStoryboardSceneCount(sceneCount)
-  const minimum = Math.max(STORYBOARD_MIN_TOTAL_DURATION_SECONDS, safeSceneCount * STORYBOARD_MIN_SCENE_DURATION_SECONDS)
-  const safeFallback = Math.min(
+  const maximum = Math.min(
     STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
-    Math.max(minimum, Math.round(fallback)),
+    safeSceneCount * STORYBOARD_MAX_SCENE_DURATION_SECONDS,
   )
+  const minimum = Math.min(
+    maximum,
+    Math.max(STORYBOARD_MIN_TOTAL_DURATION_SECONDS, safeSceneCount * STORYBOARD_MIN_SCENE_DURATION_SECONDS),
+  )
+  const safeFallback = Math.min(maximum, Math.max(minimum, Math.round(fallback)))
   const parsed = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(parsed)) return safeFallback
-  return Math.min(STORYBOARD_MAX_TOTAL_DURATION_SECONDS, Math.max(minimum, Math.round(parsed)))
+  return Math.min(maximum, Math.max(minimum, Math.round(parsed)))
 }
 
 function allocateStoryboardSeconds(totalDurationSeconds: number, weights: readonly number[]): number[] {
   if (weights.length === 0) return []
-  const total = Math.max(weights.length * STORYBOARD_MIN_SCENE_DURATION_SECONDS, Math.round(totalDurationSeconds))
+  const minimum = weights.length * STORYBOARD_MIN_SCENE_DURATION_SECONDS
+  const maximum = weights.length * STORYBOARD_MAX_SCENE_DURATION_SECONDS
+  const total = Math.min(maximum, Math.max(minimum, Math.round(totalDurationSeconds)))
   const safeWeights = weights.map((weight) => Number.isFinite(weight) && weight > 0 ? weight : 1)
   const weightTotal = safeWeights.reduce((sum, weight) => sum + weight, 0)
   const exact = safeWeights.map((weight) => total * weight / weightTotal)
-  const allocated = exact.map((value) => Math.max(STORYBOARD_MIN_SCENE_DURATION_SECONDS, Math.floor(value)))
-  let remainder = total - allocated.reduce((sum, value) => sum + value, 0)
-  while (remainder < 0) {
-    const donor = allocated
-      .map((value, index) => ({ index, available: value - STORYBOARD_MIN_SCENE_DURATION_SECONDS, excess: value - exact[index] }))
-      .filter((item) => item.available > 0)
-      .sort((left, right) => right.excess - left.excess || right.available - left.available || left.index - right.index)[0]
-    if (!donor) break
-    allocated[donor.index] -= 1
-    remainder += 1
-  }
-  const remainderOrder = exact
-    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
-    .sort((left, right) => right.fraction - left.fraction || left.index - right.index)
-  for (let index = 0; remainder > 0; index += 1, remainder -= 1) {
-    allocated[remainderOrder[index % remainderOrder.length].index] += 1
+  const allocated = weights.map(() => STORYBOARD_MIN_SCENE_DURATION_SECONDS)
+  let remainder = total - minimum
+  while (remainder > 0) {
+    const recipient = allocated
+      .map((value, index) => ({ index, value, need: exact[index] - value }))
+      .filter((item) => item.value < STORYBOARD_MAX_SCENE_DURATION_SECONDS)
+      .sort((left, right) => right.need - left.need || left.index - right.index)[0]
+    if (!recipient) break
+    allocated[recipient.index] += 1
+    remainder -= 1
   }
   return allocated
 }
@@ -349,7 +587,7 @@ export function scaleStoryboardDurations(
 ): StoryboardScene[] {
   if (scenes.length === 0) return []
   const total = clampStoryboardTotalDuration(totalDurationSeconds, scenes.length)
-  const durations = allocateStoryboardSeconds(total, scenes.map((scene) => normalizeSceneDuration(scene.durationSeconds)))
+  const durations = allocateStoryboardSeconds(total, scenes.map((scene) => clampStoryboardSceneDuration(scene.durationSeconds)))
   return scenes.map((scene, index) => ({ ...scene, durationSeconds: durations[index] }))
 }
 
@@ -366,34 +604,24 @@ export function adjustStoryboardSceneDuration(
   if (targetIndex < 0) return normalized
   if (normalized.length === 1) return normalized.map((scene) => ({ ...scene, durationSeconds: total }))
 
-  const maximum = total - (normalized.length - 1) * STORYBOARD_MIN_SCENE_DURATION_SECONDS
-  const requested = Math.min(maximum, Math.max(STORYBOARD_MIN_SCENE_DURATION_SECONDS, Math.round(requestedDurationSeconds)))
-  const durations = normalized.map((scene) => scene.durationSeconds)
-  const delta = requested - durations[targetIndex]
-  if (delta === 0) return normalized
-
-  const compensationOrder = [
-    ...Array.from({ length: normalized.length - targetIndex - 1 }, (_, offset) => targetIndex + offset + 1),
-    ...Array.from({ length: targetIndex }, (_, offset) => targetIndex - offset - 1),
-  ]
-
-  if (delta > 0) {
-    let needed = delta
-    for (const index of compensationOrder) {
-      const available = durations[index] - STORYBOARD_MIN_SCENE_DURATION_SECONDS
-      const taken = Math.min(available, needed)
-      durations[index] -= taken
-      needed -= taken
-      if (needed === 0) break
-    }
-    durations[targetIndex] += delta - needed
-  } else {
-    const recipientIndex = compensationOrder[0]
-    durations[targetIndex] = requested
-    durations[recipientIndex] += -delta
-  }
-
-  return normalized.map((scene, index) => ({ ...scene, durationSeconds: durations[index] }))
+  const minimum = Math.max(
+    STORYBOARD_MIN_SCENE_DURATION_SECONDS,
+    total - (normalized.length - 1) * STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+  )
+  const maximum = Math.min(
+    STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+    total - (normalized.length - 1) * STORYBOARD_MIN_SCENE_DURATION_SECONDS,
+  )
+  const requested = Math.min(maximum, Math.max(minimum, Math.round(requestedDurationSeconds)))
+  const otherScenes = normalized.filter((_, index) => index !== targetIndex)
+  const otherDurations = allocateStoryboardSeconds(
+    total - requested,
+    otherScenes.map((scene) => scene.durationSeconds),
+  )
+  let otherIndex = 0
+  return normalized.map((scene, index) => index === targetIndex
+    ? { ...scene, durationSeconds: requested }
+    : { ...scene, durationSeconds: otherDurations[otherIndex++] })
 }
 
 export function appendStoryboardSceneWithTiming(
@@ -401,27 +629,9 @@ export function appendStoryboardSceneWithTiming(
   totalDurationSeconds: number,
   scene = createStoryboardScene(),
 ): StoryboardTimingMutation {
-  const nextTotal = clampStoryboardTotalDuration(totalDurationSeconds, scenes.length + 1)
-  const normalized = scaleStoryboardDurations(scenes, nextTotal)
-  if (normalized.length === 0) {
-    return { totalDurationSeconds: nextTotal, scenes: [{ ...scene, durationSeconds: nextTotal }] }
-  }
-  const longestIndex = normalized.reduce(
-    (best, item, index) => item.durationSeconds > normalized[best].durationSeconds ? index : best,
-    0,
-  )
-  if (normalized[longestIndex].durationSeconds <= STORYBOARD_MIN_SCENE_DURATION_SECONDS) {
-    return { totalDurationSeconds: nextTotal, scenes: distributeStoryboardDurations([...normalized, scene], nextTotal) }
-  }
-  const addedDuration = Math.max(
-    STORYBOARD_MIN_SCENE_DURATION_SECONDS,
-    Math.floor(normalized[longestIndex].durationSeconds / 2),
-  )
-  const next = normalized.map((item, index) => index === longestIndex
-    ? { ...item, durationSeconds: item.durationSeconds - addedDuration }
-    : item)
-  next.push({ ...scene, durationSeconds: addedDuration })
-  return { totalDurationSeconds: nextTotal, scenes: next }
+  const next = [...scenes, scene]
+  const nextTotal = clampStoryboardTotalDuration(totalDurationSeconds, next.length)
+  return { totalDurationSeconds: nextTotal, scenes: scaleStoryboardDurations(next, nextTotal) }
 }
 
 export function removeStoryboardSceneWithTiming(
@@ -429,21 +639,23 @@ export function removeStoryboardSceneWithTiming(
   sceneId: string,
   totalDurationSeconds: number,
 ): StoryboardTimingMutation {
-  const total = clampStoryboardTotalDuration(totalDurationSeconds, Math.max(1, scenes.length - 1))
   const normalized = scaleStoryboardDurations(scenes, totalDurationSeconds)
   const removedIndex = normalized.findIndex((scene) => scene.id === sceneId)
-  if (removedIndex < 0 || normalized.length <= 1) return { totalDurationSeconds: total, scenes: normalized }
-  const removedDuration = normalized[removedIndex].durationSeconds
+  if (removedIndex < 0 || normalized.length <= 1) {
+    return {
+      totalDurationSeconds: clampStoryboardTotalDuration(totalDurationSeconds, normalized.length || 1),
+      scenes: normalized,
+    }
+  }
   const next = normalized.filter((scene) => scene.id !== sceneId)
-  const recipientIndex = Math.min(removedIndex, next.length - 1)
-  next[recipientIndex] = { ...next[recipientIndex], durationSeconds: next[recipientIndex].durationSeconds + removedDuration }
-  return { totalDurationSeconds: total, scenes: next }
+  const total = clampStoryboardTotalDuration(totalDurationSeconds, next.length)
+  return { totalDurationSeconds: total, scenes: scaleStoryboardDurations(next, total) }
 }
 
 export function storyboardSceneTimings(scenes: readonly StoryboardScene[]): StoryboardSceneTiming[] {
   let cursor = 0
   return scenes.map((scene) => {
-    const durationSeconds = normalizeSceneDuration(scene.durationSeconds)
+    const durationSeconds = clampStoryboardSceneDuration(scene.durationSeconds)
     const timing = {
       sceneId: scene.id,
       durationSeconds,
@@ -469,9 +681,12 @@ export function autoStoryboardTiming(
   }
   const weights = scenes.map((scene) => {
     const sceneWords = storyboardWordCount(`${scene.title} ${scene.prompt} ${scene.explanation}`)
-    return Math.min(30, 4 + Math.ceil(sceneWords / 10))
+    return Math.min(
+      STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+      STORYBOARD_MIN_SCENE_DURATION_SECONDS + Math.ceil(sceneWords / 12),
+    )
   })
-  const contextSeconds = Math.min(60, Math.ceil(storyboardWordCount(completeStory) / 8))
+  const contextSeconds = Math.min(scenes.length, Math.ceil(storyboardWordCount(completeStory) / 30))
   const requestedTotal = weights.reduce((sum, weight) => sum + weight, 0) + contextSeconds
   const totalDurationSeconds = clampStoryboardTotalDuration(requestedTotal, scenes.length)
   return {
@@ -483,24 +698,128 @@ export function autoStoryboardTiming(
   }
 }
 
+/**
+ * Resolves only the rows left on Auto in Storyboard by scenes. Explicit scene
+ * durations remain authoritative while automatic rows are paced from the
+ * complete story plus the content of every ordered scene.
+ */
+export function resolveStoryboardSceneDurations(
+  scenes: readonly StoryboardScene[],
+  completeStory = '',
+): StoryboardTimingMutation {
+  if (scenes.length === 0) {
+    return { totalDurationSeconds: STORYBOARD_DEFAULT_TOTAL_DURATION_SECONDS, scenes: [] }
+  }
+  const automatic = autoStoryboardTiming(scenes, completeStory).scenes
+  const resolved = scenes.map((scene, index) => ({
+    ...scene,
+    durationSeconds: scene.durationMode === 'auto'
+      ? clampStoryboardSceneDuration(automatic[index]?.durationSeconds)
+      : clampStoryboardSceneDuration(scene.durationSeconds),
+  }))
+  const totalDurationSeconds = resolved.reduce((sum, scene) => sum + scene.durationSeconds, 0)
+  return {
+    // By-scenes timing is the exact sum of its independent 1–5 second rows.
+    // Unlike Full Storyboard it intentionally has no five-second global floor.
+    totalDurationSeconds,
+    scenes: resolved,
+  }
+}
+
+/**
+ * Applies a generation-time timing response without ever changing an explicit
+ * Manual row. The resolver is intentionally strict: an Auto row without a
+ * valid provider result is an error instead of silently falling back to a
+ * locally invented duration.
+ */
+export function applyStoryboardSceneDurationResolution(
+  scenes: readonly StoryboardScene[],
+  resolutions: readonly StoryboardSceneDurationResolution[],
+): StoryboardTimingMutation {
+  const resolvedById = new Map<string, number>()
+  resolutions.forEach((resolution) => {
+    if (resolvedById.has(resolution.sceneId)) {
+      throw new Error(`Duplicate storyboard timing for scene ${resolution.sceneId}`)
+    }
+    if (
+      !isStoryboardSceneDuration(resolution.durationSeconds)
+    ) {
+      throw new Error(`Invalid storyboard timing for scene ${resolution.sceneId}`)
+    }
+    resolvedById.set(resolution.sceneId, resolution.durationSeconds)
+  })
+
+  const resolvedScenes = scenes.map((scene) => {
+    if (scene.durationMode === 'manual') return { ...scene }
+    const durationSeconds = resolvedById.get(scene.id)
+    if (durationSeconds === undefined) {
+      throw new Error(`Missing storyboard timing for scene ${scene.id}`)
+    }
+    return { ...scene, durationSeconds }
+  })
+
+  return {
+    totalDurationSeconds: resolvedScenes.reduce((sum, scene) => sum + scene.durationSeconds, 0),
+    scenes: resolvedScenes,
+  }
+}
+
+/**
+ * Returns the timing snapshot consumers must use without mutating the hidden
+ * Full Storyboard timing preference while the user works in By Scenes.
+ */
+export function effectiveStoryboardTiming(
+  draft: Pick<StoryboardDraft, 'workflowMode' | 'timingMode' | 'totalDurationSeconds' | 'storyBrief' | 'storySummary' | 'scenes'>,
+): EffectiveStoryboardTiming {
+  if (draft.workflowMode === 'scenes') {
+    const scenes = draft.scenes.map((scene) => ({
+      ...scene,
+      durationSeconds: clampStoryboardSceneDuration(scene.durationSeconds),
+    }))
+    return {
+      timingMode: scenes.some((scene) => scene.durationMode === 'auto') ? 'auto' : 'manual',
+      totalDurationSeconds: scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0),
+      scenes,
+    }
+  }
+  // Full Storyboard owns one story-level duration. Its hidden legacy scene
+  // rows are deliberately neither rescaled nor consulted for automatic pace.
+  const totalDurationSeconds = clampFullStoryboardDuration(draft.totalDurationSeconds)
+  return {
+    timingMode: draft.timingMode,
+    totalDurationSeconds,
+    scenes: draft.scenes,
+  }
+}
+
 export function formatStoryboardTimecode(value: number): string {
-  const seconds = Math.max(0, Math.round(Number.isFinite(value) ? value : 0))
+  const seconds = Math.max(
+    0,
+    Math.round((Number.isFinite(value) ? value : 0) / STORYBOARD_SCENE_DURATION_STEP_SECONDS)
+      * STORYBOARD_SCENE_DURATION_STEP_SECONDS,
+  )
   const hours = Math.floor(seconds / 3_600)
   const minutes = Math.floor((seconds % 3_600) / 60)
-  const remainder = seconds % 60
+  const wholeRemainder = Math.floor(seconds % 60)
+  const remainder = `${String(wholeRemainder).padStart(2, '0')}${seconds % 1 ? '.5' : ''}`
   return hours > 0
-    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
-    : `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${remainder}`
+    : `${String(minutes).padStart(2, '0')}:${remainder}`
 }
 
 export function formatStoryboardDuration(value: number): string {
-  const seconds = Math.max(0, Math.round(Number.isFinite(value) ? value : 0))
-  if (seconds < 60) return `${seconds}s`
+  const seconds = Math.max(
+    0,
+    Math.round((Number.isFinite(value) ? value : 0) / STORYBOARD_SCENE_DURATION_STEP_SECONDS)
+      * STORYBOARD_SCENE_DURATION_STEP_SECONDS,
+  )
+  const formatSeconds = (amount: number) => Number.isInteger(amount) ? String(amount) : amount.toFixed(1)
+  if (seconds < 60) return `${formatSeconds(seconds)}s`
   const hours = Math.floor(seconds / 3_600)
   const minutes = Math.floor((seconds % 3_600) / 60)
   const remainder = seconds % 60
-  if (hours > 0) return `${hours}h${minutes ? ` ${minutes}m` : ''}${remainder ? ` ${remainder}s` : ''}`
-  return `${minutes}m${remainder ? ` ${remainder}s` : ''}`
+  if (hours > 0) return `${hours}h${minutes ? ` ${minutes}m` : ''}${remainder ? ` ${formatSeconds(remainder)}s` : ''}`
+  return `${minutes}m${remainder ? ` ${formatSeconds(remainder)}s` : ''}`
 }
 
 export function createStoryboardScene(id?: string): StoryboardScene {
@@ -510,6 +829,9 @@ export function createStoryboardScene(id?: string): StoryboardScene {
     title: '',
     prompt: '',
     explanation: '',
+    referenceCreationIds: [],
+    versionCount: STORYBOARD_DEFAULT_VERSIONS,
+    durationMode: 'auto',
     durationSeconds: STORYBOARD_MIN_SCENE_DURATION_SECONDS,
     candidates: [],
     approvedCreationId: null,
@@ -530,7 +852,11 @@ export function createDefaultStoryboardDraft(sceneCount = STORYBOARD_DEFAULT_SCE
   return {
     schemaVersion: STORYBOARD_SCHEMA_VERSION,
     workflowMode: 'full',
+    outputStrategy: 'single-generation',
+    includeSeparateSceneFrames: false,
     timingMode: 'none',
+    previousStoryboardCreationId: null,
+    nextStoryboardCreationId: null,
     referenceCreationIds: [],
     title: '',
     storyBrief: '',
@@ -540,6 +866,9 @@ export function createDefaultStoryboardDraft(sceneCount = STORYBOARD_DEFAULT_SCE
     resolution: STORYBOARD_DEFAULT_RESOLUTION,
     extras: { format: 'PNG' },
     style: '',
+    versionCount: STORYBOARD_DEFAULT_VERSIONS,
+    boardCandidates: [],
+    approvedBoardCreationId: null,
     totalDurationSeconds,
     scenes: distributeStoryboardDurations(scenes, totalDurationSeconds),
   }
@@ -554,29 +883,82 @@ export function normalizeStoryboardDraft(value: unknown): StoryboardDraft {
     extraOptionValues: safeRecord(source.extras) as Record<string, string>,
   })
 
+  const workflowMode = normalizeWorkflowMode(source.workflowMode)
+  const timingMode = normalizeTimingMode(source.timingMode, source.schemaVersion)
+  const referenceLimit = IMAGE_MODEL_CONFIG[model].maxReferenceImages
+  const normalizedGlobalReferences = normalizeReferenceCreationIds(source.referenceCreationIds, referenceLimit)
+  const persistedSchemaVersion = Number(source.schemaVersion)
   const sourceScenes = Array.isArray(source.scenes) && source.scenes.length > 0
     ? source.scenes.slice(0, STORYBOARD_MAX_SCENES)
     : Array.from({ length: STORYBOARD_DEFAULT_SCENE_COUNT }, () => ({}))
   const usedIds = new Set<string>()
-  const scenes = sourceScenes.map((scene) => normalizeScene(scene, usedIds))
-  const totalDurationSeconds = clampStoryboardTotalDuration(source.totalDurationSeconds, scenes.length)
-  const timingMode = normalizeTimingMode(source.timingMode, source.schemaVersion)
+  const scenes = sourceScenes.map((scene) => normalizeScene(
+    scene,
+    usedIds,
+    referenceLimit,
+    [],
+    workflowMode === 'scenes' && timingMode === 'manual' ? 'manual' : 'auto',
+  ))
+  const globalReferenceIds = new Set(normalizedGlobalReferences)
+  const referenceSafeScenes = workflowMode === 'scenes' && globalReferenceIds.size
+    ? scenes.map((scene) => ({
+      ...scene,
+      referenceCreationIds: scene.referenceCreationIds.filter((creationId) => !globalReferenceIds.has(creationId)),
+    }))
+    : scenes
+  const requestedTotalDurationSeconds = workflowMode === 'full'
+    ? clampFullStoryboardDuration(source.totalDurationSeconds)
+    : clampStoryboardTotalDuration(source.totalDurationSeconds, scenes.length)
+  const storyBrief = safeText(source.storyBrief, STORYBOARD_MAX_STORY_BRIEF_LENGTH)
+  const storySummary = safeText(source.storySummary, STORYBOARD_MAX_STORY_SUMMARY_LENGTH)
+  const normalizedScenes = workflowMode === 'scenes'
+    ? {
+      totalDurationSeconds: scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0),
+      // Auto rows deliberately keep their last persisted value. The value is
+      // not displayed as a prediction and is replaced only by the strict
+      // generation-time pacing response.
+      scenes: referenceSafeScenes,
+    }
+    : {
+      totalDurationSeconds: requestedTotalDurationSeconds,
+      // Full Storyboard is generated from the Story Brief as one plan. Keep
+      // legacy rows intact for safe workflow switching, but never make the
+      // Full duration depend on or redistribute through them.
+      scenes: referenceSafeScenes,
+    }
+  const requestedApprovedBoardCreationId = safeText(source.approvedBoardCreationId, 240, true) || null
+  const boardCandidates = normalizeBoardCandidates(source.boardCandidates, requestedApprovedBoardCreationId)
+  const approvedBoardCreationId = requestedApprovedBoardCreationId
+    && boardCandidates.some((candidate) => candidate.creationId === requestedApprovedBoardCreationId)
+    ? requestedApprovedBoardCreationId
+    : null
 
   return {
     schemaVersion: STORYBOARD_SCHEMA_VERSION,
-    workflowMode: normalizeWorkflowMode(source.workflowMode),
+    workflowMode,
+    outputStrategy: storyboardExecutionStrategy(workflowMode),
+    includeSeparateSceneFrames: normalizeIncludeSeparateSceneFrames(
+      source,
+      persistedSchemaVersion,
+      workflowMode,
+    ),
     timingMode,
-    referenceCreationIds: normalizeReferenceCreationIds(source.referenceCreationIds, IMAGE_MODEL_CONFIG[model].maxReferenceImages),
+    previousStoryboardCreationId: safeText(source.previousStoryboardCreationId, 240, true) || null,
+    nextStoryboardCreationId: safeText(source.nextStoryboardCreationId, 240, true) || null,
+    referenceCreationIds: normalizedGlobalReferences,
     title: safeText(source.title, STORYBOARD_MAX_TITLE_LENGTH),
-    storyBrief: safeText(source.storyBrief, STORYBOARD_MAX_STORY_BRIEF_LENGTH),
-    storySummary: safeText(source.storySummary, STORYBOARD_MAX_STORY_SUMMARY_LENGTH),
+    storyBrief,
+    storySummary,
     model,
     aspect: options.aspect,
     resolution: options.resolution,
     extras: options.extraOptionValues,
     style: normalizeStyle(source.style),
-    totalDurationSeconds,
-    scenes: scaleStoryboardDurations(scenes, totalDurationSeconds),
+    versionCount: clampStoryboardVersionCount(source.versionCount),
+    boardCandidates,
+    approvedBoardCreationId,
+    totalDurationSeconds: requestedTotalDurationSeconds,
+    scenes: normalizedScenes.scenes,
   }
 }
 
@@ -584,22 +966,67 @@ export function isStoryboardSceneApproved(scene: Pick<StoryboardScene, 'approved
   return Boolean(scene.approvedCreationId?.trim())
 }
 
+/**
+ * Counts durable scene alternatives that are still backed by an available
+ * Library image. The approved image is included even for older drafts where
+ * it was not copied into the candidates array.
+ */
+export function countAvailableStoryboardSceneVersions(
+  scene: Pick<StoryboardScene, 'candidates' | 'approvedCreationId'>,
+  availableCreationIds: Iterable<string>,
+): number {
+  const available = new Set(availableCreationIds)
+  const versionIds = new Set<string>()
+  for (const candidate of scene.candidates) {
+    const creationId = candidate.creationId.trim()
+    if (creationId && available.has(creationId)) versionIds.add(creationId)
+  }
+  const approvedCreationId = scene.approvedCreationId?.trim()
+  if (approvedCreationId && available.has(approvedCreationId)) {
+    versionIds.add(approvedCreationId)
+  }
+  return versionIds.size
+}
+
+/** Returns how many more standalone images are needed to reach the request. */
+export function storyboardSceneVersionDeficit(
+  scene: Pick<StoryboardScene, 'candidates' | 'approvedCreationId'>,
+  requestedVersions: unknown,
+  availableCreationIds: Iterable<string>,
+): number {
+  return Math.max(
+    0,
+    clampStoryboardVersionCount(requestedVersions)
+      - countAvailableStoryboardSceneVersions(scene, availableCreationIds),
+  )
+}
+
 export function isStoryboardApprovalStale(
-  scene: Pick<StoryboardScene, 'prompt' | 'approvedCreationId' | 'approvedPromptSnapshot'>,
+  scene: Pick<StoryboardScene, 'prompt' | 'approvedCreationId' | 'approvedPromptSnapshot'>
+    & Partial<Pick<StoryboardScene, 'candidates'>>,
+  expectedInputFingerprint?: string,
 ): boolean {
   if (!isStoryboardSceneApproved(scene)) return false
   if (scene.approvedPromptSnapshot === null) return true
-  return scene.prompt.trim() !== scene.approvedPromptSnapshot.trim()
+  if (scene.prompt.trim() !== scene.approvedPromptSnapshot.trim()) return true
+  if (expectedInputFingerprint === undefined) return false
+
+  const approvedCreationId = scene.approvedCreationId?.trim()
+  const approvedCandidate = scene.candidates?.find((candidate) => (
+    candidate.creationId.trim() === approvedCreationId
+  ))
+  return approvedCandidate?.inputFingerprint !== expectedInputFingerprint
 }
 
 export function storyboardSceneHasContent(
-  scene: Pick<StoryboardScene, 'prompt' | 'candidates' | 'approvedCreationId' | 'approvedPromptSnapshot'>
+  scene: Pick<StoryboardScene, 'prompt' | 'referenceCreationIds' | 'candidates' | 'approvedCreationId' | 'approvedPromptSnapshot'>
     & Partial<Pick<StoryboardScene, 'title' | 'explanation'>>,
 ): boolean {
   return Boolean(
     scene.title?.trim()
     || scene.prompt.trim()
     || scene.explanation?.trim()
+    || scene.referenceCreationIds.length
     || scene.candidates.length
     || scene.approvedCreationId
     || scene.approvedPromptSnapshot?.trim(),
@@ -697,9 +1124,122 @@ export function selectPendingStoryboardScenes(
   ))
 }
 
+export type StoryboardSceneCompletionAction =
+  | 'preserve'
+  | 'use-reference'
+  | 'generate'
+  | 'missing'
+  | 'ambiguous-references'
+
+/**
+ * Resolves a scene without mutating it. Approved output always wins; a single
+ * reference with no prompt is reused exactly; only prompted scenes are sent
+ * to image generation. Supplying an expected input fingerprint opts into a
+ * strict freshness check, so an approval made from older scene/reference/
+ * continuity inputs is no longer preserved.
+ */
+export function storyboardSceneCompletionAction(
+  scene: Pick<StoryboardScene, 'prompt' | 'referenceCreationIds' | 'approvedCreationId'>
+    & Partial<Pick<StoryboardScene, 'candidates' | 'approvedPromptSnapshot'>>,
+  allowExactReferenceReuse = true,
+  expectedInputFingerprint?: string,
+): StoryboardSceneCompletionAction {
+  if (
+    isStoryboardSceneApproved(scene)
+    && (
+      expectedInputFingerprint === undefined
+      || !isStoryboardApprovalStale({
+        ...scene,
+        approvedPromptSnapshot: scene.approvedPromptSnapshot ?? null,
+      }, expectedInputFingerprint)
+    )
+  ) return 'preserve'
+  if (scene.prompt.trim()) return 'generate'
+  if (allowExactReferenceReuse && scene.referenceCreationIds.length === 1) return 'use-reference'
+  if (allowExactReferenceReuse && scene.referenceCreationIds.length > 1) return 'ambiguous-references'
+  return 'missing'
+}
+
+/** Returns every requested Library reference that is not currently available. */
+export function findMissingStoryboardReferenceIds(
+  referenceCreationIds: readonly string[],
+  availableCreationIds: Iterable<string>,
+): string[] {
+  const available = new Set(availableCreationIds)
+  return referenceCreationIds.filter((creationId) => !available.has(creationId))
+}
+
 export function findStoryboardCandidate(
   scene: Pick<StoryboardScene, 'candidates'>,
   creationId: string | null | undefined,
 ): StoryboardSceneCandidate | undefined {
   return creationId ? scene.candidates.find((candidate) => candidate.creationId === creationId) : undefined
+}
+
+/**
+ * Appends a generated batch without ever evicting the frame currently used by
+ * the storyboard. Newer alternatives win duplicate IDs and the remaining
+ * history is capped to the durable per-scene limit.
+ */
+export function appendStoryboardCandidates(
+  scene: Pick<StoryboardScene, 'candidates' | 'approvedCreationId'>,
+  incoming: readonly StoryboardSceneCandidate[],
+): StoryboardSceneCandidate[] {
+  const orderedIds: string[] = []
+  const byId = new Map<string, StoryboardSceneCandidate>()
+
+  for (const candidate of [...scene.candidates, ...incoming]) {
+    const id = candidate.creationId.trim()
+    if (!id) continue
+    if (!byId.has(id)) orderedIds.push(id)
+    byId.set(id, candidate)
+  }
+
+  if (orderedIds.length <= STORYBOARD_MAX_CANDIDATES_PER_SCENE) {
+    return orderedIds.flatMap((id) => byId.get(id) ?? [])
+  }
+
+  const approvedId = scene.approvedCreationId && byId.has(scene.approvedCreationId)
+    ? scene.approvedCreationId
+    : null
+  const remainingCapacity = STORYBOARD_MAX_CANDIDATES_PER_SCENE - (approvedId ? 1 : 0)
+  const newestIds = orderedIds
+    .filter((id) => id !== approvedId)
+    .slice(-remainingCapacity)
+  const keep = new Set(approvedId ? [approvedId, ...newestIds] : newestIds)
+  return orderedIds.flatMap((id) => keep.has(id) ? byId.get(id) ?? [] : [])
+}
+
+/**
+ * Merges complete-board alternatives by stable Library ID. Later metadata wins
+ * for duplicates, history remains bounded, and an approved result is never
+ * evicted by newer versions.
+ */
+export function appendStoryboardBoardCandidates(
+  board: Pick<StoryboardDraft, 'boardCandidates' | 'approvedBoardCreationId'>,
+  incoming: readonly StoryboardBoardCandidate[],
+): StoryboardBoardCandidate[] {
+  const orderedIds: string[] = []
+  const byId = new Map<string, StoryboardBoardCandidate>()
+
+  for (const candidate of [...board.boardCandidates, ...incoming]) {
+    const id = candidate.creationId.trim()
+    if (!id) continue
+    if (!byId.has(id)) orderedIds.push(id)
+    byId.set(id, candidate)
+  }
+
+  if (orderedIds.length <= STORYBOARD_MAX_BOARD_CANDIDATES) {
+    return orderedIds.flatMap((id) => byId.get(id) ?? [])
+  }
+
+  const approvedId = board.approvedBoardCreationId && byId.has(board.approvedBoardCreationId)
+    ? board.approvedBoardCreationId
+    : null
+  const remainingCapacity = STORYBOARD_MAX_BOARD_CANDIDATES - (approvedId ? 1 : 0)
+  const newestIds = orderedIds
+    .filter((id) => id !== approvedId)
+    .slice(-remainingCapacity)
+  const keep = new Set(approvedId ? [approvedId, ...newestIds] : newestIds)
+  return orderedIds.flatMap((id) => keep.has(id) ? byId.get(id) ?? [] : [])
 }

@@ -367,12 +367,11 @@ export default function App() {
     }
   }, [settings])
 
-  // Keep the native Electron window in sync on boot as well as after a click.
-  // Previously an expanded preference restored the CSS but left the actual
-  // plugin window at its compact 400px width until the user toggled it twice.
+  // Width density and vertical fit are independent. Main owns the display
+  // work-area calculation so renderer code never guesses native window bounds.
   useEffect(() => {
-    void host.setWindowMode(settings.windowMode)
-  }, [settings.windowMode])
+    void host.setWindowLayout(settings.windowMode, settings.windowHeightMode)
+  }, [settings.windowMode, settings.windowHeightMode])
 
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -505,6 +504,13 @@ export default function App() {
       const windowMode = current.windowMode === 'compact' ? 'expanded' : 'compact'
       return { ...current, windowMode }
     })
+  }, [])
+
+  const toggleWindowHeight = useCallback(() => {
+    setSettings((current) => ({
+      ...current,
+      windowHeightMode: current.windowHeightMode === 'standard' ? 'full' : 'standard',
+    }))
   }, [])
 
   const openToolWorkspace = useCallback((toolId: ToolId) => {
@@ -1196,7 +1202,7 @@ export default function App() {
     : null
 
   return (
-    <div className={`ef-panel ef-panel--${settings.windowMode}`}>
+    <div className={`ef-panel ef-panel--${settings.windowMode} ef-panel--screen-${screen}`}>
       {screen === 'home' && (
         <Home
           navigationMemory={homeNavigationMemoryRef.current}
@@ -1227,7 +1233,9 @@ export default function App() {
           onOpenSettings={() => navigate('settings')}
           onOpenTool={openToolWorkspace}
           onToggleWindowMode={toggleWindowMode}
+          onToggleWindowHeight={toggleWindowHeight}
           windowMode={settings.windowMode}
+          windowHeightMode={settings.windowHeightMode}
           toast={toast}
           searchFocusSignal={searchFocusSignal}
         />
@@ -1404,7 +1412,7 @@ export default function App() {
         </button>
       )}
 
-      <JobCenter onOpenLibrary={() => navigate('library')} />
+      <JobCenter onOpenLibrary={() => navigate('library')} bottomInset={screen === 'home' ? 74 : undefined} />
       {updateDialogOpen && updateStatus?.available && (
         <UpdateDialog
           status={{

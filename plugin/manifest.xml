@@ -3,7 +3,7 @@
     <Plugin>
         <Id>com.easyfield.panel</Id>
         <Name>EasyField</Name>
-        <Version>1.2.0</Version>
+        <Version>1.3.0</Version>
         <Description>EasyField AI toolkit</Description>
         <FilePath>main.cjs</FilePath>
     </Plugin>

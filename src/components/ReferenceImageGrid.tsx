@@ -17,13 +17,16 @@ interface ReferenceImageGridProps {
   label?: string
   onChooseLibrary?: (creations: Creation[]) => void | Promise<void>
   libraryExcludedIds?: readonly string[]
+  /** Keep source actions available when the single existing item will be replaced. */
+  allowReplace?: boolean
 }
 
-export function ReferenceImageGrid({ images, max, onAddFiles, onRemove, onGrabPlayhead, locked = false, lockedHint, label = 'REFERENCE IMAGES', onChooseLibrary, libraryExcludedIds }: ReferenceImageGridProps) {
+export function ReferenceImageGrid({ images, max, onAddFiles, onRemove, onGrabPlayhead, locked = false, lockedHint, label = 'REFERENCE IMAGES', onChooseLibrary, libraryExcludedIds, allowReplace = false }: ReferenceImageGridProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const labelId = useId()
   const hintId = useId()
+  const canAdd = images.length < max || allowReplace
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -49,10 +52,10 @@ export function ReferenceImageGrid({ images, max, onAddFiles, onRemove, onGrabPl
           lockedHint ? <span id={hintId} className="ef-lock-hint">{lockedHint}</span> : null
         ) : (
           <>
-            {images.length < max && (
+            {canAdd && (
               <LibraryPickerButton
                 kinds={['image']}
-                max={max - images.length}
+                max={allowReplace ? 1 : max - images.length}
                 onSelect={chooseLibrary}
                 className="ef-grab-btn ef-library-source-btn"
                 ariaLabel="Choose reference images from Library"
@@ -61,7 +64,7 @@ export function ReferenceImageGrid({ images, max, onAddFiles, onRemove, onGrabPl
                 excludedIds={libraryExcludedIds}
               />
             )}
-            {onGrabPlayhead && images.length < max && (
+            {onGrabPlayhead && canAdd && (
               <button type="button" className="ef-grab-btn" onClick={onGrabPlayhead} aria-label="Grab current timeline frame" title="Grab current timeline frame">
                 <Icon glyph="playhead" size={12} /> Grab frame
               </button>
@@ -97,12 +100,12 @@ export function ReferenceImageGrid({ images, max, onAddFiles, onRemove, onGrabPl
             </button>
           </div>
         ))}
-        {images.length < max && (
+        {canAdd && (
           <button
             type="button"
             className="ef-ref-add-tile"
-            aria-label="Upload reference image"
-            title="Upload reference image"
+            aria-label={allowReplace && images.length ? 'Upload replacement reference image' : 'Upload reference image'}
+            title={allowReplace && images.length ? 'Upload replacement reference image' : 'Upload reference image'}
             disabled={locked}
             onClick={() => fileInputRef.current?.click()}
           >
@@ -114,7 +117,7 @@ export function ReferenceImageGrid({ images, max, onAddFiles, onRemove, onGrabPl
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        multiple
+        multiple={!allowReplace}
         disabled={locked}
         onChange={handleChange}
         style={{ display: 'none' }}

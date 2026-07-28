@@ -3,6 +3,7 @@ export interface Settings {
   glow: boolean
   apiKey: string
   windowMode: 'compact' | 'expanded'
+  windowHeightMode: 'standard' | 'full'
   placementMode: 'playhead' | 'replace' | 'append' | 'media-pool'
   /** Legacy persisted field. Pricing is informational and this no longer gates a run. */
   spendLimit: number
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   glow: true,
   apiKey: '',
   windowMode: 'compact',
+  windowHeightMode: 'standard',
   placementMode: 'playhead',
   spendLimit: 250,
   telemetry: false,
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
 const STORAGE_KEY = 'ef-settings'
 
 const WINDOW_MODES = new Set<Settings['windowMode']>(['compact', 'expanded'])
+const WINDOW_HEIGHT_MODES = new Set<Settings['windowHeightMode']>(['standard', 'full'])
 const PLACEMENT_MODES = new Set<Settings['placementMode']>(['playhead', 'replace', 'append', 'media-pool'])
 
 /**
@@ -59,6 +62,9 @@ export function sanitizeSettings(input: unknown, base: Settings = DEFAULT_SETTIN
     windowMode: typeof value.windowMode === 'string' && WINDOW_MODES.has(value.windowMode as Settings['windowMode'])
       ? value.windowMode as Settings['windowMode']
       : base.windowMode,
+    windowHeightMode: typeof value.windowHeightMode === 'string' && WINDOW_HEIGHT_MODES.has(value.windowHeightMode as Settings['windowHeightMode'])
+      ? value.windowHeightMode as Settings['windowHeightMode']
+      : base.windowHeightMode,
     // Replace is destructive and cannot become a default until a real timeline
     // preview + confirmation flow exists. Migrate old persisted selections to
     // the non-destructive playhead behavior instead of silently replacing media.
