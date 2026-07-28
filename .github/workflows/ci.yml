@@ -42,7 +42,11 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Audit all dependencies
+      - name: Audit shipped dependencies
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Report build-tooling advisories (non-blocking)
+        continue-on-error: true
         run: npm audit --audit-level=high
 
       - name: Check synchronized version
