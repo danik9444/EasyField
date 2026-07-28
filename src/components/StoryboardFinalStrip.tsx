@@ -18,6 +18,7 @@ interface StoryboardFinalStripProps {
   scenes: StoryboardFinalSceneView[]
   timingMode: StoryboardTimingMode
   totalDurationSeconds: number
+  autoTimingPending?: boolean
   onPreview: (url: string) => void
   onDownloadAll: () => void
   onOpenLibrary: () => void
@@ -31,6 +32,7 @@ export function StoryboardFinalStrip({
   scenes,
   timingMode,
   totalDurationSeconds,
+  autoTimingPending = false,
   onPreview,
   onDownloadAll,
   onOpenLibrary,
@@ -52,7 +54,9 @@ export function StoryboardFinalStrip({
           <h2 id="ef-story-final-title">Your story, in order.</h2>
           <p>{complete ? 'Every scene has an approved frame. Existing frames stay untouched until you explicitly replace them.' : 'Approved frames appear here automatically. Missing scenes stay visible in their exact position.'}</p>
           {timingMode !== 'none' && (
-            <small className="ef-story-final-timing">{timingMode === 'auto' ? 'AUTO · ' : ''}{formatStoryboardDuration(totalDurationSeconds)} · {scenes.length} scene{scenes.length === 1 ? '' : 's'}</small>
+            <small className="ef-story-final-timing">{autoTimingPending
+              ? `AUTO · final timing is chosen at creation · ${scenes.length} scene${scenes.length === 1 ? '' : 's'}`
+              : <>{timingMode === 'auto' ? 'AUTO · ' : ''}{formatStoryboardDuration(totalDurationSeconds)} · {scenes.length} scene{scenes.length === 1 ? '' : 's'}</>}</small>
           )}
         </div>
         <strong>{approvedCount}/{scenes.length}</strong>
@@ -77,12 +81,14 @@ export function StoryboardFinalStrip({
             </div>
             <div className="ef-story-board-copy">
               {timingMode !== 'none' && (
-                <span className="ef-story-board-timing">{formatStoryboardTimecode(scene.startSeconds)}–{formatStoryboardTimecode(scene.endSeconds)} · {formatStoryboardDuration(scene.durationSeconds)}</span>
+                <span className="ef-story-board-timing">{autoTimingPending
+                  ? 'DURATION · AUTO'
+                  : `${formatStoryboardTimecode(scene.startSeconds)}–${formatStoryboardTimecode(scene.endSeconds)} · ${formatStoryboardDuration(scene.durationSeconds)}`}</span>
               )}
               <strong>{scene.title.trim() || `Scene ${String(index + 1).padStart(2, '0')}`}</strong>
               <p>{scene.prompt.trim() || 'No scene description yet.'}</p>
               {scene.explanation.trim() && <em>{scene.explanation}</em>}
-              {scene.stale && <small>Prompt changed · frame preserved</small>}
+              {scene.stale && <small>Scene inputs changed · frame preserved for review</small>}
             </div>
           </article>
         ))}

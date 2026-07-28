@@ -13,6 +13,19 @@ export interface ProviderTaskRef {
   family: ProviderFamily
 }
 
+/**
+ * Opaque, local-only workflow association persisted with the Job Center
+ * ledger. The Job Center never interprets `payload`; the originating screen
+ * validates it before re-associating a recovered job. Keeping this envelope
+ * small prevents a workflow from turning the activity ledger into a second
+ * artifact store.
+ */
+export interface JobRecoveryMetadata {
+  namespace: string
+  key: string
+  payload: string
+}
+
 export interface JobRecord {
   id: string
   title: string
@@ -40,6 +53,7 @@ export interface JobRecord {
    */
   resultUrls?: string[]
   resultCount?: number
+  recoveryMetadata?: JobRecoveryMetadata
   error?: string
   startedAt: number
   updatedAt: number
@@ -50,6 +64,7 @@ interface NewJob {
   subtitle?: string
   kind: JobKind
   autoOpen?: boolean
+  recoveryMetadata?: JobRecoveryMetadata
   onCancel?: () => void
   onBackground?: () => void
 }
@@ -83,6 +98,9 @@ const recovering = new Set<string>()
 let hydrated = false
 let hydrationPromise: Promise<void> | null = null
 let persistenceTail: Promise<void> = Promise.resolve()
+const JOB_RECOVERY_NAMESPACE_MAX = 96
+const JOB_RECOVERY_KEY_MAX = 240
+const JOB_RECOVERY_PAYLOAD_MAX = 64 * 1024
 
 // Older ledgers and upstream errors may still contain the former provider
 // brand. Build the compatibility matcher without retaining that brand in the
@@ -109,6 +127,27 @@ function sanitizeJobTextFields<T extends Partial<JobRecord>>(value: T): T {
     ...(typeof value.detail === 'string' ? { detail: sanitizeProviderCopy(value.detail) } : {}),
     ...(typeof value.error === 'string' ? { error: sanitizeProviderCopy(value.error) } : {}),
   } as T
+}
+
+function normalizeRecoveryMetadata(value: unknown): JobRecoveryMetadata | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const source = value as Partial<JobRecoveryMetadata>
+  if (
+    typeof source.namespace !== 'string'
+    || typeof source.key !== 'string'
+    || typeof source.payload !== 'string'
+  ) return undefined
+  const namespace = source.namespace.trim()
+  const key = source.key.trim()
+  if (
+    !namespace
+    || namespace.length > JOB_RECOVERY_NAMESPACE_MAX
+    || !/^[a-z0-9][a-z0-9._-]*$/i.test(namespace)
+    || !key
+    || key.length > JOB_RECOVERY_KEY_MAX
+    || source.payload.length > JOB_RECOVERY_PAYLOAD_MAX
+  ) return undefined
+  return { namespace, key, payload: source.payload }
 }
 
 function persistNow(): Promise<void> {
@@ -346,6 +385,7 @@ export function startJob(input: NewJob): JobHandle {
     status: 'preparing',
     submissionState: 'preparing',
     detail: 'Preparing inputs',
+    recoveryMetadata: normalizeRecoveryMetadata(input.recoveryMetadata),
     startedAt: now,
     updatedAt: now,
   })
@@ -591,7 +631,10 @@ export async function prepareJobLedger(): Promise<void> {
       const currentById = new Map(jobs.map((job) => [job.id, job]))
       for (const persistedJob of stored ?? []) {
         if (currentById.has(persistedJob.id)) continue
-        const storedJob = sanitizeJobTextFields(persistedJob)
+        const storedJob = {
+          ...sanitizeJobTextFields(persistedJob),
+          recoveryMetadata: normalizeRecoveryMetadata(persistedJob.recoveryMetadata),
+        }
         const hasProviderTask = !!storedJob.taskId || !!storedJob.providerTasks?.length
         const ambiguousSubmission = !TERMINAL.has(storedJob.status)
           && storedJob.submissionState === 'submitting'

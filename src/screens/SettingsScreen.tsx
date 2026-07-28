@@ -188,6 +188,11 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, account
                   {(['compact', 'expanded'] as const).map((mode) => <button type="button" aria-pressed={settings.windowMode === mode} className={settings.windowMode === mode ? 'is-selected' : ''} key={mode} onClick={() => onChange({ windowMode: mode })}>{mode}</button>)}
                 </div>
               </SettingRow>
+              <SettingRow label="Window height" hint="Full height fits the panel to the usable height of the current display.">
+                <div className="ef-setting-segmented">
+                  {(['standard', 'full'] as const).map((mode) => <button type="button" aria-pressed={settings.windowHeightMode === mode} className={settings.windowHeightMode === mode ? 'is-selected' : ''} key={mode} onClick={() => onChange({ windowHeightMode: mode })}>{mode === 'full' ? 'Full height' : 'Standard'}</button>)}
+                </div>
+              </SettingRow>
               <SettingRow label="Ambient glow" hint="Respects Reduce Motion and remains decorative."><Toggle label="Ambient glow" checked={settings.glow} onChange={(glow) => onChange({ glow })} /></SettingRow>
             </SettingsGroup>
           )}

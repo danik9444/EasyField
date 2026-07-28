@@ -17,6 +17,33 @@ const MEDIA_CATEGORY_COPY: Record<string, { eyebrow: string; description: string
   audio: { eyebrow: 'SOUND & TIMING', description: 'Generate sound, narration, transcripts and editorial timing.' },
 }
 
+// Home cards deliberately use the short editorial copy from the original
+// compact panel. The full definitions stay detailed everywhere else (search,
+// workspace introductions and accessibility), while this directory remains
+// fast to scan at Resolve-panel width.
+const HOME_TOOL_DESCRIPTIONS: Partial<Record<ToolId, string>> = {
+  culling: 'Sort raw footage',
+  broll: 'Auto-match b-roll',
+  upscale: 'Enhance up to 4K',
+  'create-image': 'Text to still frame',
+  storyboard: 'Script to frames',
+  character: 'Consistent identity',
+  'edit-image': 'Inpaint & retouch',
+  angles: 'New camera angles',
+  'create-video': 'Text/image to clip',
+  avatar: 'Talking presenter',
+  'edit-video': 'Prompt-based edits',
+  extend: 'Continue any shot',
+  transition: 'Generative morphs',
+  animations: 'AI motion graphics',
+  captions: 'Styled subtitles',
+  music: 'Score to your cut',
+  sfx: 'Foley on demand',
+  vo: 'Line-based narration',
+  transcribe: 'Speech to text',
+  beat: 'Cut markers on beat',
+}
+
 const HOME_WORKSPACES = CATALOG.map((category) => ({
   id: category.id,
   label: category.label,
@@ -25,6 +52,7 @@ const HOME_WORKSPACES = CATALOG.map((category) => ({
   color: category.color,
   tools: category.tools.map((tool) => ({
     ...tool,
+    homeDesc: HOME_TOOL_DESCRIPTIONS[tool.id] ?? tool.desc,
     media: category.label,
     mediaColor: category.color,
     mediaTint: category.tint,
@@ -73,7 +101,9 @@ interface HomeProps {
   onOpenSettings: () => void
   onOpenTool: (toolId: ToolId) => void
   onToggleWindowMode: () => void
+  onToggleWindowHeight: () => void
   windowMode: 'compact' | 'expanded'
+  windowHeightMode: 'standard' | 'full'
   toast: (msg: string) => void
   searchFocusSignal: number
 }
@@ -107,7 +137,9 @@ export function Home({
   onOpenSettings,
   onOpenTool,
   onToggleWindowMode,
+  onToggleWindowHeight,
   windowMode,
+  windowHeightMode,
   toast,
   searchFocusSignal,
 }: HomeProps) {
@@ -348,6 +380,15 @@ export function Home({
           title={windowMode === 'compact' ? 'Expand workspace' : 'Compact workspace'}
         >
           {windowMode === 'compact' ? '↗' : '↙'}
+        </button>
+        <button
+          type="button"
+          className="ef-density-toggle"
+          onClick={onToggleWindowHeight}
+          aria-label={windowHeightMode === 'standard' ? 'Fill the available screen height' : 'Restore the standard window height'}
+          title={windowHeightMode === 'standard' ? 'Full height' : 'Standard height'}
+        >
+          {windowHeightMode === 'standard' ? '↕' : '↥'}
         </button>
         <button type="button" className="ef-density-toggle" onClick={onOpenAccount} aria-label="Open account" title="Account">◎</button>
         <button type="button" className="ef-density-toggle" onClick={onOpenSettings} aria-label="Open settings" title="Settings">⚙</button>
@@ -704,7 +745,7 @@ export function Home({
                     key={tool.id}
                     data-home-scroll-anchor={tool.id}
                     style={{ '--ef-category-color': group.color, '--ef-media-color': tool.mediaColor, '--ef-tool-order': index } as CSSProperties}
-                    aria-label={`${tool.name}. ${tool.desc}. ${tool.media} tool. ${tool.availability === 'review-only' ? 'Review workflow only; execution adapter not connected.' : 'Execution available.'}`}
+                    aria-label={`${tool.name}. ${tool.homeDesc}. ${tool.media} tool. ${tool.availability === 'review-only' ? 'Review workflow only; execution adapter not connected.' : 'Execution available.'}`}
                     onClick={() => openTool(tool.id)}
                   >
                     <span className="ef-tool-tile" style={{ background: tool.mediaTint }} aria-hidden="true">
@@ -718,7 +759,7 @@ export function Home({
                         {tool.availability === 'review-only' && <><span aria-hidden="true">·</span><span>Review-only</span></>}
                       </span>
                       <span className="ef-tool-name">{tool.name}</span>
-                      <span className="ef-tool-desc">{tool.desc}</span>
+                      <span className="ef-tool-desc">{tool.homeDesc}</span>
                     </span>
                     <span className="ef-tool-arrow" aria-hidden="true">↗</span>
                   </button>
