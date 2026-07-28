@@ -7,7 +7,7 @@ export interface Tool {
   name: string
   glyph: GlyphName
   desc: string
-  availability: 'available'
+  availability: 'available' | 'review-only'
 }
 
 export interface Category {
@@ -36,7 +36,7 @@ export const CATALOG: Category[] = (['footage', 'image', 'video', 'motion', 'aud
     name: tool.name,
     glyph: tool.glyph,
     desc: tool.description,
-    availability: 'available' as const,
+    availability: tool.execution === 'review-only' ? 'review-only' as const : 'available' as const,
   })),
 }))
 

@@ -4,8 +4,17 @@
 import type { ProviderLivePriceRow } from '../services/providerGateway'
 import { topazImageOutputTier, type UpscaleMediaKind } from './upscale.ts'
 
-export const CREDIT_USD = 0.005
+/**
+ * Current upstream base value for one direct-provider credit. This is shown
+ * only to accounts with a server-asserted direct-billing capability. Regular
+ * EasyField customers are billed and shown exclusively in EasyField credits.
+ */
+export const DIRECT_PROVIDER_CREDIT_USD = 0.005
+/** @deprecated Use DIRECT_PROVIDER_CREDIT_USD for privileged direct billing. */
+export const CREDIT_USD = DIRECT_PROVIDER_CREDIT_USD
 export const FALLBACK_PRICE_DATE = '2026-07-11'
+
+export type PricingDisplayMode = 'credits-only' | 'credits-and-raw-cost'
 
 export type PriceSource = 'live' | 'fallback' | 'unavailable' | 'local'
 
@@ -630,19 +639,35 @@ export function resolveCharged(estimate: Estimate): number | null {
   return estimate.credits
 }
 
-export function formatCharged(charged: number | null): string {
+export function formatCharged(
+  charged: number | null,
+  displayMode: PricingDisplayMode = 'credits-only',
+): string {
   if (charged == null) return 'Billed to your EasyField Cloud credits'
-  return `Charged ${fmtCredits(charged)} cr · ${fmtUsd(charged * CREDIT_USD)}`
+  const credits = `Charged ${fmtCredits(charged)} cr`
+  return displayMode === 'credits-and-raw-cost'
+    ? `${credits} · ${fmtUsd(charged * DIRECT_PROVIDER_CREDIT_USD)}`
+    : credits
 }
 
-export function formatEstimate(estimate: Estimate, includeSource = true): string {
+export function formatEstimate(
+  estimate: Estimate,
+  includeSource = true,
+  displayMode: PricingDisplayMode = 'credits-only',
+): string {
   const source = includeSource ? `${priceSourceLabel(estimate)} · ` : ''
   if (estimate.credits == null) return `${source}exact cost shown after run`
-  const usd = estimate.credits * CREDIT_USD
   const countSuffix = estimate.count && estimate.count > 1 && estimate.unit
     ? ` · ${estimate.count} ${estimate.unit}${estimate.count > 1 ? 's' : ''}`
     : ''
   const minimum = estimate.minimum ? 'from ' : '≈ '
-  if (estimate.perSecond) return `${source}${minimum}${fmtUsd(usd)}/s · ${fmtCredits(estimate.credits)} cr/s${countSuffix}`
-  return `${source}${minimum}${fmtUsd(usd)} · ${fmtCredits(estimate.credits)} cr${countSuffix}`
+  const credits = estimate.perSecond
+    ? `${fmtCredits(estimate.credits)} cr/s`
+    : `${fmtCredits(estimate.credits)} cr`
+  if (displayMode === 'credits-and-raw-cost') {
+    const usd = estimate.credits * DIRECT_PROVIDER_CREDIT_USD
+    const raw = estimate.perSecond ? `${fmtUsd(usd)}/s` : fmtUsd(usd)
+    return `${source}${minimum}${credits} · ${raw}${countSuffix}`
+  }
+  return `${source}${minimum}${credits}${countSuffix}`
 }

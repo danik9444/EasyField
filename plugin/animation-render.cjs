@@ -61,6 +61,7 @@ const ALLOWED_SIZES = new Set([
 ]);
 const ALLOWED_FPS = new Set([24, 30, 60]);
 const ALLOWED_DURATIONS = new Set([3, 5, 8, 10, 15]);
+const MANAGED_ARTIFACT_PATH = /^\/artifacts\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_MODES = new Set(['presets', 'prompt', 'assets']);
 const ALLOWED_PRESETS = new Set(['Fade In', 'Slide Up', 'Pop Scale', 'Kinetic Type', 'Lower Third', 'Title Card']);
 const ALLOWED_RECIPES = new Set(['custom', 'smart-captions', 'text-motion-graphics', 'product-video', 'intros-outros', 'overlays-graphics', 'website-to-video', 'audio-visualizer', 'data-to-video']);
@@ -261,12 +262,12 @@ function parseConfiguredLimit(value, fallback) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveFfmpegPath(configured) {
+function resolveFfmpegPath(configured, allowEnvironmentOverrides) {
     // GUI-launched macOS apps often do not inherit Homebrew's PATH. Respect an
     // explicit absolute override, otherwise cover both Apple Silicon and Intel
     // Homebrew before falling back to normal PATH lookup.
     if (configured && configured !== 'ffmpeg') return configured;
-    if (process.env.EF_FFMPEG_PATH) return process.env.EF_FFMPEG_PATH;
+    if (allowEnvironmentOverrides === true && process.env.EF_FFMPEG_PATH) return process.env.EF_FFMPEG_PATH;
     for (const candidate of ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
         if (fs.existsSync(candidate)) return candidate;
     }
@@ -520,12 +521,23 @@ function createAnimationRenderService(options) {
     }
 
     const BrowserWindow = options.BrowserWindow;
-    const ffmpegPath = resolveFfmpegPath(options.ffmpegPath);
+    const allowEnvironmentOverrides = options.allowEnvironmentOverrides === true;
+    const ffmpegPath = resolveFfmpegPath(options.ffmpegPath, allowEnvironmentOverrides);
     const spawnProcess = options.spawnProcess || defaultSpawn;
     const authorizeRequest = options.authorizeRequest;
-    const maxBodyBytes = parseConfiguredLimit(options.maxBodyBytes || process.env.EF_MAX_RENDER_BYTES, DEFAULT_MAX_BODY_BYTES);
-    const maxQueue = parseConfiguredLimit(options.maxQueue || process.env.EF_MAX_RENDER_QUEUE, DEFAULT_MAX_QUEUE);
-    const renderTimeoutMs = parseConfiguredLimit(options.renderTimeoutMs || process.env.EF_RENDER_TIMEOUT_MS, DEFAULT_RENDER_TIMEOUT_MS);
+    const commitArtifactFile = typeof options.commitArtifactFile === 'function' ? options.commitArtifactFile : null;
+    const maxBodyBytes = parseConfiguredLimit(
+        options.maxBodyBytes || (allowEnvironmentOverrides ? process.env.EF_MAX_RENDER_BYTES : undefined),
+        DEFAULT_MAX_BODY_BYTES,
+    );
+    const maxQueue = parseConfiguredLimit(
+        options.maxQueue || (allowEnvironmentOverrides ? process.env.EF_MAX_RENDER_QUEUE : undefined),
+        DEFAULT_MAX_QUEUE,
+    );
+    const renderTimeoutMs = parseConfiguredLimit(
+        options.renderTimeoutMs || (allowEnvironmentOverrides ? process.env.EF_RENDER_TIMEOUT_MS : undefined),
+        DEFAULT_RENDER_TIMEOUT_MS,
+    );
     const logger = options.logger || console;
     const jobs = new Map();
     const activeControllers = new Set();
@@ -708,6 +720,19 @@ function createAnimationRenderService(options) {
             tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-animation-'));
             const outputPath = await enqueue(() => renderToFile(job, controller.signal, tempDir));
             assertNotAborted(controller.signal);
+            const artifact = commitArtifactFile
+                ? await commitArtifactFile(outputPath, { kind: 'video', name: 'EasyField animation' })
+                : null;
+            if (commitArtifactFile && (!artifact || !MANAGED_ARTIFACT_PATH.test(artifact.url))) {
+                throw new RenderError('Animation could not be committed to local storage', 'RENDER_FAILED', 500);
+            }
+            if (artifact) {
+                // The packaged renderer and Artifact Store live in the same
+                // Main process. Return only the opaque managed receipt instead
+                // of copying the completed MP4 back through renderer memory.
+                sendJSON(res, 200, { ok: true, artifactUrl: artifact.url });
+                return;
+            }
             const stat = fs.statSync(outputPath);
             res.writeHead(200, {
                 'Content-Type': 'video/mp4',
@@ -768,5 +793,6 @@ module.exports = {
     RenderError,
     buildEncoderArgs,
     createAnimationRenderService,
+    resolveFfmpegPath,
     validateRenderPayload,
 };

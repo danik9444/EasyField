@@ -580,7 +580,7 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
 
         {!utilityAction && (
           <>
-            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={activePromptMax} enhancerKey="enhancer-edit" targetModel={activeEditModel} mediaKind="image" references={enhanceRefs} onSpend={onSpend} />
+            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={activePromptMax} enhancerKey="enhancer-edit" targetModel={activeEditModel} mediaKind="image" purpose="edit" references={enhanceRefs} onSpend={onSpend} />
           </>
         )}
 

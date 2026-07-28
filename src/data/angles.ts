@@ -1,9 +1,25 @@
-import type { ImageOptions } from './imageModelConfig'
-import { truncatePrompt } from './promptLimits.ts'
+import { IMAGE_MODEL_CONFIG, type ImageOptions } from './imageModelConfig.ts'
+import { IMAGE_MODEL_ALIASES } from './models.ts'
+import { promptCharacterCount, truncatePrompt } from './promptLimits.ts'
 
 export type AnglesMode = 'random' | 'custom'
 
-export const ANGLES_MODELS = ['Seedream 5 Pro', 'Nano Banana Pro'] as const
+// Angles is an image-edit workflow. Keep this reviewed allowlist explicit so a
+// future text-to-image model cannot appear here merely by joining the general
+// image catalog. The order mirrors Create Image: families stay contiguous and
+// their strongest current member appears first.
+export const ANGLES_MODELS = [
+  'GPT Image 2',
+  'Seedream 5 Pro',
+  'Seedream 5 Lite',
+  'Seedream 4.5',
+  'Nano Banana Pro',
+  'Nano Banana 2',
+  'Nano Banana 2 Lite',
+  'Flux 2',
+  'Wan 2.7 Image',
+  'Qwen2 Image',
+] as const
 export const DEFAULT_ANGLES_MODEL = 'Seedream 5 Pro'
 // Persistence envelope only. The active Angles model applies its smaller live
 // provider budget without deleting a draft when the model changes.
@@ -45,8 +61,19 @@ const RANDOM_ANGLE_PRESETS: RandomAnglePreset[] = [
 ]
 
 const MODEL_ID_ALIASES: Record<string, string> = {
+  'gpt-image-2': 'GPT Image 2',
   'seedream-5-pro': 'Seedream 5 Pro',
+  'seedream-5-lite': 'Seedream 5 Lite',
+  'seedream-4-5': 'Seedream 4.5',
+  'seedream-4.5': 'Seedream 4.5',
   'nano-banana-pro': 'Nano Banana Pro',
+  'nano-banana-2': 'Nano Banana 2',
+  'nano-banana-2-lite': 'Nano Banana 2 Lite',
+  'flux-2': 'Flux 2',
+  'wan-2-7-image': 'Wan 2.7 Image',
+  'wan-2.7-image': 'Wan 2.7 Image',
+  'qwen2-image': 'Qwen2 Image',
+  ...IMAGE_MODEL_ALIASES,
 }
 
 function safeModel(value: unknown): string {
@@ -59,6 +86,22 @@ export function normalizeRandomAngleCount(value: unknown): number {
   const count = Math.round(Number(value))
   if (!Number.isFinite(count)) return DEFAULT_RANDOM_ANGLES
   return Math.min(MAX_RANDOM_ANGLES, Math.max(MIN_RANDOM_ANGLES, count))
+}
+
+/**
+ * Output controls that are actually serialized by the model's reference-image
+ * endpoint. Wan 2.7 currently accepts an aspect only for text-to-image; its
+ * reference workflow derives framing from the source, so Angles must not show
+ * a control that would be silently ignored.
+ */
+export function angleAspectRatios(model: string): readonly string[] {
+  if (model === 'Wan 2.7 Image') return []
+  return IMAGE_MODEL_CONFIG[model]?.aspectRatios ?? []
+}
+
+export function angleDirectionPromptMax(model: string): number {
+  const providerMaximum = IMAGE_MODEL_CONFIG[model]?.promptMax ?? ANGLES_PROMPT_MAX
+  return Math.max(1, providerMaximum - promptCharacterCount(compileAnglePrompt('')))
 }
 
 export function normalizeAnglesDraft(raw: unknown): AnglesDraft {

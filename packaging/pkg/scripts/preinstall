@@ -58,6 +58,16 @@ verify_workflow_module() {
   esac
 }
 
+resolve_is_running() {
+  # The normal process name is `Resolve`, while some launch paths expose the
+  # full application executable in argv. Check both without broad substring
+  # matching that could block the installer because a similarly named app is
+  # open.
+  if /usr/bin/pgrep -x Resolve >/dev/null 2>&1; then return 0; fi
+  if /usr/bin/pgrep -f "^${RESOLVE_APP}/Contents/MacOS/Resolve([[:space:]]|$)" >/dev/null 2>&1; then return 0; fi
+  return 1
+}
+
 MACOS_VERSION=$(/usr/bin/sw_vers -productVersion)
 if ! version_at_least "$MACOS_VERSION" "$MIN_MACOS"; then
   echo "EasyField requires macOS $MIN_MACOS or newer (found $MACOS_VERSION)." >&2
@@ -85,7 +95,7 @@ fi
 
 verify_workflow_module
 
-if /usr/bin/pgrep -x Resolve >/dev/null 2>&1; then
+if resolve_is_running; then
   echo "Quit DaVinci Resolve before installing EasyField." >&2
   exit 1
 fi

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../icons'
 import { Dropdown } from './Dropdown'
-import { enhancePrompt, type EnhanceMediaKind, type EnhanceReference, type EnhanceSupportingContext } from '../services/chat'
+import { canEnhancePrompt, enhancePrompt, type EnhanceMediaKind, type EnhancePurpose, type EnhanceReference, type EnhanceSupportingContext } from '../services/chat'
 import { isConnected } from '../services/run'
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from '../data/models'
 import { AGENT_MODEL_META } from '../data/modelPresentation'
@@ -18,6 +18,8 @@ interface PromptCardProps {
   // the enhancer can tailor its output to it.
   targetModel: string
   mediaKind: EnhanceMediaKind
+  /** The concrete task being improved; prevents create-style invention in edit/angle/Foley prompts. */
+  purpose: EnhancePurpose
   ariaLabel?: string
   placeholder?: string
   // The selected style chip (Create Image) so the enhancer builds around it.
@@ -37,7 +39,7 @@ interface PromptCardProps {
   resizeMode?: 'toggle' | 'vertical'
 }
 
-export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'enhancer-model', targetModel, mediaKind, ariaLabel, placeholder, style, references, supportingContext, onSpend, contextKey = '', onEnhanced, footerEnd, resizeMode = 'toggle' }: PromptCardProps) {
+export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'enhancer-model', targetModel, mediaKind, purpose, ariaLabel, placeholder, style, references, supportingContext, onSpend, contextKey = '', onEnhanced, footerEnd, resizeMode = 'toggle' }: PromptCardProps) {
   const [enhanceModel, setEnhanceModel] = useState(() => {
     const v = loadValue(enhancerKey)
     return v && AGENT_MODELS.includes(v) ? v : DEFAULT_AGENT_MODEL
@@ -50,6 +52,15 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
   const requestIdRef = useRef(0)
   const promptId = useId()
   const promptStatusId = useId()
+  const compactReferenceUrl = (url?: string) => url?.startsWith('data:') ? `data:${url.length}` : url
+  const referenceContextKey = (references ?? []).map((reference) => [
+    reference.role,
+    reference.label,
+    compactReferenceUrl(reference.imageUrl),
+    compactReferenceUrl(reference.videoUrl),
+    reference.durationSeconds,
+    reference.note,
+  ].join('|')).join('||')
 
   useEffect(() => () => abortRef.current?.abort(), [])
   useEffect(() => {
@@ -59,7 +70,7 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
     setEnhancing(false)
     setCost(null)
     setError(null)
-  }, [contextKey, targetModel])
+  }, [contextKey, purpose, referenceContextKey, targetModel])
 
   const pickEnhanceModel = (m: string) => {
     requestIdRef.current += 1
@@ -78,15 +89,14 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
   }
 
   const enhance = async () => {
-    const canEnhance = Boolean(prompt.trim()) || Boolean(references?.length)
-    if (enhancing || !canEnhance) return
+    if (enhancing || !canEnhancePrompt(prompt, references)) return
     setError(null)
     setEnhancing(true)
     const controller = new AbortController()
     const requestId = ++requestIdRef.current
     abortRef.current = controller
     try {
-      const res = await enhancePrompt({ rough: prompt, targetModel, mediaKind, chatModel: enhanceModel, maxLength, style, references, supportingContext, signal: controller.signal })
+      const res = await enhancePrompt({ rough: prompt, targetModel, mediaKind, purpose, chatModel: enhanceModel, maxLength, style, references, supportingContext, signal: controller.signal })
       if (controller.signal.aborted || requestId !== requestIdRef.current) return
       onPromptChange(res.text)
       onEnhanced?.({ text: res.text, enhancerModel: enhanceModel })
@@ -110,8 +120,11 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
   const characterCount = promptCharacterCount(prompt)
   const overLimit = characterCount > maxLength
   const nearLimit = !overLimit && characterCount > maxLength * 0.9
-  const canEnhance = Boolean(prompt.trim()) || Boolean(references?.length)
   const manuallyResizable = resizeMode === 'vertical'
+  const referenceDraft = !prompt.trim() && (references?.length ?? 0) > 0
+  const enhanceLabel = referenceDraft
+    ? `Create a ${purpose.replaceAll('-', ' ')} prompt from attached references for ${targetModel} with ${enhanceModel}`
+    : `Enhance prompt for ${targetModel} with ${enhanceModel}`
 
   return (
     <div className="ef-prompt-card">
@@ -132,9 +145,9 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
         <button
           type="button"
           className={'ef-enhance-btn' + (enhancing ? ' loading' : '')}
-          aria-label={!connected ? 'Connect EasyField Cloud to enhance' : `Enhance prompt for ${targetModel} with ${enhanceModel}; token billed with no EasyField spend cap`}
-          title={!connected ? 'Connect EasyField Cloud from the credits badge on Home to enhance' : `Rewrite for ${targetModel} · live token billing, no EasyField spend cap`}
-          disabled={enhancing || !canEnhance || overLimit || !connected}
+          aria-label={!connected ? 'Connect EasyField Cloud to enhance' : `${enhanceLabel}; token billed with no EasyField spend cap`}
+          title={!connected ? 'Connect EasyField Cloud from the credits badge on Home to enhance' : referenceDraft ? `Create from attached references for ${targetModel} · live token billing` : `Rewrite for ${targetModel} · live token billing, no EasyField spend cap`}
+          disabled={enhancing || !canEnhancePrompt(prompt, references) || overLimit || !connected}
           onClick={enhance}
         >
           <Icon glyph="spark" size={12} />
@@ -151,6 +164,8 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
             {cost === 'unknown' ? '✨ billed · cost unavailable' : `✨ +${fmtCost(cost!)} cr`}
             <button type="button" className="ef-reenhance-btn" title="Enhance again" aria-label="Enhance again" onClick={enhance} disabled={!connected}>↻</button>
           </span>
+        ) : referenceDraft ? (
+          <span id={promptStatusId} className="ef-enhance-note" role="status">✨ Auto · {references!.length} attached</span>
         ) : (
           <span
             id={promptStatusId}

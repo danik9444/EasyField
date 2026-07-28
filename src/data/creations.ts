@@ -183,17 +183,27 @@ async function writeStore(name: string, action: (store: IDBObjectStore) => void)
   })
 }
 
-async function putCreationPreservingBlob(current: Creation, newBlob?: Blob): Promise<void> {
+async function putCreationPreservingBlob(current: Creation, newBlob?: Blob, required = false): Promise<void> {
   const db = await openDatabase()
-  if (!db) return
-  await new Promise<void>((resolve) => {
+  if (!db) {
+    if (required) throw new Error('The local Library index is unavailable')
+    return
+  }
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      if (error && required) reject(error)
+      else resolve()
+    }
     let tx: IDBTransaction
     try {
       tx = db.transaction(CREATION_STORE, 'readwrite')
-    } catch {
+    } catch (error) {
       dbPromise = null
       setPersistenceState('error')
-      resolve()
+      finish(error instanceof Error ? error : new Error('The local Library index could not be opened'))
       return
     }
     const store = tx.objectStore(CREATION_STORE)
@@ -204,20 +214,23 @@ async function putCreationPreservingBlob(current: Creation, newBlob?: Blob): Pro
       const stored: StoredCreation = blob ? { ...current, blob } : { ...current }
       store.put(stored)
     }
-    request.onerror = () => setPersistenceState('error')
-    tx.oncomplete = () => resolve()
+    request.onerror = () => {
+      setPersistenceState('error')
+      finish(request.error ?? new Error('The local Library record could not be read'))
+    }
+    tx.oncomplete = () => finish()
     tx.onerror = () => {
       setPersistenceState('error')
-      resolve()
+      finish(tx.error ?? new Error('The local Library record could not be saved'))
     }
     tx.onabort = () => {
       setPersistenceState('error')
-      resolve()
+      finish(tx.error ?? new Error('The local Library save was aborted'))
     }
   })
 }
 
-async function persistCreation(id: string): Promise<void> {
+async function persistCreation(id: string, required = false): Promise<void> {
   let current = creations.find((creation) => creation.id === id)
   if (!current || removedCreationIds.has(id)) return
 
@@ -234,7 +247,7 @@ async function persistCreation(id: string): Promise<void> {
   // A folder move or deletion may have happened while bytes were being read.
   current = creations.find((creation) => creation.id === id)
   if (!current || removedCreationIds.has(id)) return
-  await putCreationPreservingBlob(current, blob)
+  await putCreationPreservingBlob(current, blob, required)
 }
 
 function deleteStoredCreations(ids: string[]): void {
@@ -357,15 +370,20 @@ export function addCreations(items: NewCreation[]): Creation[] {
  * Commits paid provider outputs to Main's managed Artifact Store before they
  * become Library records. Main downloads to a temporary file, verifies the
  * media signature and SHA-256 checksum, then atomically renames it. Returning
- * from this function therefore means every HTTPS output has a stable local
- * artifact URL; a failed download rejects the whole commit and leaves the paid
- * provider task recoverable in Job Center.
+ * from this function therefore means every provider URL or locally rendered
+ * Blob/data result has a stable local artifact URL; a failed commit rejects
+ * the whole Library batch and leaves tracked work recoverable in Job Center.
  *
  * The standalone Vite development surface has no Main-owned Artifact Store.
  * It retains the existing preview behavior there; release builds run through
  * the plugin branch below.
  */
-export async function addCreationsDurably(items: NewCreation[]): Promise<Creation[]> {
+export interface DurableCreationOptions {
+  /** Called after Main verifies every file, before the renderer Library write. */
+  onSecured?: (items: readonly NewCreation[]) => void | Promise<void>
+}
+
+export async function addCreationsDurably(items: NewCreation[], options: DurableCreationOptions = {}): Promise<Creation[]> {
   const validItems = items.filter((item) => typeof item.url === 'string' && item.url.trim().length > 0)
   if (!validItems.length) return []
 
@@ -376,7 +394,7 @@ export async function addCreationsDurably(items: NewCreation[]): Promise<Creatio
     if (!url) {
       url = item.url
       if (host.isPlugin()) {
-        if (/^https:\/\//i.test(item.url)) {
+        if (/^(?:https:\/\/|blob:|data:)/i.test(item.url)) {
           const artifact = await host.ingestArtifact({
             url: item.url,
             name: item.prompt || item.model || 'EasyField result',
@@ -399,11 +417,21 @@ export async function addCreationsDurably(items: NewCreation[]): Promise<Creatio
     })
   }
 
+  // Persist opaque artifact receipts into the Job ledger before touching the
+  // renderer index. A crash or IndexedDB failure after this point can rebuild
+  // Library from Job Center without downloading or regenerating the media.
+  await options.onSecured?.(secured)
+
   const added = addOrMergeCreations(secured)
   // IndexedDB is the renderer's Library index. Await its writes instead of
   // launching them fire-and-forget; the durable job ledger additionally keeps
   // the opaque artifact URLs so startup can reconcile a missing index entry.
-  await Promise.all(added.map((creation) => persistCreation(creation.id)))
+  // In the packaged renderer an IndexedDB failure must keep the job
+  // recoverable instead of announcing that a result is visible in Library.
+  // Node unit tests have no DOM/IndexedDB surface and exercise Main ingestion
+  // independently, so strict index persistence applies only to the real panel.
+  const requireLibraryIndex = host.isPlugin() && typeof document !== 'undefined'
+  await Promise.all(added.map((creation) => persistCreation(creation.id, requireLibraryIndex)))
   return added
 }
 

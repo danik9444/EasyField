@@ -114,3 +114,22 @@ test('missing managed Python/librosa runtime returns a safe diagnostic', async (
   assert.equal(status.code, 'BEAT_RUNTIME_MISSING')
   assert.equal(status.setupGuide, 'plugin/python/README.md')
 })
+
+test('packaged beat analysis ignores environment interpreter overrides', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'easyfield-beat-env-test-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const analyzer = path.join(dir, 'probe.cjs')
+  await writeFile(analyzer, 'process.stdout.write(JSON.stringify({ok:true,engineVersion:"env-test"}))')
+  const previous = process.env.EF_BEAT_PYTHON
+  process.env.EF_BEAT_PYTHON = process.execPath
+  try {
+    const packaged = await probeBeatRuntime({ scriptPath: analyzer, allowEnvironmentOverrides: false })
+    const development = await probeBeatRuntime({ scriptPath: analyzer, allowEnvironmentOverrides: true })
+    assert.equal(packaged.available, false)
+    assert.equal(development.available, true)
+    assert.equal(development.engineVersion, 'env-test')
+  } finally {
+    if (previous === undefined) delete process.env.EF_BEAT_PYTHON
+    else process.env.EF_BEAT_PYTHON = previous
+  }
+})

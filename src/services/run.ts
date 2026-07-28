@@ -95,7 +95,7 @@ import {
 
 export class NotConnectedError extends Error {
   constructor() {
-    super('Connect your EasyField Cloud API key first (tap the credits badge on Home).')
+    super('Sign in to EasyField and activate generation access before running this tool.')
     this.name = 'NotConnectedError'
   }
 }
@@ -347,7 +347,12 @@ async function hostKlingElements(
 // Run a request N times through the global job limiter (image/clip fan-out).
 async function fanOut(key: string, req: Parameters<typeof runProviderModel>[1], n: number, opts: PollOptions) {
   const settled = await Promise.allSettled(
-    Array.from({ length: Math.max(1, n) }, () => runOne(key, req, opts)),
+    Array.from({ length: Math.max(1, n) }, (_unused, index) => runOne(key, req, {
+      ...opts,
+      gatewayOperationId: opts.gatewayOperationId
+        ? `${opts.gatewayOperationId}:child:${index + 1}`
+        : undefined,
+    })),
   )
   if (opts.signal?.aborted) throw new Error('Cancelled')
   const results = settled
@@ -431,6 +436,7 @@ async function withTrackedJob<T extends RunResult>(
   opts.onJobCreated?.(job.id)
   const trackedOpts: PollOptions = {
     ...opts,
+    gatewayOperationId: job.id,
     signal: controller.signal,
     onSubmissionStarted: () => {
       submissionStarted = true
@@ -477,7 +483,13 @@ async function withTrackedJob<T extends RunResult>(
         prompt: meta.title,
         meta: background ? 'Completed in background · review before timeline placement' : undefined,
         durability: 'link-only',
-      })))
+      })), {
+        onSecured: async (securedItems) => {
+          const securedUrls = securedItems.map((item) => item.url)
+          const securedCount = (getJobs().find((item) => item.id === job.id)?.resultCount ?? 0) + securedUrls.length
+          await job.secureResults(securedUrls, securedCount, 'Results secured locally · adding to Library')
+        },
+      })
       if (creations.length !== result.urls.length) {
         throw new Error('Not every generated result could be committed to Library.')
       }
@@ -1087,7 +1099,10 @@ export async function runAnglesBatch(r: AnglesBatchRun, opts: PollOptions = {}):
       resolution: r.resolution,
       extras: r.extras,
     }))
-    const settled = await Promise.allSettled(requests.map((request) => runOne(key, request, trackedOpts)))
+    const settled = await Promise.allSettled(requests.map((request, index) => runOne(key, request, {
+      ...trackedOpts,
+      gatewayOperationId: `${trackedOpts.gatewayOperationId}:angle:${index + 1}`,
+    })))
     if (trackedOpts.signal?.aborted) throw new Error('Cancelled')
     const pendingJobs = settled.filter((item) => item.status === 'rejected' && isRecoverableProviderTrackingError(item.reason)).length
     const failedJobs = settled.filter((item) => item.status === 'rejected' && !isRecoverableProviderTrackingError(item.reason)).length
@@ -1471,7 +1486,10 @@ export async function runSoundEffectBatch(entries: SoundEffectBatchEntry[], opts
     kind: 'audio',
   }, opts, async (trackedOpts) => {
     const key = requireKey()
-    const settled = await Promise.allSettled(entries.map((entry) => runOne(key, buildSoundEffectRequest(entry.sound), trackedOpts)))
+    const settled = await Promise.allSettled(entries.map((entry, index) => runOne(key, buildSoundEffectRequest(entry.sound), {
+      ...trackedOpts,
+      gatewayOperationId: `${trackedOpts.gatewayOperationId}:foley:${index + 1}`,
+    })))
     if (trackedOpts.signal?.aborted) throw new Error('Cancelled')
     const pendingJobs = settled.filter((item) => item.status === 'rejected' && isRecoverableProviderTrackingError(item.reason)).length
     const failedJobs = settled.filter((item) => item.status === 'rejected' && !isRecoverableProviderTrackingError(item.reason)).length

@@ -429,6 +429,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
               enhancerKey="enhancer-image"
               targetModel={model}
               mediaKind="image"
+              purpose="create"
               style={style}
               references={enhanceRefs}
               contextKey={refImages.map((reference) => reference.id).join('|')}

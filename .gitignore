@@ -50,7 +50,7 @@ SHA256SUMS
 credentials*.json
 secrets*.json
 auth*.json
-plugin/account-config.json
+/plugin/account-config.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

@@ -405,8 +405,8 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
     const references: EnhanceReference[] = []
     if (image?.kind === 'upload') references.push({ role: 'avatar portrait', label: image.name, imageUrl: image.url })
     if (selectedSubject?.kind === 'upload') references.push({ role: 'the only person who should speak', label: selectedSubject.name, imageUrl: selectedSubject.url })
-    if (video?.kind === 'upload') references.push({ role: 'primary video to lip-sync', label: video.name })
-    if (audio?.kind === 'upload') references.push({ role: 'voice performance and timing', label: audio.name })
+    if (video?.kind === 'upload') references.push({ role: 'primary video to lip-sync', label: video.name, videoUrl: video.url, durationSeconds: video.durationSeconds })
+    if (audio?.kind === 'upload') references.push({ role: 'voice performance and timing', label: audio.name, durationSeconds: audio.durationSeconds, note: 'Audio is attached to the avatar task; prompt enhancement receives its role and metadata only.' })
     return references
   }, [audio, image, selectedSubject, video])
 
@@ -726,6 +726,7 @@ export function Avatar({ onBack, toast, onSpend }: AvatarProps) {
             enhancerKey="enhancer-avatar"
             targetModel={model}
             mediaKind="video"
+            purpose="avatar"
             placeholder="Describe delivery, expression, gaze and motion…"
             references={enhancerReferences}
             contextKey={`${mode}:${model}:${image?.id ?? ''}:${video?.id ?? ''}:${audio?.id ?? ''}`}

@@ -76,6 +76,10 @@ if ! verify_tree "$DEST"; then
   exit 1
 fi
 
+# The backup exists only for transactional rollback while installation is in
+# flight. Once the new tree passes final verification, retaining obsolete code
+# or account configuration would create a second unmanaged installation.
 INSTALL_COMPLETE=1
+/bin/rm -rf "$BACKUP" 2>/dev/null || true
 /bin/rm -rf "$PAYLOAD_ROOT"
 exit 0

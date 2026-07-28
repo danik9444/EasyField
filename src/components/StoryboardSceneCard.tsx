@@ -128,6 +128,7 @@ interface StoryboardSceneCardProps {
   versionCount: number
   generationVersionCount: number
   versionEstimate: string
+  canEnhanceFromReferences: boolean
   onEnhancerModelChange: (model: string) => void
   onOpenReferences: () => void
   onVersionCountChange: (value: number) => void
@@ -182,6 +183,7 @@ export function StoryboardSceneCard({
   versionCount,
   generationVersionCount,
   versionEstimate,
+  canEnhanceFromReferences,
   onEnhancerModelChange,
   onOpenReferences,
   onVersionCountChange,
@@ -215,7 +217,7 @@ export function StoryboardSceneCard({
   const promptLength = promptCharacterCount(prompt)
   const promptOverLimit = promptLength > maxLength
   const promptNearLimit = !promptOverLimit && promptLength > maxLength * 0.9
-  const canImproveFromScene = prompt.trim().length >= 3 || referenceCount + contextReferenceCount > 0
+  const canImproveFromScene = prompt.trim().length >= 3 || referenceCount + contextReferenceCount > 0 || canEnhanceFromReferences
   const exactReuseReady = sceneReferencesEnabled && prompt.trim().length === 0 && referenceCount === 1
   const canResolveScene = prompt.trim().length >= 3 || exactReuseReady
   const exactReferenceAlreadyUsed = exactReuseReady && exactReferenceIsApproved

@@ -119,6 +119,40 @@ test('Ambiguous createTask network failure is never submitted twice', async () =
   assert.equal(calls, 1)
 })
 
+test('Ambiguous createTask gateway response without an application code is never submitted twice', async () => {
+  let calls = 0
+  globalThis.fetch = (async () => {
+    calls += 1
+    return json({ error: 'upstream response unavailable' }, 503)
+  }) as typeof fetch
+
+  await assert.rejects(
+    createTask('key', 'model', { prompt: 'test' }),
+    (error: unknown) => error instanceof ProviderError
+      && error.kind === 'submission-uncertain'
+      && /outcome is unknown/i.test(error.message),
+  )
+  assert.equal(calls, 1)
+})
+
+test('Market completion without media stays recoverable instead of succeeding empty', async () => {
+  let calls = 0
+  globalThis.fetch = (async () => {
+    calls += 1
+    return json({
+      code: 200,
+      data: { state: 'success', resultJson: JSON.stringify({ resultUrls: [] }) },
+    })
+  }) as typeof fetch
+
+  await assert.rejects(
+    pollTask('key', 'paid-task', { intervalMs: 1, timeoutMs: 12 }),
+    (error: unknown) => error instanceof ProviderError
+      && error.kind === 'tracking-recoverable',
+  )
+  assert.equal(calls, 1, 'the accepted task should pause for recoverable tracking instead of settle without an artifact')
+})
+
 test('submission lifecycle is awaited before a paid create request leaves the app', async () => {
   let lifecyclePersisted = false
   let fetchCalls = 0
@@ -137,6 +171,21 @@ test('submission lifecycle is awaited before a paid create request leaves the ap
 
   assert.equal(taskId, 'lifecycle-task')
   assert.equal(fetchCalls, 1)
+})
+
+test('customer gateway create carries the durable operation identity', async () => {
+  let headers: Headers | undefined
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    headers = new Headers(init?.headers)
+    return json({ code: 200, data: { taskId: 'accepted-task' } })
+  }) as typeof fetch
+
+  const taskId = await createTask('account-token', 'model', { prompt: 'test' }, {
+    gatewayOperationId: 'job-123:child:1',
+  })
+
+  assert.equal(taskId, 'accepted-task')
+  assert.equal(headers?.get('x-easyfield-operation-id'), 'job-123:child:1')
 })
 
 test('cancellation during local submission preflight sends no provider request', async () => {
@@ -247,6 +296,23 @@ test('resumeProviderModel uses a dedicated record endpoint and never creates ano
   assert.equal(result.creditsConsumed, 12)
 })
 
+test('Dedicated completion without media remains recoverable and never creates replacement work', async () => {
+  const calls: string[] = []
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input)
+    calls.push(url)
+    return json({ code: 200, data: { status: 'SUCCESS', response: { sunoData: [] } } })
+  }) as typeof fetch
+
+  await assert.rejects(
+    resumeProviderModel('key', 'suno', 'paid-task', { intervalMs: 1, timeoutMs: 12 }),
+    (error: unknown) => error instanceof ProviderError
+      && error.kind === 'tracking-recoverable',
+  )
+  assert.ok(calls.length >= 1)
+  assert.equal(calls.every((url) => /\/generate\/record-info\?taskId=paid-task$/.test(url)), true)
+})
+
 test('Suno Sounds uses the sounds create route and persists its recovery family before polling', async () => {
   const calls: string[] = []
   const accepted: Array<[string, string]> = []
@@ -255,6 +321,7 @@ test('Suno Sounds uses the sounds create route and persists its recovery family 
     calls.push(url)
     if (url.endsWith('/api/v1/generate/sounds')) {
       assert.equal(init?.method, 'POST')
+      assert.equal(new Headers(init?.headers).get('x-easyfield-operation-id'), 'job-sounds-123')
       assert.deepEqual(JSON.parse(String(init?.body)), {
         prompt: 'Cinematic hit',
         model: 'V5_5',
@@ -282,6 +349,7 @@ test('Suno Sounds uses the sounds create route and persists its recovery family 
   }, {
     intervalMs: 1,
     timeoutMs: 100,
+    gatewayOperationId: 'job-sounds-123',
     onTaskId: async (taskId, family) => accepted.push([taskId, family]),
   })
 

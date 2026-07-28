@@ -3,6 +3,7 @@ import { afterEach, test } from 'node:test'
 import {
   applyLivePrices,
   avatarRunEstimate,
+  formatCharged,
   formatEstimate,
   imageRunEstimate,
   musicRunEstimate,
@@ -32,6 +33,17 @@ test('offline estimates remain current dated fallbacks instead of becoming block
   assert.equal(estimate.credits, 5.6)
   assert.equal(estimate.source, 'fallback')
   assert.match(formatEstimate(estimate), /^UPDATED 7\/11 ·/)
+})
+
+test('customer pricing shows credits only while direct-billing accounts can see raw cost', () => {
+  const estimate = imageRunEstimate('Qwen2 Image', '', {}, 1)
+  const customerEstimate = formatEstimate(estimate)
+  const directEstimate = formatEstimate(estimate, true, 'credits-and-raw-cost')
+  assert.match(customerEstimate, /5\.6 cr/)
+  assert.doesNotMatch(customerEstimate, /\$/)
+  assert.match(directEstimate, /5\.6 cr · \$0\.028/)
+  assert.equal(formatCharged(20), 'Charged 20 cr')
+  assert.equal(formatCharged(20, 'credits-and-raw-cost'), 'Charged 20 cr · $0.10')
 })
 
 test('Seedream 5 Pro uses live output tiers and bills only references after the first', () => {

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Icon } from '../icons'
 import { CATALOG } from '../data/catalog'
 import { TOOL_BY_ID } from '../data/toolDefinitions'
 import { formatTokens } from '../data/usage'
 import { useCreations } from '../data/creations'
 import { resolve } from '../services/resolve'
+import { host } from '../services/host'
 import { SECURE_API_KEY_TOKEN, type Settings } from '../settings'
 import type { ToolId } from '../core/contracts'
 
@@ -60,14 +61,31 @@ const HOME_WORKSPACES = CATALOG.map((category) => ({
 
 const HOME_TOOL_COUNT = HOME_WORKSPACES.reduce((total, workspace) => total + workspace.tools.length, 0)
 const HOME_CATEGORY_IDS = ['all', ...HOME_WORKSPACES.map((workspace) => workspace.id)]
+const HOME_OVERVIEW_STATE_KEY = 'home-overview'
+
+export interface HomeNavigationMemory {
+  query: string
+  activeCategory: string
+  scrollTop: number
+  windowMode: Settings['windowMode']
+  anchorToolId: ToolId | null
+  anchorOffset: number
+}
 
 interface HomeProps {
+  navigationMemory: HomeNavigationMemory
   settings: Settings
   credits: number
   creditsLive: boolean
+  accountConfigured: boolean
+  accountReady: boolean
+  accountSignedIn: boolean
+  directProviderAllowed: boolean
   apiStatus: 'idle' | 'connecting' | 'connected' | 'error'
   apiError: string
+  hasExistingDirectCredential: boolean
   onConnectApiKey: (key: string) => void
+  onAdoptExistingConnection: () => void | Promise<void>
   onOpenCreate: () => void
   onOpenCharacter: () => void
   onOpenCreateVideo: () => void
@@ -79,6 +97,7 @@ interface HomeProps {
   onOpenAnimation: () => void
   onOpenBrain: () => void
   onOpenLibrary: () => void
+  onOpenAccount: () => void
   onOpenSettings: () => void
   onOpenTool: (toolId: ToolId) => void
   onToggleWindowMode: () => void
@@ -90,12 +109,19 @@ interface HomeProps {
 }
 
 export function Home({
+  navigationMemory,
   settings,
   credits,
   creditsLive,
+  accountConfigured,
+  accountReady,
+  accountSignedIn,
+  directProviderAllowed,
   apiStatus,
   apiError,
+  hasExistingDirectCredential,
   onConnectApiKey,
+  onAdoptExistingConnection,
   onOpenCreate,
   onOpenCharacter,
   onOpenCreateVideo,
@@ -107,25 +133,79 @@ export function Home({
   onOpenAnimation,
   onOpenBrain,
   onOpenLibrary,
+  onOpenAccount,
   onOpenSettings,
   onOpenTool,
   onToggleWindowMode,
   onToggleWindowHeight,
   windowMode,
   windowHeightMode,
+  toast,
   searchFocusSignal,
 }: HomeProps) {
-  const [query, setQuery] = useState('')
-  const [activeCategory, setActiveCategory] = useState('all')
+  const [query, setQueryState] = useState(() => navigationMemory.query)
+  const [activeCategory, setActiveCategoryState] = useState(() => (
+    HOME_CATEGORY_IDS.includes(navigationMemory.activeCategory) ? navigationMemory.activeCategory : 'all'
+  ))
+  const [overviewExpanded, setOverviewExpanded] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [keyDraft, setKeyDraft] = useState(() => settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey)
+  const [bridgeChecking, setBridgeChecking] = useState(false)
+  const [bridgeCheckFailed, setBridgeCheckFailed] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const homeScrollRef = useRef<HTMLDivElement>(null)
+  const pendingSearchFocusRef = useRef(false)
   const keyInputRef = useRef<HTMLInputElement>(null)
   const settingsDialogRef = useRef<HTMLDivElement>(null)
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
   const creations = useCreations()
   // Live DaVinci bridge status — polls every 5s while this component is mounted.
   const bridge = useSyncExternalStore(resolve.subscribe, resolve.getStatus)
+
+  const setQuery = (nextQuery: string) => {
+    navigationMemory.query = nextQuery
+    setQueryState(nextQuery)
+  }
+
+  const setActiveCategory = (nextCategory: string) => {
+    navigationMemory.activeCategory = nextCategory
+    setActiveCategoryState(nextCategory)
+  }
+
+  // Home is unmounted while a tool is open. Restore the list viewport before
+  // paint, then once more on the next frame after responsive layout settles.
+  // A semantic card anchor keeps the same work area visible if a tool changes
+  // the plugin between compact and expanded mode while Home is unmounted.
+  useLayoutEffect(() => {
+    const scrollViewport = homeScrollRef.current
+    if (!scrollViewport) return
+    const restore = () => {
+      scrollViewport.scrollTop = navigationMemory.scrollTop
+      if (navigationMemory.windowMode === windowMode || !navigationMemory.anchorToolId) return
+      const anchor = Array.from(scrollViewport.querySelectorAll<HTMLElement>('[data-home-scroll-anchor]'))
+        .find((element) => element.dataset.homeScrollAnchor === navigationMemory.anchorToolId)
+      if (!anchor) return
+      const viewportTop = scrollViewport.getBoundingClientRect().top
+      const anchorTop = anchor.getBoundingClientRect().top
+      scrollViewport.scrollTop += anchorTop - viewportTop - navigationMemory.anchorOffset
+    }
+    const capture = () => {
+      navigationMemory.scrollTop = scrollViewport.scrollTop
+      navigationMemory.windowMode = windowMode
+      const viewportTop = scrollViewport.getBoundingClientRect().top
+      const anchors = Array.from(scrollViewport.querySelectorAll<HTMLElement>('[data-home-scroll-anchor]'))
+      const anchor = anchors.find((element) => element.getBoundingClientRect().bottom > viewportTop)
+        ?? anchors.at(-1)
+      navigationMemory.anchorToolId = (anchor?.dataset.homeScrollAnchor as ToolId | undefined) ?? null
+      navigationMemory.anchorOffset = anchor ? anchor.getBoundingClientRect().top - viewportTop : 0
+    }
+    restore()
+    const frame = requestAnimationFrame(restore)
+    return () => {
+      cancelAnimationFrame(frame)
+      capture()
+    }
+  }, [navigationMemory, windowMode])
 
   const onCategoryKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -142,13 +222,37 @@ export function Home({
 
   useEffect(() => {
     if (searchFocusSignal <= 0) return
+    pendingSearchFocusRef.current = true
+    setOverviewExpanded(true)
+    void host.setState('settings', HOME_OVERVIEW_STATE_KEY, { expanded: true })
+    if (overviewExpanded) {
+      pendingSearchFocusRef.current = false
+      requestAnimationFrame(() => searchRef.current?.focus())
+    }
+  }, [searchFocusSignal])
+
+  useEffect(() => {
+    if (!overviewExpanded || !pendingSearchFocusRef.current) return
+    pendingSearchFocusRef.current = false
     const frame = requestAnimationFrame(() => searchRef.current?.focus())
     return () => cancelAnimationFrame(frame)
-  }, [searchFocusSignal])
+  }, [overviewExpanded])
+
+  useEffect(() => {
+    let active = true
+    void host.getState<{ expanded?: boolean }>('settings', HOME_OVERVIEW_STATE_KEY).then((saved) => {
+      if (active && typeof saved?.expanded === 'boolean') setOverviewExpanded(saved.expanded)
+    })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     setKeyDraft(settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey)
   }, [settings.apiKey])
+
+  useEffect(() => {
+    if (!directProviderAllowed) setSettingsOpen(false)
+  }, [directProviderAllowed])
 
   useEffect(() => {
     if (!settingsOpen) return
@@ -201,11 +305,14 @@ export function Home({
     })).filter((group) => group.tools.length > 0)
   }, [activeCategory, query])
   const visibleToolCount = visibleGroups.reduce((count, group) => count + group.tools.length, 0)
+  const cloudReady = accountReady || (directProviderAllowed && creditsLive && apiStatus === 'connected')
+  const setupNeeded = !cloudReady || !bridge.connected
   const storedSecureKey = settings.apiKey === SECURE_API_KEY_TOKEN
   const keyToValidate = keyDraft.trim() || (storedSecureKey ? SECURE_API_KEY_TOKEN : '')
   const canValidateKey = Boolean(keyToValidate) && apiStatus !== 'connecting'
 
   const openApiSettings = () => {
+    if (!directProviderAllowed) return
     settingsReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setSettingsOpen(true)
   }
@@ -218,6 +325,25 @@ export function Home({
   const toggleApiSettings = () => {
     if (settingsOpen) closeApiSettings()
     else openApiSettings()
+  }
+
+  const checkResolve = async () => {
+    setBridgeChecking(true)
+    setBridgeCheckFailed(false)
+    try {
+      const next = await resolve.refreshStatus()
+      setBridgeCheckFailed(!next.connected)
+    } finally {
+      setBridgeChecking(false)
+    }
+  }
+
+  const toggleOverview = () => {
+    setOverviewExpanded((current) => {
+      const expanded = !current
+      void host.setState('settings', HOME_OVERVIEW_STATE_KEY, { expanded })
+      return expanded
+    })
   }
 
   const openTool = (toolId: ToolId) => {
@@ -264,6 +390,7 @@ export function Home({
         >
           {windowHeightMode === 'standard' ? '↕' : '↥'}
         </button>
+        <button type="button" className="ef-density-toggle" onClick={onOpenAccount} aria-label="Open account" title="Account">◎</button>
         <button type="button" className="ef-density-toggle" onClick={onOpenSettings} aria-label="Open settings" title="Settings">⚙</button>
         <div className="ef-home-statuses" aria-label="Connections and account">
           <span
@@ -286,21 +413,31 @@ export function Home({
           <button
             type="button"
             className={'ef-token-badge' + (creditsLive ? ' live' : '')}
-            aria-label={creditsLive ? `${formatTokens(credits)} live credits. Open EasyField Cloud settings` : 'EasyField Cloud is not connected. Open settings'}
-            aria-expanded={settingsOpen}
-            aria-controls="ef-api-settings"
-            title={creditsLive ? 'Live balance from your EasyField Cloud account' : 'Connect EasyField Cloud to see your live balance'}
-            onClick={toggleApiSettings}
+            aria-label={creditsLive
+              ? `${formatTokens(credits)} live credits. Open ${directProviderAllowed ? 'direct provider settings' : 'account'}`
+              : accountSignedIn
+                ? 'Open EasyField Account'
+                : directProviderAllowed
+                  ? 'Direct provider access is not connected. Open settings'
+                  : 'Sign in to EasyField Account'}
+            aria-expanded={directProviderAllowed ? settingsOpen : undefined}
+            aria-controls={directProviderAllowed ? 'ef-api-settings' : undefined}
+            title={creditsLive
+              ? 'Live EasyField credit balance'
+              : directProviderAllowed
+                ? 'Connect direct provider access'
+                : accountSignedIn ? 'Open account' : 'Sign in or create an account'}
+            onClick={directProviderAllowed ? toggleApiSettings : onOpenAccount}
           >
             <span className="ef-token-badge-spark" aria-hidden="true">
               <Icon glyph="spark" size={10} />
             </span>
-            <span className="ef-token-badge-value">{creditsLive ? formatTokens(credits) : 'Connect'}</span>
+            <span className="ef-token-badge-value">{creditsLive ? formatTokens(credits) : accountSignedIn ? 'Account' : directProviderAllowed ? 'Connect' : 'Sign in'}</span>
           </button>
         </div>
       </header>
 
-      {settingsOpen && (
+      {directProviderAllowed && settingsOpen && (
         <>
           <div className="ef-overlay" aria-hidden="true" onClick={closeApiSettings} />
           <div
@@ -326,8 +463,8 @@ export function Home({
                 ref={keyInputRef}
                 className="ef-apikey-input"
                 type="password"
-                aria-label="EasyField Cloud API key"
-                placeholder={storedSecureKey ? 'Stored securely in Keychain' : 'Paste your API key…'}
+                aria-label="Direct cloud credential"
+                placeholder={storedSecureKey ? 'Stored securely in Keychain' : 'Paste your credential…'}
                 value={keyDraft}
                 autoComplete="off"
                 spellCheck={false}
@@ -339,7 +476,7 @@ export function Home({
                 type="submit"
                 className="ef-apikey-btn"
                 disabled={!canValidateKey}
-                title={!keyToValidate ? 'Enter an API key first' : undefined}
+                title={!keyToValidate ? 'Enter a credential first' : undefined}
               >
                 {apiStatus === 'connecting' ? '…' : creditsLive ? 'Refresh' : 'Connect'}
               </button>
@@ -348,11 +485,182 @@ export function Home({
               {apiStatus === 'connected' && `✓ Connected · ${credits.toLocaleString()} credits`}
               {apiStatus === 'error' && `✕ ${apiError}`}
               {apiStatus === 'connecting' && 'Checking your balance…'}
-              {apiStatus === 'idle' && (!keyToValidate ? 'Enter an API key to enable cloud actions.' : 'The key stays on this Mac.')}
+              {apiStatus === 'idle' && (!keyToValidate ? 'Enter a credential to enable direct cloud actions.' : 'The credential stays on this Mac.')}
             </div>
+            {hasExistingDirectCredential && apiStatus !== 'connected' && (
+              <button
+                type="button"
+                className="ef-credit-purchase-btn"
+                disabled={apiStatus === 'connecting'}
+                onClick={() => void onAdoptExistingConnection()}
+              >
+                <span>{apiStatus === 'connecting' ? 'Checking saved connection…' : 'Use saved Mac connection'}</span>
+                <span aria-hidden="true">→</span>
+              </button>
+            )}
+            {directProviderAllowed && creditsLive && host.isPlugin() && (
+              <button
+                type="button"
+                className="ef-credit-purchase-btn"
+                onClick={() => void host.openCreditPurchase().catch(() => toast('Could not open credit purchase.'))}
+              >
+                <span>Buy credits</span><span aria-hidden="true">↗</span>
+              </button>
+            )}
           </div>
         </>
       )}
+
+      <div className={'ef-home-overview' + (overviewExpanded ? ' is-expanded' : ' is-collapsed')}>
+        <section className="ef-home-command" aria-label="Workspace overview">
+          <div className="ef-home-command-topline">
+            <span className="ef-home-eyebrow">
+              <i aria-hidden="true" />
+              {overviewExpanded
+                ? 'AI POST-PRODUCTION WORKSPACE'
+                : searching
+                  ? `${visibleToolCount} FILTERED ${visibleToolCount === 1 ? 'TOOL' : 'TOOLS'}`
+                  : setupNeeded
+                    ? 'WORKSPACE · SETUP NEEDED'
+                    : 'WORKSPACE CONTROLS'}
+            </span>
+            <button
+              type="button"
+              className="ef-home-overview-toggle"
+              aria-expanded={overviewExpanded}
+              aria-controls="ef-home-overview-content"
+              aria-label={`${overviewExpanded ? 'Hide' : 'Show'} workspace overview`}
+              onClick={toggleOverview}
+            >
+              <span>{overviewExpanded ? 'Hide' : 'Show'}</span>
+              <span className="ef-home-overview-chevron" aria-hidden="true">{overviewExpanded ? '⌃' : '⌄'}</span>
+            </button>
+          </div>
+
+          <div id="ef-home-overview-content" className="ef-home-command-content" hidden={!overviewExpanded}>
+            <div className="ef-home-command-copy">
+              <h1 id="ef-home-command-title">From idea to final timeline.</h1>
+              <p>Purpose-built tools for professional editors, organized around the work you need to finish.</p>
+            </div>
+
+            <div className="ef-home-command-actions">
+              <div className="ef-search">
+                <span className="ef-search-glyph" aria-hidden="true">
+                  <Icon glyph="mask" size={15} />
+                </span>
+                <input
+                  ref={searchRef}
+                  type="search"
+                  aria-label="Search all EasyField tools"
+                  aria-keyshortcuts="Meta+F Control+F"
+                  placeholder={`Search all ${HOME_TOOL_COUNT} tools…`}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                {searching ? (
+                  <button
+                    type="button"
+                    className="ef-search-clear"
+                    aria-label="Clear tool search"
+                    onClick={() => {
+                      setQuery('')
+                      searchRef.current?.focus()
+                    }}
+                  >
+                    ×
+                  </button>
+                ) : (
+                  <span className="ef-kbd" aria-hidden="true">⌘F</span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="ef-home-brain-launch"
+                aria-label="Open SuperBrain to plan a complete workflow"
+                onClick={onOpenBrain}
+              >
+                <span className="ef-home-brain-icon" aria-hidden="true"><Icon glyph="spark" size={13} /></span>
+                <span className="ef-home-brain-copy">
+                  <strong>Plan with SuperBrain</strong>
+                  <small>Build a reviewed workflow before anything runs</small>
+                </span>
+                <span className="ef-home-brain-open" aria-hidden="true">Open</span>
+                <span className="ef-kbd" aria-hidden="true">⌘K</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {overviewExpanded && setupNeeded && (
+          <aside className="ef-setup-card ef-setup-card--compact" aria-labelledby="ef-setup-title">
+          <div className="ef-setup-header">
+            <span className="ef-setup-eyebrow">SETUP</span>
+            <div>
+              <h2 className="ef-setup-title" id="ef-setup-title">Finish connecting EasyField</h2>
+              <p className="ef-setup-copy">Connect generation and timeline placement.</p>
+            </div>
+          </div>
+          <div className="ef-setup-list">
+            {!cloudReady && (
+              <div className="ef-setup-step">
+                <span className="ef-setup-step-icon" aria-hidden="true">!</span>
+                <span className="ef-setup-step-content">
+                  <span className="ef-setup-step-title">{directProviderAllowed ? 'Direct provider access' : 'EasyField Account'}</span>
+                  <span className="ef-setup-step-desc">
+                    {directProviderAllowed
+                      ? apiStatus === 'connecting'
+                        ? 'Checking your saved direct credential…'
+                        : apiStatus === 'error'
+                          ? 'Connection failed. Review your direct credential.'
+                          : settings.apiKey
+                            ? 'Your saved credential is not connected. Review it and try again.'
+                            : 'Add a direct credential to use live generation models.'
+                      : !accountConfigured
+                        ? 'Account service is unavailable in this build.'
+                        : accountSignedIn
+                          ? 'Review your plan, balance or verification status to enable generation.'
+                          : 'Sign in or create an account to activate a plan.'}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="ef-setup-action"
+                  onClick={directProviderAllowed ? openApiSettings : onOpenAccount}
+                  disabled={directProviderAllowed && apiStatus === 'connecting'}
+                >
+                  {directProviderAllowed
+                    ? apiStatus === 'connecting' ? 'Checking…' : settings.apiKey ? 'Review' : 'Connect'
+                    : accountSignedIn ? 'Review account' : 'Open account'}
+                </button>
+              </div>
+            )}
+            {!bridge.connected && (
+              <div className="ef-setup-step">
+                <span className="ef-setup-step-icon" aria-hidden="true">!</span>
+                <span className="ef-setup-step-content">
+                  <span className="ef-setup-step-title">DaVinci Resolve</span>
+                  <span className="ef-setup-step-desc" aria-live="polite">
+                    {bridge.compatibilityError
+                      ? 'Update the EasyField Resolve integration before using timeline or Media Pool actions.'
+                      : bridgeCheckFailed
+                      ? 'Still not connected. Open EasyField inside Resolve, then try again.'
+                      : 'Open EasyField from Workspace › Workflow Integrations.'}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="ef-setup-action"
+                  onClick={() => void checkResolve()}
+                  disabled={bridgeChecking}
+                >
+                  {bridgeChecking ? 'Checking…' : bridge.compatibilityError ? 'Update required' : 'Check again'}
+                </button>
+              </div>
+            )}
+          </div>
+          </aside>
+        )}
+      </div>
 
       <button type="button" className="ef-library-entry" onClick={onOpenLibrary}>
         <span className="ef-library-entry-icon" aria-hidden="true">
@@ -369,42 +677,15 @@ export function Home({
         <span className="ef-library-entry-arrow">›</span>
       </button>
 
-      <section className="ef-home-search-panel" aria-label="Find and filter tools">
-        <div className="ef-search">
-          <span className="ef-search-glyph" aria-hidden="true">
-            <Icon glyph="mask" size={15} />
-          </span>
-          <input
-            ref={searchRef}
-            type="search"
-            aria-label="Search all EasyField tools"
-            aria-keyshortcuts="Meta+F Control+F"
-            placeholder={`Search all ${HOME_TOOL_COUNT} tools…`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {searching ? (
-            <button
-              type="button"
-              className="ef-search-clear"
-              aria-label="Clear tool search"
-              onClick={() => {
-                setQuery('')
-                searchRef.current?.focus()
-              }}
-            >
-              ×
-            </button>
-          ) : (
-            <span className="ef-kbd" aria-hidden="true">⌘F</span>
-          )}
-        </div>
-        <div className="ef-home-directory-intro">
-          <h1>Choose your workspace</h1>
-          <p>Start with your project media. Find the best tool to create, edit, analyze or finish.</p>
-        </div>
+      <section className="ef-home-directory" aria-label="Media workspaces">
+        <header className="ef-home-directory-head">
+          <div>
+            <span>MEDIA WORKSPACES</span>
+          </div>
+          <span className="ef-home-directory-total">{HOME_TOOL_COUNT} TOOLS</span>
+        </header>
         <div className="ef-category-tabs" role="tablist" aria-label="Filter tools by media type">
-          <button type="button" role="tab" aria-selected={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All <span>{HOME_TOOL_COUNT}</span></button>
+          <button type="button" role="tab" aria-selected={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All tools <span>{HOME_TOOL_COUNT}</span></button>
           {HOME_WORKSPACES.map((group, index) => (
             <button
               type="button"
@@ -423,7 +704,11 @@ export function Home({
         </div>
       </section>
 
-      <div className="ef-scroll ef-home-scroll">
+      <div
+        ref={homeScrollRef}
+        className="ef-scroll ef-home-scroll"
+        onScroll={(event) => { navigationMemory.scrollTop = event.currentTarget.scrollTop }}
+      >
         {searching && visibleToolCount > 0 && (
           <div className="ef-search-summary" role="status">
             {visibleToolCount === 1 ? '1 tool found' : `${visibleToolCount} tools found`}
@@ -443,10 +728,14 @@ export function Home({
               style={{ '--ef-category-color': group.color } as CSSProperties}
             >
               <div className="ef-group-header">
-                <i className="ef-group-dot" aria-hidden="true" />
-                <h2 className="ef-group-label" id={headingId}>{group.label}</h2>
+                <span className="ef-group-index" aria-hidden="true">{String(HOME_WORKSPACES.findIndex((item) => item.id === group.id) + 1).padStart(2, '0')}</span>
+                <div className="ef-group-heading-copy">
+                  <span>{group.eyebrow}</span>
+                  <h2 className="ef-group-label" id={headingId}>{group.label}</h2>
+                  <p>{group.description}</p>
+                </div>
                 <span className="ef-group-rule" />
-                <span className="ef-group-count">{String(group.tools.length).padStart(2, '0')}</span>
+                <span className="ef-group-count">{group.tools.length} {group.tools.length === 1 ? 'tool' : 'tools'}</span>
               </div>
               <div className="ef-tool-grid">
                 {group.tools.map((tool, index) => (
@@ -454,32 +743,31 @@ export function Home({
                     type="button"
                     className="ef-tool-card"
                     key={tool.id}
+                    data-home-scroll-anchor={tool.id}
                     style={{ '--ef-category-color': group.color, '--ef-media-color': tool.mediaColor, '--ef-tool-order': index } as CSSProperties}
-                    aria-label={`${tool.name}. ${tool.homeDesc}. ${tool.media} tool.`}
+                    aria-label={`${tool.name}. ${tool.homeDesc}. ${tool.media} tool. ${tool.availability === 'review-only' ? 'Review workflow only; execution adapter not connected.' : 'Execution available.'}`}
                     onClick={() => openTool(tool.id)}
                   >
                     <span className="ef-tool-tile" style={{ background: tool.mediaTint }} aria-hidden="true">
                       <Icon glyph={tool.glyph} color={tool.mediaColor} />
                     </span>
                     <span className="ef-tool-text">
+                      <span className="ef-tool-card-meta">
+                        <span className="ef-tool-media">{TOOL_BY_ID[tool.id].workspace}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{TOOL_BY_ID[tool.id].privacy === 'local' ? 'Local' : TOOL_BY_ID[tool.id].privacy === 'hybrid' ? 'Local + cloud' : 'Cloud'}</span>
+                        {tool.availability === 'review-only' && <><span aria-hidden="true">·</span><span>Review-only</span></>}
+                      </span>
                       <span className="ef-tool-name">{tool.name}</span>
                       <span className="ef-tool-desc">{tool.homeDesc}</span>
                     </span>
+                    <span className="ef-tool-arrow" aria-hidden="true">↗</span>
                   </button>
                 ))}
               </div>
             </section>
           )
         })}
-      </div>
-
-      <div className="ef-brain-bar-wrap ef-home-superbrain-wrap">
-        <button type="button" className="ef-brain-bar ef-home-superbrain-bar" onClick={onOpenBrain} aria-label="Ask SuperBrain to do it for you">
-          <span className="ef-brain-bar-spark" aria-hidden="true"><Icon glyph="spark" size={13} /></span>
-          <span className="ef-brain-bar-label">Ask SuperBrain to do it for you</span>
-          <span className="ef-spacer" />
-          <span className="ef-brain-bar-kbd" aria-hidden="true">⌘K</span>
-        </button>
       </div>
     </div>
   )

@@ -24,6 +24,7 @@ import { Icon } from '../icons'
 import { host } from '../services/host'
 import {
   ChatError,
+  canEnhancePrompt,
   enhancePrompt,
   resolveStoryboardAutoTiming,
   type EnhanceReference,
@@ -31,8 +32,8 @@ import {
 import { resolve } from '../services/resolve'
 import { renderStoryboardPng } from '../services/storyboardExport'
 import { isConnected, isGenerationExit, runImage, saveUrl } from '../services/run'
-import { canBackgroundJob, canCancelJob, cancelJob, continueJobInBackground, getJobs, useJobs } from '../services/jobCenter'
-import { addCreations, getCreations, useCreations, usePersistenceState, type Creation } from '../data/creations'
+import { canBackgroundJob, canCancelJob, cancelJob, continueJobInBackground, getJobs, prepareJobLedger, startJob, useJobs } from '../services/jobCenter'
+import { addCreations, addCreationsDurably, getCreations, useCreations, usePersistenceState, type Creation } from '../data/creations'
 import { IMAGE_MODEL_CONFIG, resolveImageOptions } from '../data/imageModelConfig'
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, IMAGE_MODELS } from '../data/models'
 import { AGENT_MODEL_META, IMAGE_MODEL_META } from '../data/modelPresentation'
@@ -101,7 +102,7 @@ const STORYBOARD_DRAFT_KEY = 'default:storyboard-v1'
 const ENHANCER_PREF_KEY = 'enhancer-storyboard'
 const ENHANCE_MAX_LENGTH = 6_000
 const SCENE_PROMPT_MIN_LENGTH = 3
-const STORYBOARD_CONTEXT_INSTRUCTION = 'Use the complete story and every ordered scene row to preserve narrative sequence, character identity, wardrobe, props, locations, palette and visual continuity. Treat attached references as authoritative visual evidence. A previous storyboard is incoming context and a next storyboard is outgoing context only: never copy either board into the current output, repeat its events or reveal future events early. Do not copy an action from another scene unless continuity requires it.'
+const STORYBOARD_CONTEXT_INSTRUCTION = 'Use the complete story and every ordered scene row only to prevent contradictions and preserve explicitly established continuity. Treat attached references as authoritative visual evidence. When the current field is blank, reference-led Auto may draft only that field for its selected Storyboard purpose. A previous storyboard is incoming context and a next storyboard is outgoing context only: never copy either board into the current output, repeat its events or reveal future events early. Never copy an action or fill a missing detail from another scene unless the current primary text explicitly refers to it.'
 
 type SaveState = 'loading' | 'saved' | 'saving' | 'error'
 type BriefRunState = 'idle' | 'enhancing' | 'planning' | 'error'
@@ -1775,7 +1776,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     const referenceSnapshot = [...referenceImagesRef.current]
     const promptingReferences = storyboardPromptingReferences(current, referenceSnapshot, creationsById)
     const contextSnapshot = buildStoryboardEnhancementContext(current)
-    if (storySnapshot.trim().length < SCENE_PROMPT_MIN_LENGTH && !promptingReferences.length) return
+    if (!canEnhancePrompt(storySnapshot, promptingReferences, SCENE_PROMPT_MIN_LENGTH)) return
     const controller = new AbortController()
     controllersRef.current.set('brief:enhance', controller)
     setBriefRuntime({ state: 'enhancing' })
@@ -1786,6 +1787,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
           ? `Complete story context for storyboard scenes generated with ${current.model}`
           : `Complete storyboard planned for ${current.model}`,
         mediaKind: 'workflow',
+        purpose: 'story-brief',
         chatModel: enhancerModel,
         maxLength: Math.min(
           ENHANCE_MAX_LENGTH,
@@ -1839,7 +1841,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
       )
       : referenceImagesRef.current
     const promptingReferences = storyboardPromptingReferences(currentDraft, sceneReferences, latestCreationsById)
-    if (scene.prompt.trim().length < SCENE_PROMPT_MIN_LENGTH && !promptingReferences.length) return
+    if (!canEnhancePrompt(scene.prompt, promptingReferences, SCENE_PROMPT_MIN_LENGTH)) return
     const promptSnapshot = scene.prompt
     const modelSnapshot = currentDraft.model
     const styleSnapshot = currentDraft.style
@@ -1862,6 +1864,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         rough: promptSnapshot,
         targetModel: modelSnapshot,
         mediaKind: 'image',
+        purpose: 'story-scene',
         chatModel: enhancerModel,
         maxLength: promptMaxSnapshot,
         style: styleSnapshot || undefined,
@@ -2738,7 +2741,17 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     }
 
     setExportingBoard(true)
+    let exportJob: ReturnType<typeof startJob> | null = null
     try {
+      await prepareJobLedger()
+      exportJob = startJob({
+        title: 'Export storyboard',
+        subtitle: `${current.scenes.length} scenes · one image`,
+        kind: 'image',
+      })
+      const activeExportJob = exportJob
+      await activeExportJob.persisted
+      activeExportJob.update({ status: 'running', detail: 'Rendering storyboard locally' })
       const blob = await renderStoryboardPng({
         title: current.title.trim() || 'EasyField Storyboard',
         story: completeStory,
@@ -2748,38 +2761,58 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         totalDurationSeconds: effectiveTiming.totalDurationSeconds,
         scenes: exportScenes,
       })
-      const url = URL.createObjectURL(blob)
-      const [creation] = addCreations([{
-        kind: 'image',
-        url,
-        model: 'EasyField Storyboard',
-        prompt: completeStory,
-        meta: `Complete storyboard · Exact selected frames · ${effectiveTiming.timingMode === 'none' ? '' : `${effectiveTiming.totalDurationSeconds}s · `}${current.scenes.length} scene${current.scenes.length === 1 ? '' : 's'} · 1920px PNG`,
-      }])
-      if (!creation) throw new Error('The complete storyboard could not be saved to Library.')
-      const boardCandidate: StoryboardBoardCandidate = {
-        creationId: creation.id,
-        strategy: 'scene-composite',
-        promptSnapshot: completeStory,
-        inputFingerprint: exactStoryboardFingerprint(current, sourceSceneCreationIds),
-        sourceSceneCreationIds,
-        model: current.model,
-        aspect: current.aspect,
-        resolution: current.resolution,
-        extras: { ...current.extras, format: 'PNG' },
-        createdAt: creation.createdAt,
+      const localUrl = URL.createObjectURL(blob)
+      let ownsTemporaryUrl = true
+      try {
+        const [creation] = await addCreationsDurably([{
+          kind: 'image',
+          url: localUrl,
+          model: 'EasyField Storyboard',
+          prompt: completeStory,
+          meta: `Complete storyboard · Exact selected frames · ${effectiveTiming.timingMode === 'none' ? '' : `${effectiveTiming.totalDurationSeconds}s · `}${current.scenes.length} scene${current.scenes.length === 1 ? '' : 's'} · 1920px PNG`,
+          durability: 'local',
+        }], {
+          onSecured: async (securedItems) => {
+            await activeExportJob.secureResults(securedItems.map((item) => item.url), securedItems.length, 'Storyboard secured locally · adding to Library')
+          },
+        })
+        if (!creation) throw new Error('The complete storyboard could not be saved to Library.')
+        await activeExportJob.commitResults([creation.url], 1, 'Storyboard saved locally')
+        if (creation.url !== localUrl) {
+          URL.revokeObjectURL(localUrl)
+          ownsTemporaryUrl = false
+        } else {
+          // Development Library owns this Blob URL until the record is removed.
+          ownsTemporaryUrl = false
+        }
+        const boardCandidate: StoryboardBoardCandidate = {
+          creationId: creation.id,
+          strategy: 'scene-composite',
+          promptSnapshot: completeStory,
+          inputFingerprint: exactStoryboardFingerprint(current, sourceSceneCreationIds),
+          sourceSceneCreationIds,
+          model: current.model,
+          aspect: current.aspect,
+          resolution: current.resolution,
+          extras: { ...current.extras, format: 'PNG' },
+          createdAt: creation.createdAt,
+        }
+        updateDraft((latest) => ({
+          ...latest,
+          boardCandidates: appendStoryboardBoardCandidates(latest, [boardCandidate]),
+          approvedBoardCreationId: creation.id,
+        }))
+        setActiveBoardCandidateId(creation.id)
+        saveUrl(creation.url, `${safeExportName(current.title)}.png`)
+        setLightbox(creation.url)
+        toast('Complete storyboard saved to Library and exported as one image')
+      } catch (error) {
+        if (ownsTemporaryUrl) URL.revokeObjectURL(localUrl)
+        throw error
       }
-      updateDraft((latest) => ({
-        ...latest,
-        boardCandidates: appendStoryboardBoardCandidates(latest, [boardCandidate]),
-        approvedBoardCreationId: creation.id,
-      }))
-      setActiveBoardCandidateId(creation.id)
-      saveUrl(creation.url, `${safeExportName(current.title)}.png`)
-      setLightbox(creation.url)
-      toast('Complete storyboard saved to Library and exported as one image')
       return true
     } catch (error) {
+      exportJob?.fail(error)
       toast(error instanceof Error ? error.message : 'Could not build the complete storyboard image')
       return false
     } finally {
@@ -3210,7 +3243,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
                 className={`ef-enhance-btn${briefRuntime.state === 'enhancing' ? ' loading' : ''}`}
                 aria-label={!connected ? 'Connect EasyField Cloud to improve the Story Brief' : `Improve the Story Brief using the current storyboard and references with ${enhancerModel}`}
                 title={!connected ? 'Connect EasyField Cloud to improve prompts' : `Uses the complete Story Brief and every attached reference · ${enhancerModel}`}
-                disabled={!connected || (draft.storyBrief.trim().length < SCENE_PROMPT_MIN_LENGTH && !referenceImages.length && adjacentReferenceCount === 0) || referenceInputsLocked}
+                disabled={!connected || (!canEnhancePrompt(draft.storyBrief, referencesForPrompting(referenceImages), SCENE_PROMPT_MIN_LENGTH) && adjacentReferenceCount === 0) || referenceInputsLocked}
                 onClick={() => void enhanceCompleteStory()}
               >
                 <Icon glyph="spark" size={12} />
@@ -3473,6 +3506,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
                 versionCount={sceneVersionCount}
                 generationVersionCount={sceneRuntime.requestedVersions ?? sceneVersionCount}
                 versionEstimate={sceneVersionEstimate}
+                canEnhanceFromReferences={referenceImages.length > 0}
                 onEnhancerModelChange={changeEnhancerModel}
                 onOpenReferences={() => setReferenceDialogSceneId(scene.id)}
                 onVersionCountChange={(versionCount) => updateScene(scene.id, (current) => ({
