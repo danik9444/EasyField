@@ -838,6 +838,8 @@ test('every model visible in Extend serializes the captured shot end as its star
     } else if (request.family === 'runway') {
       assert.equal(request.body.imageUrl, startFrameUrl, model)
     } else {
+      assert.equal(request.family, 'jobs', model)
+      if (request.family !== 'jobs') throw new Error(`Expected a Market job for ${model}`)
       const input = request.input
       const serialized = input.first_frame_url
         ?? input.image_url

@@ -100,6 +100,10 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
       setResolution(options.resolution)
       setExtras(options.extraOptionValues)
       setDraftReady(true)
+    }).catch(() => {
+      if (!active) return
+      setDraftReady(true)
+      setError('Your saved Angles draft could not be restored. You can continue with the defaults.')
     })
     return () => { active = false }
   }, [])
@@ -339,8 +343,6 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
               ? `${randomCount} distinct camera positions · identity preservation requested`
               : 'One precise custom viewpoint · identity preservation requested'
 
-  const registerUnusedClear = useCallback((_clear: () => void) => {}, [])
-
   return (
     <div className="ef-screen ef-legacy-workspace ef-angles-screen">
       <div className="ef-sub-header">
@@ -372,13 +374,10 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
               <MaskCanvas
                 source={source}
                 maskable={false}
-                brushSize={24}
-                color="#E26BD2"
                 onPick={(file) => { void pickSource(file) }}
                 onGrab={() => { void grabPrimarySource() }}
                 grabPending={sourceGrabPending}
                 disabled={phase === 'generating'}
-                onClearRef={registerUnusedClear}
                 emptyTitle="Choose the view to orbit"
                 emptyDescription="Upload a still, or grab a still or the displayed video frame under the Resolve playhead."
                 sourceLabel="Choose the primary source for camera angles"
@@ -499,12 +498,13 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Camera-angle generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected || !draftReady ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
+          <div id="angles-footer-message" className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected || !draftReady ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
           <button
             type="button"
             className="ef-generate ef-create-footer-action"
             disabled={!canGenerate}
             aria-label={mode === 'random' ? `Generate ${randomCount} random camera angle${randomCount === 1 ? '' : 's'}` : 'Generate custom camera angle'}
+            aria-describedby="angles-footer-message"
             onClick={() => { void generate() }}
           >
             <Icon glyph="angles" color="#0E0E13" size={13} /> {mode === 'random' ? `Generate ×${randomCount}` : 'Generate angle'}

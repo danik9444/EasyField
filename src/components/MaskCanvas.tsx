@@ -29,18 +29,12 @@ function containedRect(boxWidth: number, boxHeight: number, image: ImageSize | n
   return { left: (boxWidth - width) / 2, top: 0, width, height: boxHeight }
 }
 
-interface MaskCanvasProps {
+interface MaskCanvasBaseProps {
   source: ReferenceImage | null
-  maskable: boolean
-  brushSize: number
-  color: string
   onPick: (file: File) => void
   onGrab?: () => void
   grabPending?: boolean
   disabled?: boolean
-  onClearRef: (fn: () => void) => void
-  onMaskExportRef?: (fn: () => Promise<Blob | null>) => void
-  onMaskChange?: (hasMask: boolean) => void
   emptyTitle?: string
   emptyDescription?: string
   sourceLabel?: string
@@ -51,11 +45,31 @@ interface MaskCanvasProps {
   onChooseLibrary?: (creation: Creation) => void | Promise<void>
 }
 
+interface MaskableCanvasProps {
+  maskable: true
+  brushSize: number
+  color: string
+  onClearRef: (fn: () => void) => void
+  onMaskExportRef?: (fn: () => Promise<Blob | null>) => void
+  onMaskChange?: (hasMask: boolean) => void
+}
+
+interface UnmaskableCanvasProps {
+  maskable: false
+  brushSize?: never
+  color?: never
+  onClearRef?: never
+  onMaskExportRef?: never
+  onMaskChange?: never
+}
+
+type MaskCanvasProps = MaskCanvasBaseProps & (MaskableCanvasProps | UnmaskableCanvasProps)
+
 export function MaskCanvas({
   source,
   maskable,
-  brushSize,
-  color,
+  brushSize = 0,
+  color = '#000000',
   onPick,
   onGrab,
   grabPending = false,
@@ -206,7 +220,7 @@ export function MaskCanvas({
   }
 
   useEffect(() => {
-    onClearRef(clear)
+    onClearRef?.(clear)
   }, [onClearRef])
 
   useEffect(() => {

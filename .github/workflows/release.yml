@@ -11,38 +11,36 @@ on:
         type: string
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 env:
   EASYFIELD_RELEASE_REPOSITORY: danik9444/EasyField
+  EASYFIELD_RELEASE_SIGNER_EMAIL: 166756911+danik9444@users.noreply.github.com
 
 concurrency:
   group: release-${{ github.ref_name }}-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  build:
     runs-on: macos-15
     timeout-minutes: 60
-    environment: release
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      commit: ${{ steps.tag.outputs.commit }}
+      tag-object: ${{ steps.tag.outputs.tag-object }}
+      handoff-sha256: ${{ steps.handoff.outputs.sha256 }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
-      - name: Verify release gate
-        shell: bash
-        env:
-          RELEASE_ENABLED: ${{ vars.EASYFIELD_RELEASE_ENABLED }}
-        run: |
-          set -euo pipefail
-          if [[ "$RELEASE_ENABLED" != "true" ]]; then
-            echo "Release publishing is disabled. Set the protected release environment variable EASYFIELD_RELEASE_ENABLED=true after every release prerequisite is satisfied." >&2
-            exit 1
-          fi
-
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -87,7 +85,8 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$TAG")" >> "$GITHUB_ENV"
 
-      - name: Verify annotated signed tag
+      - name: Verify approved signed tag on protected main
+        id: tag
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -98,37 +97,61 @@ jobs:
           TAG_TYPE="$(jq -r '.object.type' <<<"$TAG_REF")"
           TAG_OBJECT_SHA="$(jq -r '.object.sha' <<<"$TAG_REF")"
           if [[ "$TAG_TYPE" != "tag" || ! "$TAG_OBJECT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "$TAG must be an annotated tag, not a lightweight tag." >&2
+            echo "$TAG rejected by annotated-tag check: the release ref must point to an annotated tag object." >&2
             exit 1
           fi
+
           VERIFICATION="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$TAG_OBJECT_SHA")"
-          if [[ "$(jq -r '.verification.verified' <<<"$VERIFICATION")" != "true" ]]; then
-            REASON="$(jq -r '.verification.reason // "unknown"' <<<"$VERIFICATION")"
-            echo "$TAG does not have a GitHub-verified signature (reason: $REASON)." >&2
+          VERIFIED_TAG="$(jq -r '.tag // empty' <<<"$VERIFICATION")"
+          TARGET_TYPE="$(jq -r '.object.type // empty' <<<"$VERIFICATION")"
+          TAG_COMMIT_SHA="$(jq -r '.object.sha // empty' <<<"$VERIFICATION")"
+          if [[ "$VERIFIED_TAG" != "$TAG" || "$TARGET_TYPE" != "commit" || ! "$TAG_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "$TAG rejected by annotated-tag target check: the verified tag object must name $TAG and point directly to a commit." >&2
             exit 1
           fi
+
+          VERIFICATION_REASON="$(jq -r '.verification.reason // "unknown"' <<<"$VERIFICATION")"
+          if [[ "$(jq -r '.verification.verified' <<<"$VERIFICATION")" != "true" || "$VERIFICATION_REASON" != "valid" ]]; then
+            echo "$TAG rejected by GitHub signature-verification check (reason: $VERIFICATION_REASON)." >&2
+            exit 1
+          fi
+
+          TAGGER_EMAIL="$(jq -r '.tagger.email // empty' <<<"$VERIFICATION")"
+          if [[ "$TAGGER_EMAIL" != "$EASYFIELD_RELEASE_SIGNER_EMAIL" ]]; then
+            echo "$TAG rejected by approved-signer identity check: GitHub-verified tagger '$TAGGER_EMAIL' is not allowlisted." >&2
+            exit 1
+          fi
+
+          if ! LOCAL_TAG_OBJECT_SHA="$(git rev-parse "refs/tags/$TAG^{tag}" 2>/dev/null)"; then
+            echo "$TAG rejected by local tag-object check: the checked-out ref cannot be resolved as an annotated tag." >&2
+            exit 1
+          fi
+          if [[ "$LOCAL_TAG_OBJECT_SHA" != "$TAG_OBJECT_SHA" ]]; then
+            echo "$TAG rejected by tag-object continuity check: the checkout and GitHub API resolved different tag objects." >&2
+            exit 1
+          fi
+
+          LOCAL_COMMIT_SHA="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          CHECKED_OUT_COMMIT_SHA="$(git rev-parse HEAD)"
+          if [[ "$LOCAL_COMMIT_SHA" != "$TAG_COMMIT_SHA" || "$CHECKED_OUT_COMMIT_SHA" != "$TAG_COMMIT_SHA" ]]; then
+            echo "$TAG rejected by release-checkout check: the checked-out commit does not match the verified tag target." >&2
+            exit 1
+          fi
+
+          if ! git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main; then
+            echo "$TAG protected-main ancestry check could not fetch origin/main; failing closed." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TAG_COMMIT_SHA" origin/main; then
+            echo "$TAG rejected by protected-main ancestry check: tagged commit $TAG_COMMIT_SHA is not an ancestor of origin/main." >&2
+            exit 1
+          fi
+
+          echo "commit=$TAG_COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag-object=$TAG_OBJECT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Install locked dependencies
         run: npm ci
-
-      - name: Materialize protected public account configuration
-        shell: bash
-        env:
-          ACCOUNT_CONFIG_BASE64: ${{ secrets.EASYFIELD_ACCOUNT_CONFIG_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${ACCOUNT_CONFIG_BASE64:-}" ]]; then
-            echo "The protected release account configuration is missing." >&2
-            exit 1
-          fi
-          umask 077
-          TEMPORARY_CONFIG="plugin/.account-config.json.tmp"
-          trap 'rm -f "$TEMPORARY_CONFIG"' EXIT
-          printf '%s' "$ACCOUNT_CONFIG_BASE64" | /usr/bin/base64 -D > "$TEMPORARY_CONFIG"
-          test -s "$TEMPORARY_CONFIG"
-          chmod 600 "$TEMPORARY_CONFIG"
-          mv "$TEMPORARY_CONFIG" plugin/account-config.json
-          npm run release:validate-account
 
       - name: Audit shipped dependencies
         run: npm audit --omit=dev
@@ -150,6 +173,192 @@ jobs:
 
       - name: Generate shipped-dependency SBOM
         run: npm run release:sbom -- --out "release/output/easyfield-${{ steps.version.outputs.version }}.spdx.json"
+
+      - name: Create integrity-bound build handoff
+        id: handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          HANDOFF="$RUNNER_TEMP/easyfield-release-build.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$HANDOFF" \
+            plugin \
+            release/output/release-notes.md \
+            "release/output/easyfield-${{ steps.version.outputs.version }}.spdx.json"
+          HANDOFF_SHA256="$(shasum -a 256 "$HANDOFF" | awk '{print $1}')"
+          [[ "$HANDOFF_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          echo "path=$HANDOFF" >> "$GITHUB_OUTPUT"
+          echo "sha256=$HANDOFF_SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable build handoff
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.handoff.outputs.path }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Verify uploaded handoff digest
+        shell: bash
+        env:
+          LOCAL_SHA256: ${{ steps.handoff.outputs.sha256 }}
+          UPLOADED_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$UPLOADED_SHA256" =~ ^[0-9a-f]{64}$ || "$UPLOADED_SHA256" != "$LOCAL_SHA256" ]]; then
+            echo "Build handoff rejected by upload-integrity check: the immutable artifact digest does not match the local SHA-256." >&2
+            exit 1
+          fi
+
+      - name: Remove temporary build handoff
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/easyfield-release-build.tar.gz"
+
+  sign-and-publish:
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Verify release gate
+        shell: bash
+        env:
+          RELEASE_ENABLED: ${{ vars.EASYFIELD_RELEASE_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_ENABLED" != "true" ]]; then
+            echo "Release publishing is disabled. Set the protected release environment variable EASYFIELD_RELEASE_ENABLED=true after every release prerequisite is satisfied." >&2
+            exit 1
+          fi
+
+      - name: Check out approved release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+
+      - name: Reverify approved release tag
+        shell: bash
+        env:
+          EXPECTED_COMMIT_SHA: ${{ needs.build.outputs.commit }}
+          EXPECTED_TAG_OBJECT_SHA: ${{ needs.build.outputs.tag-object }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$(git rev-parse HEAD)" != "$EXPECTED_COMMIT_SHA" ]]; then
+            echo "$TAG rejected by release-checkout check: the publishing checkout does not match the build job's verified commit." >&2
+            exit 1
+          fi
+
+          TAG_REF="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")"
+          if [[ "$(jq -r '.object.type' <<<"$TAG_REF")" != "tag" || "$(jq -r '.object.sha' <<<"$TAG_REF")" != "$EXPECTED_TAG_OBJECT_SHA" ]]; then
+            echo "$TAG rejected by tag-object continuity check: the release ref changed after the build job verified it." >&2
+            exit 1
+          fi
+
+          VERIFICATION="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$EXPECTED_TAG_OBJECT_SHA")"
+          VERIFICATION_REASON="$(jq -r '.verification.reason // "unknown"' <<<"$VERIFICATION")"
+          if [[ "$(jq -r '.tag // empty' <<<"$VERIFICATION")" != "$TAG" \
+            || "$(jq -r '.object.type // empty' <<<"$VERIFICATION")" != "commit" \
+            || "$(jq -r '.object.sha // empty' <<<"$VERIFICATION")" != "$EXPECTED_COMMIT_SHA" ]]; then
+            echo "$TAG rejected by annotated-tag target check: the verified tag target changed after the build job." >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.verification.verified' <<<"$VERIFICATION")" != "true" || "$VERIFICATION_REASON" != "valid" ]]; then
+            echo "$TAG rejected by GitHub signature-verification check (reason: $VERIFICATION_REASON)." >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.tagger.email // empty' <<<"$VERIFICATION")" != "$EASYFIELD_RELEASE_SIGNER_EMAIL" ]]; then
+            echo "$TAG rejected by approved-signer identity check: the GitHub-verified tagger is not allowlisted." >&2
+            exit 1
+          fi
+
+          if ! git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main; then
+            echo "$TAG protected-main ancestry check could not fetch origin/main; failing closed." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$EXPECTED_COMMIT_SHA" origin/main; then
+            echo "$TAG rejected by protected-main ancestry check: tagged commit $EXPECTED_COMMIT_SHA is not an ancestor of origin/main." >&2
+            exit 1
+          fi
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$EXPECTED_COMMIT_SHA")" >> "$GITHUB_ENV"
+
+      - name: Download immutable build handoff
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: ${{ runner.temp }}/easyfield-release-handoff
+          digest-mismatch: error
+
+      - name: Verify and restore build handoff
+        shell: bash
+        env:
+          ARTIFACT_SHA256: ${{ needs.build.outputs.artifact-digest }}
+          EXPECTED_SHA256: ${{ needs.build.outputs.handoff-sha256 }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          HANDOFF="$RUNNER_TEMP/easyfield-release-handoff/easyfield-release-build.tar.gz"
+          if [[ ! "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ || ! "$ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Build handoff rejected by digest-format check: both expected SHA-256 values must be canonical." >&2
+            exit 1
+          fi
+          ACTUAL_SHA256="$(shasum -a 256 "$HANDOFF" | awk '{print $1}')"
+          if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" || "$ACTUAL_SHA256" != "$ARTIFACT_SHA256" ]]; then
+            echo "Build handoff rejected by download-integrity check: downloaded SHA-256 does not match both build-job digests." >&2
+            exit 1
+          fi
+
+          tar -xzf "$HANDOFF" -C "$GITHUB_WORKSPACE"
+          if ! git diff --quiet -- plugin ':(exclude)plugin/update-manifest.json'; then
+            echo "Build handoff rejected by reviewed-source integrity check: a tracked plugin source file differs from the approved commit." >&2
+            exit 1
+          fi
+
+          cp plugin/update-manifest.json "$RUNNER_TEMP/build-update-manifest.json"
+          node scripts/plugin-update-manifest.mjs
+          if ! cmp "$RUNNER_TEMP/build-update-manifest.json" plugin/update-manifest.json; then
+            echo "Build handoff rejected by manifest reproducibility check: the approved commit did not recreate the handed-off manifest." >&2
+            exit 1
+          fi
+          node scripts/release-runtime-packs.mjs
+          node scripts/release-verify-plugin.mjs
+          test -s release/output/release-notes.md
+          test -s "release/output/easyfield-${VERSION}.spdx.json"
+
+      - name: Materialize protected public account configuration
+        shell: bash
+        env:
+          ACCOUNT_CONFIG_BASE64: ${{ secrets.EASYFIELD_ACCOUNT_CONFIG_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ACCOUNT_CONFIG_BASE64:-}" ]]; then
+            echo "The protected release account configuration is missing." >&2
+            exit 1
+          fi
+          umask 077
+          TEMPORARY_CONFIG="plugin/.account-config.json.tmp"
+          trap 'rm -f "$TEMPORARY_CONFIG"' EXIT
+          printf '%s' "$ACCOUNT_CONFIG_BASE64" | /usr/bin/base64 -D > "$TEMPORARY_CONFIG"
+          test -s "$TEMPORARY_CONFIG"
+          chmod 600 "$TEMPORARY_CONFIG"
+          mv "$TEMPORARY_CONFIG" plugin/account-config.json
+          node scripts/release-account-config.mjs
+          node scripts/plugin-update-manifest.mjs
+          node scripts/release-verify-plugin.mjs
 
       - name: Import Developer ID Installer certificate
         id: signing
@@ -196,7 +405,7 @@ jobs:
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/AuthKey_${NOTARY_KEY_ID}.p8"
-          PKG="release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg"
+          PKG="release/output/EasyField-${{ needs.build.outputs.version }}-macOS-universal.pkg"
           trap 'rm -f "$KEY"' EXIT
           printf '%s' "$NOTARY_KEY_BASE64" | /usr/bin/base64 -D > "$KEY"
           chmod 600 "$KEY"
@@ -216,45 +425,52 @@ jobs:
         working-directory: release/output
         run: |
           shasum -a 256 \
-            "EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg" \
-            "EasyField-${{ steps.version.outputs.version }}-plugin.tar.gz" \
+            "EasyField-${{ needs.build.outputs.version }}-macOS-universal.pkg" \
+            "EasyField-${{ needs.build.outputs.version }}-plugin.tar.gz" \
             easyfield-update.json \
             easyfield-update-public.spki.b64 \
-            "easyfield-${{ steps.version.outputs.version }}.spdx.json" \
+            "easyfield-${{ needs.build.outputs.version }}.spdx.json" \
             notarization.json > SHA256SUMS
 
       - name: Attest release artifacts
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-path: |
-            release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg
-            release/output/EasyField-${{ steps.version.outputs.version }}-plugin.tar.gz
+            release/output/EasyField-${{ needs.build.outputs.version }}-macOS-universal.pkg
+            release/output/EasyField-${{ needs.build.outputs.version }}-plugin.tar.gz
             release/output/easyfield-update.json
 
       - name: Attest installer SBOM
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
-          subject-path: release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg
-          sbom-path: release/output/easyfield-${{ steps.version.outputs.version }}.spdx.json
+          subject-path: release/output/EasyField-${{ needs.build.outputs.version }}-macOS-universal.pkg
+          sbom-path: release/output/easyfield-${{ needs.build.outputs.version }}.spdx.json
 
       - name: Publish immutable GitHub release
         shell: bash
         env:
+          EXPECTED_TAG_OBJECT_SHA: ${{ needs.build.outputs.tag-object }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG='${{ steps.version.outputs.tag }}'
+          TAG='${{ needs.build.outputs.tag }}'
+          CURRENT_TAG_REF="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")"
+          if [[ "$(jq -r '.object.type' <<<"$CURRENT_TAG_REF")" != "tag" \
+            || "$(jq -r '.object.sha' <<<"$CURRENT_TAG_REF")" != "$EXPECTED_TAG_OBJECT_SHA" ]]; then
+            echo "$TAG rejected by pre-publish tag-object continuity check: the release ref changed after signing approval." >&2
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; same-version replacement is forbidden." >&2
             exit 1
           fi
-          gh release create "$TAG" --verify-tag --draft --title "EasyField ${{ steps.version.outputs.version }}" --notes-file release/output/release-notes.md
+          gh release create "$TAG" --verify-tag --draft --title "EasyField ${{ needs.build.outputs.version }}" --notes-file release/output/release-notes.md
           gh release upload "$TAG" \
-            "release/output/EasyField-${{ steps.version.outputs.version }}-macOS-universal.pkg" \
-            "release/output/EasyField-${{ steps.version.outputs.version }}-plugin.tar.gz" \
+            "release/output/EasyField-${{ needs.build.outputs.version }}-macOS-universal.pkg" \
+            "release/output/EasyField-${{ needs.build.outputs.version }}-plugin.tar.gz" \
             release/output/easyfield-update.json \
             release/output/easyfield-update-public.spki.b64 \
-            "release/output/easyfield-${{ steps.version.outputs.version }}.spdx.json" \
+            "release/output/easyfield-${{ needs.build.outputs.version }}.spdx.json" \
             release/output/notarization.json \
             release/output/SHA256SUMS
           gh release edit "$TAG" --draft=false
@@ -265,4 +481,6 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/easyfield-signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/easyfield-installer.p12" "$RUNNER_TEMP"/AuthKey_*.p8
+          rm -f "$RUNNER_TEMP/build-update-manifest.json"
+          rm -f "$RUNNER_TEMP/easyfield-release-handoff/easyfield-release-build.tar.gz"
           rm -f "$GITHUB_WORKSPACE/plugin/account-config.json" "$GITHUB_WORKSPACE/plugin/.account-config.json.tmp"

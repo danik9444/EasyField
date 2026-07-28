@@ -350,7 +350,9 @@ test('Suno Sounds uses the sounds create route and persists its recovery family 
     intervalMs: 1,
     timeoutMs: 100,
     gatewayOperationId: 'job-sounds-123',
-    onTaskId: async (taskId, family) => accepted.push([taskId, family]),
+    onTaskId: async (taskId, family) => {
+      accepted.push([taskId, family])
+    },
   })
 
   assert.deepEqual(calls, [

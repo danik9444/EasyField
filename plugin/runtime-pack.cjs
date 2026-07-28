@@ -75,7 +75,7 @@ function readCatalog(catalogPath) {
     return catalog;
 }
 
-function resolveTargetExecutables(pluginRoot, componentId, target, requiredExecutables, architecture) {
+function resolveTargetExecutables(pluginRoot, componentId, target, requiredExecutables, architecture, expectedPaths) {
     const expectedRoot = `runtime-packs/${componentId}/${architecture}`;
     if (!target || target.root !== expectedRoot || !target.executables || !Array.isArray(target.files)) {
         throw new Error(`The ${componentId} runtime target is incomplete.`);
@@ -101,6 +101,9 @@ function resolveTargetExecutables(pluginRoot, componentId, target, requiredExecu
             throw new Error(`The ${componentId} executable contract is invalid.`);
         }
         const executablePath = path.join(targetRoot, ...relativePath.split('/'));
+        if (expectedPaths && path.resolve(expectedPaths[executableName]) !== executablePath) {
+            throw new Error(`The ${componentId} executable path is not authenticated.`);
+        }
         const stat = fs.lstatSync(executablePath);
         if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== entry.size
             || (stat.mode & 0o111) === 0 || sha256File(executablePath) !== entry.sha256) {
@@ -109,6 +112,37 @@ function resolveTargetExecutables(pluginRoot, componentId, target, requiredExecu
         resolved[executableName] = executablePath;
     }
     return resolved;
+}
+
+function verifyRuntimeExecutable(options = {}) {
+    const componentId = options.componentId;
+    const executableName = options.executableName;
+    const candidate = options.candidate;
+    const requiredExecutables = COMPONENTS[componentId];
+    if (!requiredExecutables || !requiredExecutables.includes(executableName)
+        || typeof candidate !== 'string' || !path.isAbsolute(candidate)) {
+        return false;
+    }
+    const pluginRoot = path.resolve(options.pluginRoot || __dirname);
+    const architecture = options.architecture || process.arch;
+    if (!SUPPORTED_ARCHITECTURES.has(architecture)) return false;
+    try {
+        const catalog = readCatalog(options.catalogPath || path.join(pluginRoot, 'runtime-packs.json'));
+        if (!catalog.releaseReady) return false;
+        const component = catalog.components.find((entry) => entry && entry.id === componentId);
+        if (!component || !component.targets) return false;
+        resolveTargetExecutables(
+            pluginRoot,
+            componentId,
+            component.targets[architecture],
+            [executableName],
+            architecture,
+            { [executableName]: candidate },
+        );
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function resolveRuntimePack(options = {}) {
@@ -171,4 +205,5 @@ function resolveRuntimePack(options = {}) {
 module.exports = {
     COMPONENTS,
     resolveRuntimePack,
+    verifyRuntimeExecutable,
 };

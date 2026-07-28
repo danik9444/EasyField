@@ -117,7 +117,7 @@ export function ReferenceImageGrid({ images, max, onAddFiles, onRemove, onGrabPl
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        multiple={!allowReplace}
+        multiple={!allowReplace && max > 1}
         disabled={locked}
         onChange={handleChange}
         style={{ display: 'none' }}

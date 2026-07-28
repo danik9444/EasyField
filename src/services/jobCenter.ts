@@ -627,9 +627,9 @@ export async function prepareJobLedger(): Promise<void> {
   if (hydrated) return
   if (!hydrationPromise) {
     hydrationPromise = (async () => {
-      const stored = await host.getState<JobRecord[]>('jobs', 'ledger')
+      const stored = await host.getState<unknown>('jobs', 'ledger')
       const currentById = new Map(jobs.map((job) => [job.id, job]))
-      for (const persistedJob of stored ?? []) {
+      for (const persistedJob of Array.isArray(stored) ? stored as JobRecord[] : []) {
         if (currentById.has(persistedJob.id)) continue
         const storedJob = {
           ...sanitizeJobTextFields(persistedJob),

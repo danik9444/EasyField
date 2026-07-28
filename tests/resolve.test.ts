@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+const resolveModuleUrl = new URL('../src/services/resolve.ts', import.meta.url)
+
+function importFreshResolve(cacheKey: string): Promise<typeof import('../src/services/resolve.ts')> {
+  const url = new URL(resolveModuleUrl)
+  url.search = cacheKey
+  return import(url.href) as Promise<typeof import('../src/services/resolve.ts')>
+}
+
 test('timeline grabs return an honest failure instead of a placeholder artifact', async (t) => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
   const originalFetch = globalThis.fetch
@@ -83,7 +91,7 @@ test('Edit Image uses its media-aware grab endpoint and decodes source semantics
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?edit-image-source')
+  const { resolve } = await importFreshResolve('edit-image-source')
   await resolve.refreshStatus()
   const captured = await resolve.grabEditImageSource()
   assert.equal(captured.ok, true)
@@ -125,7 +133,7 @@ test('an older Resolve plugin blocks only the adaptive Edit Image grab', async (
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?legacy-edit-image-source')
+  const { resolve } = await importFreshResolve('legacy-edit-image-source')
   await resolve.refreshStatus()
   const blocked = await resolve.grabEditImageSource()
   assert.equal(blocked.ok, false)
@@ -180,7 +188,7 @@ test('Edit Video uses the exact-trim endpoint and preserves trim metadata', asyn
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?edit-video-source')
+  const { resolve } = await importFreshResolve('edit-video-source')
   await resolve.refreshStatus()
   const captured = await resolve.grabEditVideoSource()
   assert.equal(captured.ok, true)
@@ -226,7 +234,7 @@ test('adaptive Upscale Grab keeps original still bytes without asking for a vide
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?upscale-still-source')
+  const { resolve } = await importFreshResolve('upscale-still-source')
   await resolve.refreshStatus()
   const grabbed = await resolve.grabUpscaleSource()
   assert.equal(grabbed.ok, true)
@@ -277,7 +285,7 @@ test('adaptive Upscale Grab replaces a video probe with the exact trimmed timeli
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?upscale-exact-video')
+  const { resolve } = await importFreshResolve('upscale-exact-video')
   await resolve.refreshStatus()
   const grabbed = await resolve.grabUpscaleSource()
   assert.equal(grabbed.ok, true)
@@ -322,7 +330,7 @@ test('adaptive Upscale Grab fails closed when the playhead changes between probe
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?upscale-source-changed')
+  const { resolve } = await importFreshResolve('upscale-source-changed')
   await resolve.refreshStatus()
   const grabbed = await resolve.grabUpscaleSource()
   assert.equal(grabbed.ok, false)
@@ -369,7 +377,7 @@ test('timeline audio Grab preserves the exact cut metadata returned by Resolve',
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?audio-grab-metadata')
+  const { resolve } = await importFreshResolve('audio-grab-metadata')
   await resolve.refreshStatus()
   const captured = await resolve.grabAudio()
   assert.equal(captured.ok, true)
@@ -412,7 +420,7 @@ test('reviewed beat markers use the dedicated capability-gated Resolve endpoint'
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?beat-markers')
+  const { resolve } = await importFreshResolve('beat-markers')
   await resolve.refreshStatus()
   const result = await resolve.applyBeatMarkers({
     mediaId: '6f71673f-397b-47c1-9c1c-5f8cf7a885aa',
@@ -447,7 +455,7 @@ test('an older Resolve integration cannot pretend Beat marker import is supporte
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?legacy-beat-markers')
+  const { resolve } = await importFreshResolve('legacy-beat-markers')
   await resolve.refreshStatus()
   const result = await resolve.applyBeatMarkers({ mediaId: '6f71673f-397b-47c1-9c1c-5f8cf7a885aa', target: 'media-pool', analysisId: 'beat-analysis-1', color: 'Cyan', markers: [{ time: 1, confidence: 1, name: 'Beat' }] })
   assert.equal(result.ok, false)
@@ -479,7 +487,7 @@ test('an older Resolve plugin cannot silently use an imprecise Edit Video grab',
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?legacy-edit-video-source')
+  const { resolve } = await importFreshResolve('legacy-edit-video-source')
   await resolve.refreshStatus()
   const blocked = await resolve.grabEditVideoSource()
   assert.equal(blocked.ok, false)
@@ -518,7 +526,7 @@ test('a cold Resolve bridge may use its full initialization window without appea
 
   // Add a query so this test owns an isolated status cache even when Node runs
   // both tests in the same worker.
-  const { resolve } = await import('../src/services/resolve.ts?cold-start')
+  const { resolve } = await importFreshResolve('cold-start')
   const status = await resolve.refreshStatus()
   assert.equal(status.connected, true)
   assert.equal(status.timeline, 'Cold start')
@@ -570,7 +578,7 @@ test('shot-end grab uses the rendered timeline endpoint and preserves capture me
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?shot-end-frame')
+  const { resolve } = await importFreshResolve('shot-end-frame')
   await resolve.refreshStatus()
   const captured = await resolve.grabShotEndFrame()
   assert.equal(captured.ok, true)
@@ -635,7 +643,7 @@ test('shot-start grab uses the rendered timeline endpoint for the incoming Trans
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?shot-start-frame')
+  const { resolve } = await importFreshResolve('shot-start-frame')
   await resolve.refreshStatus()
   const captured = await resolve.grabShotStartFrame()
   assert.equal(captured.ok, true)
@@ -668,6 +676,7 @@ test('captured-cut placement sends the frozen project, timeline and record frame
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     assert.equal(url, '/bridge/place')
+    assert.equal(init?.signal, undefined)
     placementBody = JSON.parse(String(init?.body)) as Record<string, unknown>
     return new Response(JSON.stringify({ ok: true, mediaId: 'b5eec575-003b-47ad-882b-c6f2a68298d3' }), {
       status: 200,
@@ -681,7 +690,7 @@ test('captured-cut placement sends the frozen project, timeline and record frame
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?captured-cut-placement')
+  const { resolve } = await importFreshResolve('captured-cut-placement')
   await resolve.refreshStatus()
   const placed = await resolve.placeToTimeline({
     url: 'https://cdn/transition.mp4',
@@ -779,7 +788,7 @@ test('saved Library artifacts place through an opaque artifactId without exposin
   })
 
   const artifactId = '709f1476-0fd9-4c83-8916-e001edc5465d'
-  const { resolve } = await import('../src/services/resolve.ts?managed-artifact-placement')
+  const { resolve } = await importFreshResolve('managed-artifact-placement')
   await resolve.refreshStatus()
   const placed = await resolve.placeToTimeline({
     url: `/artifacts/${artifactId}`,
@@ -817,7 +826,7 @@ test('malformed managed Library paths are rejected before the bridge placement e
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?invalid-managed-artifact-placement')
+  const { resolve } = await importFreshResolve('invalid-managed-artifact-placement')
   await resolve.refreshStatus()
   const placed = await resolve.placeToTimeline({
     url: '/artifacts/../../etc/passwd',
@@ -852,7 +861,7 @@ test('timed Foley placement sends and capability-gates the frozen source-item an
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?timed-foley-placement')
+  const { resolve } = await importFreshResolve('timed-foley-placement')
   await resolve.refreshStatus()
   const placed = await resolve.placeToTimeline({
     url: 'https://cdn.example/step.wav',
@@ -896,7 +905,7 @@ test('an installed bridge without capability handshake is blocked before any med
     else delete (globalThis as { window?: unknown }).window
   })
 
-  const { resolve } = await import('../src/services/resolve.ts?legacy-capabilities')
+  const { resolve } = await importFreshResolve('legacy-capabilities')
   const status = await resolve.refreshStatus()
   assert.equal(status.connected, false)
   assert.match(status.compatibilityError ?? '', /outdated/i)

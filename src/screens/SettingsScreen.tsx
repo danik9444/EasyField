@@ -4,6 +4,7 @@ import { SECURE_API_KEY_TOKEN } from '../settings'
 import { resolve } from '../services/resolve'
 import { host, type PluginUpdateStatus } from '../services/host'
 import { Dropdown, type DropdownOptionMeta } from '../components/Dropdown'
+import type { AccountServiceHealth } from '../core/accountBridge'
 
 type SettingsSection = 'general' | 'ai' | 'resolve' | 'storage' | 'privacy' | 'shortcuts' | 'diagnostics'
 
@@ -12,7 +13,8 @@ interface SettingsScreenProps {
   apiStatus: 'idle' | 'connecting' | 'connected' | 'error'
   apiError: string
   credits: number
-  accountConfigured: boolean
+  accountServiceHealth: AccountServiceHealth
+  lastSuccessfulAccountRefreshAtMs: number | null
   accountReady: boolean
   accountSignedIn: boolean
   directProviderAllowed: boolean
@@ -23,6 +25,7 @@ interface SettingsScreenProps {
   onConnectApiKey: (key: string) => void | Promise<void>
   onAdoptExistingConnection: () => void | Promise<void>
   onRefreshApiConnection: () => void | Promise<void>
+  onRefreshAccount: () => void | Promise<void>
   updateStatus: PluginUpdateStatus | null
   updateChecking: boolean
   updateInstalling: boolean
@@ -59,7 +62,16 @@ const PLACEMENT_OPTIONS: Array<{ value: Settings['placementMode']; label: string
 const PLACEMENT_META = Object.fromEntries(PLACEMENT_OPTIONS.map((option) => [option.label, option.meta]))
 const IMPLEMENTED_ARTIFACT_ROOT = '~/Movies/EasyField'
 
-export function SettingsScreen({ settings, apiStatus, apiError, credits, accountConfigured, accountReady, accountSignedIn, directProviderAllowed, hasExistingDirectCredential, onBack, onOpenAccount, onChange, onConnectApiKey, onAdoptExistingConnection, onRefreshApiConnection, updateStatus, updateChecking, updateInstalling, updateInstalled, updateError, onCheckForUpdates, onInstallUpdate }: SettingsScreenProps) {
+function formatAccountRefreshTime(epochMs: number): string {
+  return new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(epochMs)
+}
+
+export function SettingsScreen({ settings, apiStatus, apiError, credits, accountServiceHealth, lastSuccessfulAccountRefreshAtMs, accountReady, accountSignedIn, directProviderAllowed, hasExistingDirectCredential, onBack, onOpenAccount, onChange, onConnectApiKey, onAdoptExistingConnection, onRefreshApiConnection, onRefreshAccount, updateStatus, updateChecking, updateInstalling, updateInstalled, updateError, onCheckForUpdates, onInstallUpdate }: SettingsScreenProps) {
   const [section, setSection] = useState<SettingsSection>('general')
   const [keyDraft, setKeyDraft] = useState(() => settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey)
   const [checking, setChecking] = useState(false)
@@ -67,6 +79,19 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, account
   const storedSecureKey = settings.apiKey === SECURE_API_KEY_TOKEN
   const keyToValidate = keyDraft.trim() || (storedSecureKey ? SECURE_API_KEY_TOKEN : '')
   const canValidateKey = Boolean(keyToValidate) && apiStatus !== 'connecting'
+  const directAccessReady = apiStatus === 'connected'
+    && accountServiceHealth !== 'checking'
+    && accountServiceHealth !== 'unavailable'
+  const lastAccountRefresh = lastSuccessfulAccountRefreshAtMs == null
+    ? ''
+    : ` · Last refreshed ${formatAccountRefreshTime(lastSuccessfulAccountRefreshAtMs)}`
+  const accountDiagnosticValue = accountServiceHealth === 'checking'
+    ? `Checking account service${lastAccountRefresh}`
+    : accountServiceHealth === 'unconfigured'
+      ? 'Not configured in this build'
+      : accountServiceHealth === 'unavailable'
+        ? `Offline${lastAccountRefresh}`
+        : `${accountReady ? `${credits.toLocaleString()} credits` : accountSignedIn ? 'Review plan, balance or verification' : 'Signed out'}${lastAccountRefresh}`
 
   useEffect(() => setKeyDraft(settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey), [settings.apiKey])
   useEffect(() => { void resolve.refreshStatus() }, [])
@@ -76,21 +101,38 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, account
     { label: 'EasyField version', value: updateStatus?.currentVersion ?? (host.isPlugin() ? 'Checking…' : 'Development build'), ok: updateStatus?.supported !== false && !updateStatus?.available && !updateError },
     { label: 'DaVinci Resolve', value: bridge.connected ? `${bridge.product ?? 'Resolve'} · ${bridge.timeline ?? 'Timeline'}` : bridge.compatibilityError ?? 'Disconnected', ok: bridge.connected },
     {
-      label: directProviderAllowed ? 'Direct provider access' : 'EasyField Account',
-      value: directProviderAllowed
-        ? apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : 'Disconnected'
-        : !accountConfigured ? 'Service unavailable' : accountReady ? `${credits.toLocaleString()} credits` : accountSignedIn ? 'Review plan, balance or verification' : 'Signed out',
-      ok: directProviderAllowed ? apiStatus === 'connected' : accountReady,
+      label: 'EasyField Account',
+      value: accountDiagnosticValue,
+      ok: accountServiceHealth === 'available',
     },
+    ...(directProviderAllowed ? [{
+      label: 'Direct provider access',
+      value: accountServiceHealth === 'checking'
+        ? 'Checking account authorization'
+        : accountServiceHealth === 'unavailable'
+          ? 'Account service offline'
+          : apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'error' ? apiError : 'Disconnected',
+      ok: directAccessReady,
+    }] : []),
     { label: 'Persistent state', value: host.isPlugin() ? 'SQLite · WAL' : 'Browser fallback', ok: true },
     { label: 'Credentials', value: host.isPlugin() ? 'macOS safeStorage' : 'Session only', ok: host.isPlugin() },
-  ], [accountConfigured, accountReady, accountSignedIn, apiError, apiStatus, bridge, credits, directProviderAllowed, updateError, updateStatus])
+  ], [accountDiagnosticValue, accountServiceHealth, apiError, apiStatus, bridge, credits, directAccessReady, directProviderAllowed, updateError, updateStatus])
   const activeSection = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0]
   const diagnosticHealth = diagnostics.filter((item) => item.ok).length
   const sectionStatus = section === 'ai'
     ? directProviderAllowed
-      ? { label: apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'connecting' ? 'Checking connection' : 'Connection needed', tone: apiStatus === 'connected' ? 'is-ok' : 'is-warning' }
-      : { label: !accountConfigured ? 'Service unavailable' : accountReady ? `${credits.toLocaleString()} credits` : accountSignedIn ? 'Account needs attention' : 'Sign in required', tone: accountReady ? 'is-ok' : 'is-warning' }
+      ? accountServiceHealth === 'checking'
+        ? { label: 'Checking account authorization', tone: 'is-neutral' }
+        : accountServiceHealth === 'unavailable'
+          ? { label: 'Account service offline', tone: 'is-warning' }
+          : { label: apiStatus === 'connected' ? `${credits.toLocaleString()} credits` : apiStatus === 'connecting' ? 'Checking connection' : 'Connection needed', tone: apiStatus === 'connected' ? 'is-ok' : 'is-warning' }
+      : accountServiceHealth === 'checking'
+        ? { label: 'Checking account service', tone: 'is-neutral' }
+        : accountServiceHealth === 'unconfigured'
+          ? { label: 'Account not configured', tone: 'is-warning' }
+          : accountServiceHealth === 'unavailable'
+            ? { label: 'Account service offline', tone: 'is-warning' }
+            : { label: accountReady ? `${credits.toLocaleString()} credits` : accountSignedIn ? 'Account needs attention' : 'Sign in required', tone: accountReady ? 'is-ok' : 'is-warning' }
     : section === 'resolve'
       ? { label: updateStatus?.available ? 'EasyField update available' : bridge.connected ? 'Resolve connected' : bridge.compatibilityError ? 'Update required' : 'Resolve offline', tone: bridge.connected && !updateStatus?.available ? 'is-ok' : 'is-warning' }
       : section === 'privacy'
@@ -113,6 +155,7 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, account
     try {
       await Promise.allSettled([
         resolve.refreshStatus(),
+        Promise.resolve(onRefreshAccount()),
         directProviderAllowed && settings.apiKey.trim() ? Promise.resolve(onRefreshApiConnection()) : Promise.resolve(),
       ])
     } finally {
@@ -245,11 +288,15 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, account
                 <SettingsGroup title="EasyField Account" description="Plans, credits and generation access follow your verified account. Regular users never enter a provider key.">
                   <SettingRow
                     label={accountSignedIn ? 'Account connected' : 'Account access'}
-                    hint={!accountConfigured
-                      ? 'The account service is not configured in this build.'
-                      : accountReady
-                        ? `${credits.toLocaleString()} credits available.`
-                        : accountSignedIn ? 'Review your plan, balance or verification status.' : 'Sign in or create an account to continue.'}
+                    hint={accountServiceHealth === 'checking'
+                      ? `Checking the account service${lastAccountRefresh}.`
+                      : accountServiceHealth === 'unconfigured'
+                        ? 'The account service is not configured in this build.'
+                        : accountServiceHealth === 'unavailable'
+                          ? `The account service is offline${lastAccountRefresh}. Open Account to retry.`
+                          : accountReady
+                            ? `${credits.toLocaleString()} credits available.`
+                            : accountSignedIn ? 'Review your plan, balance or verification status.' : 'Sign in or create an account to continue.'}
                   >
                     <button type="button" className="ef-setting-primary" onClick={onOpenAccount}>{accountSignedIn ? 'Open account' : 'Sign in'}</button>
                   </SettingRow>

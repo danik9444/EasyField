@@ -83,6 +83,29 @@ test('workflow recovery metadata is retained locally and oversized payloads are 
   removeJob(oversized.id)
 })
 
+test('a wrong-shaped persisted ledger hydrates as empty instead of blocking future preparation', async (t) => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { easyfield: undefined } })
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => key === 'ef-state:jobs:ledger' ? '{}' : null,
+    },
+  })
+  t.after(() => {
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else delete (globalThis as { window?: unknown }).window
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else delete (globalThis as { localStorage?: unknown }).localStorage
+  })
+
+  const isolated = await import(new URL('../src/services/jobCenter.ts?wrong-shaped-ledger', import.meta.url).href) as typeof import('../src/services/jobCenter.ts')
+  await isolated.prepareJobLedger()
+  await isolated.prepareJobLedger()
+  assert.deepEqual(isolated.getJobs(), [])
+})
+
 test('restart recovery resumes every persisted provider family without submitting paid work again', async (t) => {
   const originalFetch = globalThis.fetch
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')

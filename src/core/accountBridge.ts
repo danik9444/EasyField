@@ -45,6 +45,9 @@ export type AccountResult<T> =
 
 export type AccountOAuthProvider = 'google' | 'apple'
 
+/** Renderer observation of account-service reachability, separate from configuration. */
+export type AccountServiceHealth = 'checking' | 'available' | 'unavailable' | 'unconfigured'
+
 export interface AccountCapabilities {
   /** Main has a verified account-service configuration for this installation. */
   accountConfigured: boolean

@@ -212,6 +212,9 @@ async function startBridgeServer(extraEnv = {}) {
   const temporaryHome = await mkdtemp(path.join(tmpdir(), 'easyfield-bridge-test-'))
   const userDataPath = path.join(temporaryHome, 'user-data')
   const resolveLogPath = path.join(temporaryHome, 'resolve-events.ndjson')
+  const uiPath = path.join(temporaryHome, 'ui')
+  await mkdir(uiPath, { recursive: true })
+  await writeFile(path.join(uiPath, 'index.html'), '<!doctype html><title>EasyField bridge fixture</title>')
   const child = spawn(process.execPath, ['-e', SERVER_BOOTSTRAP, pluginMain], {
     cwd: projectRoot,
     env: {
@@ -226,6 +229,7 @@ async function startBridgeServer(extraEnv = {}) {
       EF_SUPABASE_ANON_KEY: 'disabled-for-bridge-security-test',
       EF_TEST_USER_DATA: userDataPath,
       EF_TEST_RESOLVE_LOG: resolveLogPath,
+      EF_TEST_UI_DIR: uiPath,
       HOME: temporaryHome,
       ...extraEnv,
     },

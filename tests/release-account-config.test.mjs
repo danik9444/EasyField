@@ -298,16 +298,66 @@ test('CI and release workflows keep structure testing separate from protected pr
   assert.doesNotMatch(releaseSource, /--ci-structure-test/)
   assert.doesNotMatch(releaseSource, /EASYFIELD_ACCOUNT_STRUCTURE_TEST/)
 
+  const handoffIndex = releaseSource.indexOf('Verify and restore build handoff')
   const materializeIndex = releaseSource.indexOf('Materialize protected public account configuration')
-  const assembleIndex = releaseSource.indexOf('Test and assemble plugin')
-  assert.ok(materializeIndex >= 0 && materializeIndex < assembleIndex)
+  const signingIndex = releaseSource.indexOf('Import Developer ID Installer certificate')
+  assert.ok(handoffIndex >= 0 && handoffIndex < materializeIndex && materializeIndex < signingIndex)
+  const finalizationSource = releaseSource.slice(materializeIndex, signingIndex)
   assert.match(releaseSource, /ACCOUNT_CONFIG_BASE64: \$\{\{ secrets\.EASYFIELD_ACCOUNT_CONFIG_BASE64 \}\}/)
   assert.match(releaseSource, /umask 077/)
   assert.match(releaseSource, /printf '%s' "\$ACCOUNT_CONFIG_BASE64" \| \/usr\/bin\/base64 -D/)
   assert.match(releaseSource, /mv "\$TEMPORARY_CONFIG" plugin\/account-config\.json/)
-  assert.match(releaseSource, /npm run release:validate-account/)
+  assert.match(finalizationSource, /node scripts\/release-account-config\.mjs/)
+  assert.match(finalizationSource, /node scripts\/plugin-update-manifest\.mjs/)
+  assert.match(finalizationSource, /node scripts\/release-verify-plugin\.mjs/)
   assert.match(releaseSource, /rm -f "\$GITHUB_WORKSPACE\/plugin\/account-config\.json"/)
   assert.doesNotMatch(releaseSource, /echo .*ACCOUNT_CONFIG_BASE64|set -x/)
+})
+
+test('release workflow binds approved tags and isolates publishing credentials from build code', () => {
+  const releaseSource = fs.readFileSync(path.join(projectRoot, '.github', 'workflows', 'release.yml'), 'utf8')
+  const buildIndex = releaseSource.indexOf('  build:\n')
+  const publishIndex = releaseSource.indexOf('  sign-and-publish:\n')
+  assert.ok(buildIndex >= 0 && publishIndex > buildIndex)
+
+  const buildSource = releaseSource.slice(buildIndex, publishIndex)
+  const publishSource = releaseSource.slice(publishIndex)
+  assert.match(releaseSource, /^permissions:\n  contents: read$/m)
+  assert.match(buildSource, /permissions:\n      contents: read/)
+  assert.doesNotMatch(buildSource, /contents: write|id-token: write|attestations: write/)
+  assert.match(buildSource, /persist-credentials: false/)
+  assert.match(buildSource, /run: npm ci/)
+  assert.doesNotMatch(
+    buildSource,
+    /ACCOUNT_CONFIG_BASE64|EASYFIELD_UPDATE_PRIVATE_KEY_BASE64|APPLE_INSTALLER_CERTIFICATE|APPLE_NOTARY_KEY|APPLE_INSTALLER_IDENTITY/,
+  )
+
+  assert.match(releaseSource, /EASYFIELD_RELEASE_SIGNER_EMAIL: 166756911\+danik9444@users\.noreply\.github\.com/)
+  assert.match(buildSource, /TAGGER_EMAIL.*EASYFIELD_RELEASE_SIGNER_EMAIL/)
+  assert.match(buildSource, /git merge-base --is-ancestor "\$TAG_COMMIT_SHA" origin\/main/)
+  assert.match(buildSource, /rejected by approved-signer identity check/)
+  assert.match(buildSource, /rejected by protected-main ancestry check/)
+
+  assert.match(publishSource, /needs: build/)
+  assert.match(publishSource, /contents: write/)
+  assert.match(publishSource, /id-token: write/)
+  assert.match(publishSource, /attestations: write/)
+  assert.match(publishSource, /persist-credentials: false/)
+  assert.doesNotMatch(publishSource, /npm ci/)
+  assert.match(publishSource, /ACCOUNT_CONFIG_BASE64: \$\{\{ secrets\.EASYFIELD_ACCOUNT_CONFIG_BASE64 \}\}/)
+  assert.match(publishSource, /Reverify approved release tag/)
+  assert.match(publishSource, /git merge-base --is-ancestor "\$EXPECTED_COMMIT_SHA" origin\/main/)
+
+  assert.match(buildSource, /archive: false/)
+  assert.match(buildSource, /artifact-digest/)
+  assert.match(publishSource, /digest-mismatch: error/)
+  assert.match(publishSource, /download-integrity check/)
+  assert.match(publishSource, /manifest reproducibility check/)
+  assert.match(publishSource, /pre-publish tag-object continuity check/)
+  assert.ok(
+    publishSource.indexOf('Verify and restore build handoff')
+      < publishSource.indexOf('Import Developer ID Installer certificate'),
+  )
 })
 
 test('project release gate blocks checkout builds while the customer generation gateway is fail-closed', () => {

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { once } from 'node:events'
+import fs from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -13,6 +15,40 @@ const {
   normalizeBeatResult,
   probeBeatRuntime,
 } = require('../plugin/beat-detection.cjs')
+
+function writeRuntimeCandidate(root, componentId, executableName, contents) {
+  const architecture = process.arch
+  const relativeRoot = `runtime-packs/${componentId}/${architecture}`
+  const relativePath = `bin/${executableName}`
+  const candidate = path.join(root, relativeRoot, relativePath)
+  const bytes = Buffer.from(contents)
+  fs.mkdirSync(path.dirname(candidate), { recursive: true })
+  fs.writeFileSync(candidate, bytes, { mode: 0o700 })
+  fs.chmodSync(candidate, 0o700)
+  fs.writeFileSync(path.join(root, 'runtime-packs.json'), JSON.stringify({
+    schemaVersion: 1,
+    platform: 'darwin',
+    architectures: ['arm64', 'x64'],
+    releaseReady: true,
+    components: [{
+      id: componentId,
+      targets: {
+        [architecture]: {
+          root: relativeRoot,
+          executables: { [executableName]: relativePath },
+          files: [{
+            path: relativePath,
+            size: bytes.length,
+            sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+            kind: 'mach-o',
+            executable: true,
+          }],
+        },
+      },
+    }],
+  }))
+  return candidate
+}
 
 test('beat result normalization keeps finite ordered review data', () => {
   const result = normalizeBeatResult({
@@ -58,10 +94,17 @@ if (process.argv.includes('--probe')) {
   }))
 }
 `)
+  const python = writeRuntimeCandidate(
+    dir,
+    'librosa-python',
+    'python3',
+    `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`,
+  )
 
   const service = createBeatDetectionService({
     scriptPath: fakeAnalyzer,
-    pythonCandidates: [process.execPath],
+    pythonCandidates: [python],
+    runtimePackRoot: dir,
     maxBytes: 1024,
   })
   const server = http.createServer((request, response) => {
@@ -115,19 +158,43 @@ test('missing managed Python/librosa runtime returns a safe diagnostic', async (
   assert.equal(status.setupGuide, 'plugin/python/README.md')
 })
 
-test('packaged beat analysis ignores environment interpreter overrides', async (t) => {
+test('beat analysis probes a checksum-pinned runtime candidate', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'easyfield-beat-authenticated-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const analyzer = path.join(dir, 'probe.cjs')
+  await writeFile(analyzer, 'process.stdout.write(JSON.stringify({ok:true,engineVersion:"verified-test"}))')
+  const python = writeRuntimeCandidate(
+    dir,
+    'librosa-python',
+    'python3',
+    `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`,
+  )
+  const status = await probeBeatRuntime({
+    scriptPath: analyzer,
+    pythonCandidates: [python],
+    runtimePackRoot: dir,
+  })
+  assert.equal(status.available, true)
+  assert.equal(status.engineVersion, 'verified-test')
+})
+
+test('beat analysis refuses unauthenticated environment interpreter overrides', async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), 'easyfield-beat-env-test-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const analyzer = path.join(dir, 'probe.cjs')
   await writeFile(analyzer, 'process.stdout.write(JSON.stringify({ok:true,engineVersion:"env-test"}))')
+  const executed = path.join(dir, 'executed')
+  const untrustedPython = path.join(dir, 'untrusted-python')
+  await writeFile(untrustedPython, `#!/bin/sh\ntouch ${JSON.stringify(executed)}\nexec ${JSON.stringify(process.execPath)} "$@"\n`)
+  fs.chmodSync(untrustedPython, 0o700)
   const previous = process.env.EF_BEAT_PYTHON
-  process.env.EF_BEAT_PYTHON = process.execPath
+  process.env.EF_BEAT_PYTHON = untrustedPython
   try {
     const packaged = await probeBeatRuntime({ scriptPath: analyzer, allowEnvironmentOverrides: false })
     const development = await probeBeatRuntime({ scriptPath: analyzer, allowEnvironmentOverrides: true })
     assert.equal(packaged.available, false)
-    assert.equal(development.available, true)
-    assert.equal(development.engineVersion, 'env-test')
+    assert.equal(development.available, false)
+    assert.equal(fs.existsSync(executed), false)
   } finally {
     if (previous === undefined) delete process.env.EF_BEAT_PYTHON
     else process.env.EF_BEAT_PYTHON = previous

@@ -105,7 +105,7 @@ export function MediaActionMenu({ label, actions, disabled = false, onSelect, ch
 
   const select = (action: MediaAction) => {
     if (action.disabled) return
-    close(false)
+    close()
     onSelect(action.id)
   }
 

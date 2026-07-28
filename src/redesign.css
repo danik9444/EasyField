@@ -810,7 +810,7 @@ body::before {
   font-size: 8px;
   letter-spacing: .12em;
 }
-.ef-library-sidebar-head { display: none; }
+.ef-library-sidebar-head { min-height: 35px; padding: 7px 12px 0; }
 .ef-library-sidebar-head button { width: 28px; height: 28px; border: 1px solid var(--ef-line); border-radius: 8px; color: var(--ef-ink-soft); background: rgba(255,255,255,.04); }
 .ef-library-collections { padding: 7px 12px; display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
 .ef-library-collections::-webkit-scrollbar { display: none; }
@@ -877,7 +877,7 @@ body::before {
 .ef-library-inspector-head strong { overflow: hidden; color: var(--ef-ink); font-family: 'Space Grotesk Variable',sans-serif; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .ef-library-inspector-scroll { flex: 1; min-height: 0; padding: 14px; overflow-y: auto; }
 .ef-library-inspector-preview { position: relative; width: 100%; min-height: 190px; overflow: hidden; border: 1px solid var(--ef-line); border-radius: 14px; background: #07070a; }
-.ef-library-inspector-preview > span { position: absolute; inset: 0; background-position: center; background-size: contain; background-repeat: no-repeat; }
+.ef-library-inspector-preview > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .ef-library-inspector-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .ef-library-inspector-preview.is-audio { min-height: 145px; padding: 17px 12px 12px; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
 .ef-library-inspector-preview audio { width: 100%; height: 34px; }
@@ -1352,6 +1352,8 @@ body::before {
   white-space: nowrap;
 }
 .ef-draft-state i { width: 5px; height: 5px; border-radius: 50%; background: var(--ef-green); box-shadow: 0 0 9px rgba(66,223,162,.55); }
+.ef-draft-state.is-error { color: var(--ef-red); }
+.ef-draft-state.is-error i { background: var(--ef-red); box-shadow: 0 0 9px color-mix(in srgb,var(--ef-red) 55%,transparent); }
 .ef-workspace-slot--intro,
 .ef-workspace-slot--recipes,
 .ef-workspace-slot--stage,
@@ -1473,6 +1475,12 @@ body::before {
   aspect-ratio: 16 / 9;
   object-fit: contain;
   background: #050508;
+}
+.ef-workspace-source-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
 }
 .ef-workspace-source-preview audio {
   display: block;
@@ -3830,6 +3838,9 @@ body::before {
 .ef-story-save-state.is-saving::before { background: var(--ef-amber); animation: efpulse 1s ease-in-out infinite; }
 .ef-story-save-state.is-error { color: var(--ef-red); }
 .ef-story-save-state.is-error::before { background: var(--ef-red); }
+.ef-story-save-warning { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ef-story-save-warning span { display:grid; gap:2px; }
+.ef-story-save-warning button { min-height:30px; padding:0 10px; flex:none; border:1px solid currentColor; border-radius:8px; color:inherit; background:rgba(0,0,0,.18); font-size:8.5px; cursor:pointer; }
 .ef-story-progress { min-width: 42px; padding: 0 8px; color: var(--ef-ink-muted); background: rgba(255,255,255,.04); }
 .ef-story-progress strong { color: var(--ef-ink); font-size: 10px; }
 
@@ -4421,7 +4432,7 @@ button.ef-story-frame { padding: 0; cursor: zoom-in; }
 
 @media (max-width:699px) {
   .ef-storyboard-scroll { padding-inline: 14px; }
-  .ef-story-save-state { display: none; }
+  .ef-story-save-state:not(.is-error) { display: none; }
   .ef-story-setup { padding: 14px; }
   .ef-story-setup-copy h1 { font-size: 23px; }
   .ef-story-setup-copy p { font-size: 10.5px; }
@@ -5215,8 +5226,19 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   font-weight: 620;
 }
 
+/* Two lines at every width. The base .ef-tool-desc truncates to a single
+   ellipsised line, which made the expanded panel show LESS description than
+   the compact one — the three-column grid leaves a narrower text column than
+   compact's full-width card. Clamping here instead of only under 410px keeps
+   the amount of visible text monotonic as the panel widens. */
 .ef-screen--home .ef-tool-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-size: 8.5px;
+  line-height: 1.35;
 }
 
 .ef-screen--home .ef-tool-arrow {
@@ -5857,12 +5879,18 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
 .ef-transcribe-runtime-card small { color:var(--ef-ink-faint); font-size:8.5px; }
 .ef-transcribe-runtime-card > button { min-height:36px; padding:0 12px; border:1px solid color-mix(in srgb,var(--ef-tool-accent) 48%,var(--ef-line)); border-radius:10px; color:var(--ef-ink); background:color-mix(in srgb,var(--ef-tool-accent) 9%,rgba(0,0,0,.2)); font-size:9px; cursor:pointer; }
 .ef-transcribe-error { margin:0; }
+.ef-transcribe-error:has(> button) { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ef-transcribe-error > button { min-height:30px; padding:0 10px; flex:none; border:1px solid currentColor; border-radius:8px; color:inherit; background:rgba(0,0,0,.18); font-size:8.5px; cursor:pointer; }
 .ef-transcribe-result { padding:16px; display:grid; gap:13px; border-color:color-mix(in srgb,var(--ef-tool-accent) 26%,var(--ef-line)); }
 .ef-transcribe-result > header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
 .ef-transcribe-result > header > div { min-width:0; display:grid; gap:4px; }
 .ef-transcribe-result > header p { margin:0; color:var(--ef-ink-muted); font-size:10px; }
 .ef-transcribe-result > header > span { flex:none; padding:6px 8px; display:flex; align-items:center; gap:6px; border:1px solid color-mix(in srgb,var(--ef-tool-accent) 38%,var(--ef-line)); border-radius:9px; color:var(--ef-tool-accent); background:color-mix(in srgb,var(--ef-tool-accent) 7%,rgba(0,0,0,.13)); font-family:'JetBrains Mono Variable',monospace; font-size:8px; letter-spacing:.09em; }
 .ef-transcribe-result > header > span i { width:7px; height:7px; border-radius:50%; background:var(--ef-tool-accent); box-shadow:0 0 8px color-mix(in srgb,var(--ef-tool-accent) 55%,transparent); }
+.ef-transcribe-result > header > span.is-saving { color:var(--ef-amber); border-color:color-mix(in srgb,var(--ef-amber) 38%,var(--ef-line)); }
+.ef-transcribe-result > header > span.is-saving i { background:var(--ef-amber); box-shadow:0 0 8px color-mix(in srgb,var(--ef-amber) 55%,transparent); }
+.ef-transcribe-result > header > span.is-error { color:var(--ef-red); border-color:color-mix(in srgb,var(--ef-red) 38%,var(--ef-line)); }
+.ef-transcribe-result > header > span.is-error i { background:var(--ef-red); box-shadow:0 0 8px color-mix(in srgb,var(--ef-red) 55%,transparent); }
 .ef-transcribe-result-tools { display:flex; align-items:center; gap:8px; }
 .ef-transcribe-result-tools label { min-width:0; flex:1; min-height:38px; padding:0 11px; display:flex; align-items:center; gap:8px; border:1px solid var(--ef-line); border-radius:10px; color:var(--ef-ink-muted); background:rgba(0,0,0,.16); }
 .ef-transcribe-result-tools input { min-width:0; width:100%; border:0; outline:0; color:var(--ef-ink); background:transparent; font-size:10px; }
@@ -9418,6 +9446,8 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
 .ef-library-picker-item {
   min-width: 0;
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 250px;
   border: 1px solid var(--ef-line);
   border-radius: 14px;
   background: rgba(255,255,255,.026);
@@ -9470,8 +9500,7 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
     repeating-linear-gradient(135deg,#15151d 0 8px,#111117 8px 16px);
 }
 
-.ef-library-picker-thumb > span,
-.ef-library-picker-thumb > video {
+.ef-library-picker-thumb > span {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -9480,6 +9509,14 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
+  object-fit: cover;
+}
+
+.ef-library-picker-media > img,
+.ef-library-picker-media > video {
+  width: 100%;
+  height: 100%;
+  display: block;
   object-fit: cover;
 }
 
@@ -9590,6 +9627,15 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   max-width: 100%;
   height: 44px;
   accent-color: var(--ef-library-accent);
+}
+
+.ef-library-picker-audio-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.ef-library-picker-audio-shell .ef-library-audio-load {
+  height: 44px;
 }
 
 .ef-library-picker-item-actions > span {
@@ -12135,15 +12181,6 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   gap: 1px;
 }
 .ef-screen--home .ef-tool-name { font-size: 12px; font-weight: 570; }
-.ef-screen--home .ef-tool-desc {
-  display: block;
-  overflow: hidden;
-  color: var(--ef-ink-muted);
-  font-size: 9.5px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .ef-home-superbrain-wrap { z-index: 12; }
 .ef-home-superbrain-bar {
   min-height: 44px;

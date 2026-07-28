@@ -607,6 +607,7 @@
 
 .ef-account-feedback.is-success { color: var(--account-green); border-color: rgba(80, 221, 176, .22); background: rgba(80, 221, 176, .055); }
 .ef-account-feedback.is-error { color: #ff8a9d; border-color: rgba(255, 102, 125, .24); background: rgba(255, 102, 125, .055); }
+.ef-account-service-retry { width: 100%; margin-top: 10px; }
 
 /* Signed-out access */
 
@@ -898,7 +899,9 @@
 .ef-account-balance-card small { color: var(--account-muted); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .1em; }
 .ef-account-balance-card strong { font-size: 20px; line-height: 1; }
 .ef-account-balance-card p { margin: 0; grid-column: 2; color: var(--account-muted); font-size: 11px; line-height: 1.4; }
-.ef-account-measured { display: block; margin-top: 9px; color: var(--account-subtle); font-size: 11px; text-align: right; }
+.ef-account-balance-refresh { margin-top: 9px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.ef-account-measured { display: block; color: var(--account-subtle); font-size: 11px; line-height: 1.4; text-align: right; }
+.ef-account-balance-refresh > button { flex: none; }
 
 /* Plans */
 
@@ -1174,6 +1177,7 @@
 .ef-account-autoreload-controls input::-webkit-inner-spin-button { display: none; }
 .ef-account-autoreload-controls label small { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--account-subtle); font-size: 11px; }
 .ef-account-flow { align-self: center; color: var(--account-subtle); }
+.ef-account-autoreload-quote { grid-column: 1 / 4; }
 .ef-account-autoreload-controls > button { min-height: 44px; }
 
 /* Admin diagnostics */
@@ -1248,6 +1252,7 @@
   .ef-account-topup-row { grid-template-columns: minmax(0, 1fr) minmax(122px, .7fr); }
   .ef-account-topup-row > .ef-account-primary { grid-column: 1 / -1; width: 100%; }
   .ef-account-autoreload-controls { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .ef-account-autoreload-quote { grid-column: 1 / -1; }
   .ef-account-autoreload-controls > button { grid-column: 1 / -1; }
   .ef-account-partner { grid-template-columns: minmax(0, 1fr); }
   .ef-account-partner-purchase { min-width: 0; grid-template-columns: auto minmax(150px, auto); align-items: center; justify-content: end; }
@@ -1321,7 +1326,11 @@
   .ef-account-autoreload-head p { grid-column: 1 / -1; }
   .ef-account-autoreload-controls { grid-template-columns: minmax(0, 1fr); }
   .ef-account-flow { display: none; }
+  .ef-account-autoreload-quote { grid-column: auto; }
   .ef-account-autoreload-controls > button { grid-column: auto; width: 100%; }
+  .ef-account-balance-refresh { align-items: stretch; flex-direction: column; }
+  .ef-account-measured { text-align: left; }
+  .ef-account-balance-refresh > button { width: 100%; }
   .ef-account-admin-grid { grid-template-columns: minmax(0, 1fr); }
   .ef-account-admin-head { display: grid; grid-template-columns: auto minmax(0, 1fr); }
   .ef-account-provider-topup { grid-column: 1 / -1; width: 100%; }

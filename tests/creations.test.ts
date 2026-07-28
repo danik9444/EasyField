@@ -8,6 +8,7 @@ import {
   getCreations,
   removeCreations,
 } from '../src/data/creations.ts'
+import { MAX_LIBRARY_CREATIONS } from '../src/data/libraryLimits.ts'
 
 test('paid provider outputs enter Library only after Main verifies a managed artifact', async (t) => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
@@ -235,8 +236,136 @@ test('Beat Detection companions stay linked to their media Library item', () => 
       summary: { bpm: 120, detectedBeats: 8, markerCount: 4, confidence: 0.9, durationSeconds: 4, engine: 'librosa', engineVersion: '0.11', markerColor: 'Cyan' },
     })
     assert.equal(updated?.companions?.length, 1)
-    assert.equal(getCreations().find((item) => item.id === creation.id)?.companions?.[0].summary.markerCount, 4)
+    const companion = getCreations().find((item) => item.id === creation.id)?.companions?.[0]
+    assert.equal(companion?.kind, 'beat-analysis')
+    if (companion?.kind !== 'beat-analysis') throw new Error('Expected a Beat analysis companion')
+    assert.equal(companion.summary.markerCount, 4)
   } finally {
     removeCreations([creation.id])
   }
+})
+
+test('Library retention stays bounded and prunes the oldest records', () => {
+  const added = addCreations(Array.from({ length: MAX_LIBRARY_CREATIONS + 1 }, (_, index) => ({
+    kind: 'image' as const,
+    url: `asset:retention-${index}`,
+    prompt: `Retention ${index}`,
+    durability: 'local' as const,
+  })))
+
+  try {
+    assert.equal(added.length, MAX_LIBRARY_CREATIONS)
+    assert.equal(getCreations().length, MAX_LIBRARY_CREATIONS)
+    assert.equal(getCreations().some((creation) => creation.prompt === 'Retention 0'), false)
+    assert.equal(getCreations().some((creation) => creation.prompt === `Retention ${MAX_LIBRARY_CREATIONS}`), true)
+  } finally {
+    removeCreations(added.map((creation) => creation.id))
+  }
+})
+
+test('Library hydration repairs malformed companions and drops invalid creation records', async (t) => {
+  const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
+  const stored = {
+    creations: [
+      {
+        id: 'legacy-with-bad-companions',
+        kind: 'image',
+        url: 'https://media.example.test/legacy.png',
+        prompt: { invalid: true },
+        createdAt: 10,
+        durability: 'link-only',
+        companions: {},
+      },
+      {
+        id: 'unsupported-schema',
+        schemaVersion: 99,
+        kind: 'image',
+        url: 'https://media.example.test/future.png',
+        createdAt: 20,
+      },
+    ],
+    folders: [],
+  }
+  const deleted: string[] = []
+  const database = {
+    objectStoreNames: { contains: () => true },
+    onversionchange: null as (() => void) | null,
+    close: () => {},
+    transaction: (name: keyof typeof stored, mode: 'readonly' | 'readwrite') => {
+      const transaction: {
+        objectStore: () => {
+          getAll: () => Record<string, unknown>
+          delete: (id: string) => void
+        }
+        oncomplete?: () => void
+        onerror?: () => void
+        onabort?: () => void
+      } = {
+        objectStore: () => ({
+          getAll: () => {
+            const request: Record<string, unknown> = {}
+            queueMicrotask(() => {
+              request.result = stored[name]
+              ;(request.onsuccess as (() => void) | undefined)?.()
+            })
+            return request
+          },
+          delete: (id: string) => { deleted.push(id) },
+          // Creations are now read through a reverse cursor on the createdAt
+          // index so hydration can prune while it reads. Model that here rather
+          // than only getAll, or the sanitiser under test is never reached.
+          index: () => ({
+            openCursor: () => {
+              const request: Record<string, unknown> = {}
+              const rows = [...stored[name]].reverse()
+              let position = 0
+              const step = () => queueMicrotask(() => {
+                const row = rows[position] as Record<string, unknown> | undefined
+                request.result = row
+                  ? {
+                    value: row,
+                    delete: () => { deleted.push(row.id as string) },
+                    continue: () => { position += 1; step() },
+                  }
+                  : null
+                ;(request.onsuccess as (() => void) | undefined)?.()
+              })
+              step()
+              return request
+            },
+          }),
+        }),
+      }
+      if (mode === 'readwrite') queueMicrotask(() => transaction.oncomplete?.())
+      return transaction
+    },
+  }
+  Object.defineProperty(globalThis, 'indexedDB', {
+    configurable: true,
+    value: {
+      open: () => {
+        const request: Record<string, unknown> = {}
+        queueMicrotask(() => {
+          request.result = database
+          ;(request.onsuccess as (() => void) | undefined)?.()
+        })
+        return request
+      },
+    },
+  })
+  t.after(() => {
+    if (originalIndexedDb) Object.defineProperty(globalThis, 'indexedDB', originalIndexedDb)
+    else delete (globalThis as { indexedDB?: unknown }).indexedDB
+  })
+
+  const isolated = await import(new URL('../src/data/creations.ts?hydration-sanitizer', import.meta.url).href) as typeof import('../src/data/creations.ts')
+  await isolated.prepareCreationLibrary()
+  await Promise.resolve()
+
+  const creation = isolated.getCreations().find((item) => item.id === 'legacy-with-bad-companions')
+  assert.ok(creation)
+  assert.equal(creation.prompt, undefined)
+  assert.equal(creation.companions, undefined)
+  assert.equal(isolated.getCreations().some((item) => item.id === 'unsupported-schema'), false)
+  assert.deepEqual(deleted, ['unsupported-schema'])
 })

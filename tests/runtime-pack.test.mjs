@@ -7,7 +7,7 @@ import { createRequire } from 'node:module'
 import test from 'node:test'
 
 const require = createRequire(import.meta.url)
-const { resolveRuntimePack } = require('../plugin/runtime-pack.cjs')
+const { resolveRuntimePack, verifyRuntimeExecutable } = require('../plugin/runtime-pack.cjs')
 
 const componentExecutables = {
   ffmpeg: ['ffmpeg', 'ffprobe'],
@@ -87,6 +87,39 @@ test('release-ready catalog resolves only checksum-pinned packaged executables',
     assert.equal(rejected.available, false)
     assert.deepEqual(rejected.executables, {})
     assert.match(rejected.error, /integrity verification/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('runtime executable authentication accepts only the exact checksum-pinned path', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'easyfield-runtime-auth-'))
+  try {
+    const { architecture, catalog } = writeCatalog(root, true)
+    const target = catalog.components.find((component) => component.id === 'librosa-python').targets[architecture]
+    const python = path.join(root, target.root, target.executables.python3)
+    assert.equal(verifyRuntimeExecutable({
+      candidate: python,
+      componentId: 'librosa-python',
+      executableName: 'python3',
+      pluginRoot: root,
+      architecture,
+    }), true)
+    assert.equal(verifyRuntimeExecutable({
+      candidate: '/usr/bin/python3',
+      componentId: 'librosa-python',
+      executableName: 'python3',
+      pluginRoot: root,
+      architecture,
+    }), false)
+    fs.appendFileSync(python, 'tampered')
+    assert.equal(verifyRuntimeExecutable({
+      candidate: python,
+      componentId: 'librosa-python',
+      executableName: 'python3',
+      pluginRoot: root,
+      architecture,
+    }), false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

@@ -325,8 +325,6 @@ async function grab(
 // Place onto the timeline
 // ---------------------------------------------------------------------------
 
-const PLACE_TIMEOUT_MS = 120000 // the server may download a large video first
-
 const BRIDGE_DOWN = 'Bridge not running — start EasyField from DaVinci or npm run plugin:start'
 const MANAGED_ARTIFACT_PATH = /^\/artifacts\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/
 
@@ -379,7 +377,9 @@ async function placeToTimeline(input: PlaceInput): Promise<PlaceResult> {
     if (input.url.startsWith('blob:')) {
       // Binary mode: hand the raw bytes to the server (it can't fetch a blob: URL).
       const blob = await fetch(input.url).then((r) => r.blob())
-      res = await fetchWithTimeout(
+      // Placement has no renderer deadline: once Resolve begins mutating the
+      // timeline it cannot be cancelled safely, so wait for its terminal result.
+      res = await fetch(
         '/bridge/place',
         {
           method: 'POST',
@@ -404,13 +404,12 @@ async function placeToTimeline(input: PlaceInput): Promise<PlaceResult> {
           },
           body: blob,
         },
-        PLACE_TIMEOUT_MS,
       )
     } else {
       // JSON mode: public provider media is downloaded by Main. Managed Library
       // media sends only its opaque artifactId; renderer filesystem paths are
       // neither known nor accepted by the privileged host.
-      res = await fetchWithTimeout(
+      res = await fetch(
         '/bridge/place',
         {
           method: 'POST',
@@ -435,7 +434,6 @@ async function placeToTimeline(input: PlaceInput): Promise<PlaceResult> {
             validationAnchors: input.validationAnchors,
           }),
         },
-        PLACE_TIMEOUT_MS,
       )
     }
     const json = (await res.json().catch(() => null)) as PlaceResult | null
