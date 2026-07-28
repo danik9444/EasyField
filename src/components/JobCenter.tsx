@@ -12,6 +12,7 @@ import { host } from '../services/host'
 
 interface JobCenterProps {
   onOpenLibrary: () => void
+  bottomInset?: number
 }
 
 const ACTIVE = new Set<JobRecord['status']>(['preparing', 'queued', 'running'])
@@ -24,10 +25,11 @@ interface ActivityDockPosition {
   top: number
 }
 
-function clampDockPosition(position: ActivityDockPosition, width = 160, height = 42): ActivityDockPosition {
+function clampDockPosition(position: ActivityDockPosition, width = 160, height = 42, bottomInset = DOCK_MARGIN): ActivityDockPosition {
+  const safeBottom = Math.max(DOCK_MARGIN, bottomInset)
   return {
     left: Math.min(Math.max(DOCK_MARGIN, position.left), Math.max(DOCK_MARGIN, window.innerWidth - width - DOCK_MARGIN)),
-    top: Math.min(Math.max(DOCK_MARGIN, position.top), Math.max(DOCK_MARGIN, window.innerHeight - height - DOCK_MARGIN)),
+    top: Math.min(Math.max(DOCK_MARGIN, position.top), Math.max(DOCK_MARGIN, window.innerHeight - height - safeBottom)),
   }
 }
 
@@ -55,7 +57,7 @@ function phaseIndex(status: JobRecord['status']): number {
   return -1
 }
 
-export function JobCenter({ onOpenLibrary }: JobCenterProps) {
+export function JobCenter({ onOpenLibrary, bottomInset = DOCK_MARGIN }: JobCenterProps) {
   const jobs = useJobs()
   const [open, setOpen] = useState(false)
   const [triggerHidden, setTriggerHidden] = useState(false)
@@ -86,22 +88,23 @@ export function JobCenter({ onOpenLibrary }: JobCenterProps) {
     let active = true
     void host.getState<ActivityDockPosition>('settings', ACTIVITY_DOCK_KEY).then((saved) => {
       if (!active || !saved || !Number.isFinite(saved.left) || !Number.isFinite(saved.top)) return
-      setDockPosition(clampDockPosition(saved))
+      setDockPosition(clampDockPosition(saved, undefined, undefined, bottomInset))
     })
     return () => { active = false }
-  }, [])
+  }, [bottomInset])
 
   useEffect(() => {
     const keepDockInView = () => {
       setDockPosition((current) => {
         if (!current) return current
         const rect = centerRef.current?.getBoundingClientRect()
-        return clampDockPosition(current, rect?.width, rect?.height)
+        return clampDockPosition(current, rect?.width, rect?.height, bottomInset)
       })
     }
+    keepDockInView()
     window.addEventListener('resize', keepDockInView)
     return () => window.removeEventListener('resize', keepDockInView)
-  }, [])
+  }, [bottomInset])
 
   // Surface a new generation once when it starts and surface the same job again
   // when its artifact is ready. Closing the panel in between is respected.
@@ -175,7 +178,7 @@ export function JobCenter({ onOpenLibrary }: JobCenterProps) {
       if (distance < DOCK_DRAG_THRESHOLD) return
       drag.moved = true
     }
-    setDockPosition(clampDockPosition({ left: event.clientX - drag.offsetX, top: event.clientY - drag.offsetY }, drag.width, drag.height))
+    setDockPosition(clampDockPosition({ left: event.clientX - drag.offsetX, top: event.clientY - drag.offsetY }, drag.width, drag.height, bottomInset))
   }
 
   const finishDockDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -206,7 +209,7 @@ export function JobCenter({ onOpenLibrary }: JobCenterProps) {
     const next = clampDockPosition({
       left: base.left + (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0),
       top: base.top + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0),
-    }, rect.width, rect.height)
+    }, rect.width, rect.height, bottomInset)
     setDockPosition(next)
     void host.setState<ActivityDockPosition>('settings', ACTIVITY_DOCK_KEY, next)
   }

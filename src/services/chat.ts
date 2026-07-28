@@ -10,7 +10,17 @@ import { currentApiKey } from '../settings.ts'
 import { fetchCredits, neutralizeProviderMessage } from './providerGateway.ts'
 import type { PlacementMode, ToolId } from '../core/contracts.ts'
 import { CHAT_MODELS } from '../data/chatModels.ts'
-import type { StoryboardTimingMode } from '../data/storyboard.ts'
+import {
+  STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+  STORYBOARD_MAX_SCENES,
+  STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
+  STORYBOARD_MIN_SCENE_DURATION_SECONDS,
+  STORYBOARD_MIN_TOTAL_DURATION_SECONDS,
+  isStoryboardSceneDuration,
+  type StoryboardScene,
+  type StoryboardSceneDurationResolution,
+  type StoryboardTimingMode,
+} from '../data/storyboard.ts'
 import { sampleVideoFrames } from './videoContext.ts'
 import {
   DEFAULT_BRAIN_MODE,
@@ -476,7 +486,7 @@ export function validateStoryboardPlan(
   raw: unknown,
   timingMode: StoryboardTimingMode,
   requestedTotalDurationSeconds?: number,
-  maximumScenes = 20,
+  maximumScenes = STORYBOARD_MAX_SCENES,
   scenePromptMax = 4_000,
 ): Omit<StoryboardPlanResult, 'chatCredits'> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -487,8 +497,12 @@ export function validateStoryboardPlan(
   if (!Array.isArray(value.scenes) || value.scenes.length === 0) {
     throw new ChatError('Storyboard did not return any scenes. Try again.')
   }
+  const sceneLimit = Math.max(1, Math.min(STORYBOARD_MAX_SCENES, Math.floor(maximumScenes)))
+  if (value.scenes.length > sceneLimit) {
+    throw new ChatError(`Storyboard returned more than ${sceneLimit} scenes. Try again.`)
+  }
 
-  const scenes = value.scenes.slice(0, Math.max(1, Math.min(20, Math.floor(maximumScenes)))).map((item, index): StoryboardPlanScene => {
+  const scenes = value.scenes.map((item, index): StoryboardPlanScene => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       throw new ChatError(`Storyboard returned an invalid scene ${index + 1}. Try again.`)
     }
@@ -502,7 +516,12 @@ export function validateStoryboardPlan(
       const durationSeconds = typeof scene.durationSeconds === 'number'
         ? scene.durationSeconds
         : Number(scene.durationSeconds)
-      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || !Number.isInteger(durationSeconds)) {
+      if (
+        !Number.isFinite(durationSeconds)
+        || durationSeconds < STORYBOARD_MIN_SCENE_DURATION_SECONDS
+        || durationSeconds > STORYBOARD_MAX_SCENE_DURATION_SECONDS
+        || !Number.isInteger(durationSeconds)
+      ) {
         throw new ChatError(`Storyboard returned an invalid duration for scene ${index + 1}. Try again.`)
       }
       result.durationSeconds = durationSeconds
@@ -520,8 +539,11 @@ export function validateStoryboardPlan(
     }
     return { summary, scenes, totalDurationSeconds }
   }
-  if (totalDurationSeconds < 5 || totalDurationSeconds > 1_800) {
-    throw new ChatError('Storyboard returned an automatic duration outside the supported 5-second to 30-minute range. Try again.')
+  if (
+    totalDurationSeconds < STORYBOARD_MIN_TOTAL_DURATION_SECONDS
+    || totalDurationSeconds > STORYBOARD_MAX_TOTAL_DURATION_SECONDS
+  ) {
+    throw new ChatError(`Storyboard returned an automatic duration outside the supported ${STORYBOARD_MIN_TOTAL_DURATION_SECONDS}- to ${STORYBOARD_MAX_TOTAL_DURATION_SECONDS}-second range. Try again.`)
   }
   const returnedTotal = typeof value.totalDurationSeconds === 'number'
     ? value.totalDurationSeconds
@@ -554,9 +576,21 @@ export async function planStoryboard(opts: {
   const targetModel = opts.targetModel.trim().slice(0, 240)
   const requestedDuration = Number.isFinite(opts.totalDurationSeconds)
     ? Math.round(opts.totalDurationSeconds!)
-    : 30
-  const totalDurationSeconds = Math.min(1_800, Math.max(5, requestedDuration))
-  const maximumScenes = opts.timingMode === 'manual' ? Math.min(20, totalDurationSeconds) : 20
+    : STORYBOARD_MIN_TOTAL_DURATION_SECONDS
+  const effectiveMaximumDuration = Math.min(
+    STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
+    STORYBOARD_MAX_SCENES * STORYBOARD_MAX_SCENE_DURATION_SECONDS,
+  )
+  const totalDurationSeconds = Math.min(
+    effectiveMaximumDuration,
+    Math.max(STORYBOARD_MIN_TOTAL_DURATION_SECONDS, requestedDuration),
+  )
+  const maximumScenes = opts.timingMode === 'manual'
+    ? Math.min(STORYBOARD_MAX_SCENES, totalDurationSeconds)
+    : STORYBOARD_MAX_SCENES
+  const minimumScenes = opts.timingMode === 'manual'
+    ? Math.max(1, Math.ceil(totalDurationSeconds / STORYBOARD_MAX_SCENE_DURATION_SECONDS))
+    : 1
   const scenePromptMax = Number.isFinite(opts.scenePromptMax)
     ? Math.max(1, Math.floor(opts.scenePromptMax!))
     : 4_000
@@ -567,7 +601,7 @@ export async function planStoryboard(opts: {
   const system = [
     'You are a film director and storyboard artist inside EasyField, a professional post-production app.',
     opts.timingMode === 'manual'
-      ? `Turn the user's single story brief into one coherent visual story lasting exactly ${totalDurationSeconds} seconds. Decide the appropriate number of ordered scenes yourself, from 1 to ${maximumScenes}.`
+      ? `Turn the user's single story brief into one coherent visual story lasting exactly ${totalDurationSeconds} seconds. Decide the appropriate number of ordered scenes yourself, from ${minimumScenes} to ${maximumScenes}.`
       : `Turn the user's single story brief into one coherent visual story and decide the appropriate number of ordered scenes yourself, from 1 to ${maximumScenes}.`,
     'Understand Hebrew and any other input language accurately. Write every image prompt in natural, production-ready English.',
     `Tailor every prompt specifically to the still-image generation model "${targetModel}". Use concrete visual detail, composition, lens and framing, lighting, colour, setting, character continuity, action and mood. Do not use camera-motion or video-only timing language.`,
@@ -575,9 +609,9 @@ export async function planStoryboard(opts: {
     'When reference images are attached, treat their visible identity, wardrobe, design language, locations, palette and composition as authoritative continuity guidance for every relevant scene.',
     'Each explanation must concisely state that scene\'s narrative purpose and how it advances the complete story.',
     opts.timingMode === 'manual'
-      ? `Assign a positive whole-number durationSeconds to every scene. The scene durations must sum to exactly ${totalDurationSeconds} seconds and should reflect the narrative pacing rather than defaulting blindly to equal lengths.`
+      ? `Assign a whole-number durationSeconds from ${STORYBOARD_MIN_SCENE_DURATION_SECONDS} to ${STORYBOARD_MAX_SCENE_DURATION_SECONDS} to every scene. The scene durations must sum to exactly ${totalDurationSeconds} seconds and should reflect the narrative pacing rather than defaulting blindly to equal lengths.`
       : opts.timingMode === 'auto'
-        ? 'Choose the natural overall runtime from the story, from 5 to 1800 seconds. Assign a positive whole-number durationSeconds to every scene based on its narrative density and pacing. Return totalDurationSeconds equal to the exact sum of all scene durations.'
+        ? `Choose the natural overall runtime from the story, from ${STORYBOARD_MIN_TOTAL_DURATION_SECONDS} to ${effectiveMaximumDuration} seconds. The global storyboard ceiling is ${STORYBOARD_MAX_TOTAL_DURATION_SECONDS} seconds, while the ${STORYBOARD_MAX_SCENES}-scene and ${STORYBOARD_MAX_SCENE_DURATION_SECONDS}-second-per-scene limits make ${effectiveMaximumDuration} seconds the longest valid generated plan. Assign a whole-number durationSeconds from ${STORYBOARD_MIN_SCENE_DURATION_SECONDS} to ${STORYBOARD_MAX_SCENE_DURATION_SECONDS} to every scene based on its narrative density and pacing. Return totalDurationSeconds equal to the exact sum of all scene durations.`
         : '',
     'Return exactly one strict JSON object and nothing else. Never wrap it in markdown or code fences.',
     opts.timingMode === 'none'
@@ -629,6 +663,185 @@ export async function planStoryboard(opts: {
       throw error
     }
     const wrapped = new ChatError(error instanceof Error ? error.message : 'Storyboard planning failed. Try again.')
+    wrapped.credits = credits
+    throw wrapped
+  }
+}
+
+export type StoryboardAutoTimingScene = Pick<
+  StoryboardScene,
+  'id' | 'title' | 'prompt' | 'explanation' | 'durationMode' | 'durationSeconds'
+>
+
+export interface StoryboardAutoTimingResult {
+  scenes: StoryboardSceneDurationResolution[]
+  totalDurationSeconds: number
+  chatCredits: number | null
+}
+
+/**
+ * Validates a generation-time pacing response against the exact authored scene
+ * list. Manual rows are immutable and may use half-second steps; Auto rows must
+ * receive one integer duration from one to five seconds. The strict scene-id/order checks prevent a partial
+ * or reordered response from being applied to the wrong image.
+ */
+export function validateStoryboardAutoTiming(
+  raw: unknown,
+  sourceScenes: readonly StoryboardAutoTimingScene[],
+): Omit<StoryboardAutoTimingResult, 'chatCredits'> {
+  if (sourceScenes.length === 0) {
+    throw new ChatError('Storyboard timing needs at least one scene.')
+  }
+  if (sourceScenes.length > STORYBOARD_MAX_SCENES) {
+    throw new ChatError(`Storyboard timing supports up to ${STORYBOARD_MAX_SCENES} scenes.`)
+  }
+  const sourceIds = new Set<string>()
+  sourceScenes.forEach((scene, index) => {
+    if (!scene.id || sourceIds.has(scene.id)) {
+      throw new ChatError(`Storyboard has an invalid scene ID at row ${index + 1}.`)
+    }
+    sourceIds.add(scene.id)
+    if (
+      scene.durationMode === 'manual'
+      && (
+        !isStoryboardSceneDuration(scene.durationSeconds)
+      )
+    ) {
+      throw new ChatError(`Storyboard scene ${index + 1} has an invalid manual duration.`)
+    }
+  })
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ChatError('Storyboard timing returned an invalid response. Try again.')
+  }
+  const value = raw as Record<string, unknown>
+  if (!Array.isArray(value.scenes) || value.scenes.length !== sourceScenes.length) {
+    throw new ChatError('Storyboard timing did not return every scene. Try again.')
+  }
+
+  const scenes = value.scenes.map((item, index): StoryboardSceneDurationResolution => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new ChatError(`Storyboard timing returned an invalid scene ${index + 1}. Try again.`)
+    }
+    const row = item as Record<string, unknown>
+    const source = sourceScenes[index]
+    if (row.sceneId !== source.id) {
+      throw new ChatError(`Storyboard timing changed the order of scene ${index + 1}. Try again.`)
+    }
+    const durationSeconds = typeof row.durationSeconds === 'number'
+      ? row.durationSeconds
+      : Number(row.durationSeconds)
+    const validDuration = source.durationMode === 'manual'
+      ? isStoryboardSceneDuration(durationSeconds)
+      : Number.isInteger(durationSeconds)
+        && durationSeconds >= STORYBOARD_MIN_SCENE_DURATION_SECONDS
+        && durationSeconds <= STORYBOARD_MAX_SCENE_DURATION_SECONDS
+    if (!validDuration) {
+      throw new ChatError(`Storyboard timing returned an invalid duration for scene ${index + 1}. Try again.`)
+    }
+    if (source.durationMode === 'manual' && durationSeconds !== source.durationSeconds) {
+      throw new ChatError(`Storyboard timing changed the manual duration of scene ${index + 1}. Try again.`)
+    }
+    return { sceneId: source.id, durationSeconds }
+  })
+
+  const totalDurationSeconds = scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0)
+  const returnedTotal = typeof value.totalDurationSeconds === 'number'
+    ? value.totalDurationSeconds
+    : Number(value.totalDurationSeconds)
+  if (!Number.isInteger(returnedTotal * 2) || returnedTotal !== totalDurationSeconds) {
+    throw new ChatError('Storyboard timing returned a mismatched total. Try again.')
+  }
+
+  return { scenes, totalDurationSeconds }
+}
+
+/**
+ * Chooses only the unresolved Auto durations at the moment the complete
+ * by-scenes storyboard is created. The complete story and every ordered scene
+ * are sent together so pacing is based on the actual narrative, never a local
+ * word-count heuristic. Manual rows remain exact.
+ */
+export async function resolveStoryboardAutoTiming(opts: {
+  completeStory: string
+  scenes: readonly StoryboardAutoTimingScene[]
+  chatModel: string
+  references?: EnhanceReference[]
+  signal?: AbortSignal
+}): Promise<StoryboardAutoTimingResult> {
+  const scenes = [...opts.scenes]
+  if (scenes.length === 0) throw new ChatError('Add at least one scene before creating the storyboard.')
+
+  const manualOnly = scenes.every((scene) => scene.durationMode === 'manual')
+  if (manualOnly) {
+    const result = validateStoryboardAutoTiming({
+      totalDurationSeconds: scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0),
+      scenes: scenes.map((scene) => ({ sceneId: scene.id, durationSeconds: scene.durationSeconds })),
+    }, scenes)
+    return { ...result, chatCredits: 0 }
+  }
+
+  const key = currentApiKey()
+  if (!key) throw new ChatError('Connect EasyField Cloud before using automatic storyboard timing.')
+
+  const completeStory = opts.completeStory.trim().slice(0, 12_000)
+  const orderedScenes = scenes.map((scene, index) => ({
+    ordinal: index + 1,
+    sceneId: scene.id,
+    title: scene.title.trim().slice(0, 160),
+    prompt: scene.prompt.trim().slice(0, 4_000),
+    explanation: scene.explanation.trim().slice(0, 1_200),
+    timing: scene.durationMode === 'manual'
+      ? { mode: 'manual', durationSeconds: scene.durationSeconds }
+      : { mode: 'auto' },
+  }))
+  const system = [
+    'You are a film editor choosing narrative pacing for an already-authored storyboard.',
+    'Use the complete story and every ordered scene together. Do not add, remove, reorder, rewrite or reinterpret scenes, and do not invent story events that the user did not provide.',
+    `For each Auto scene, choose a whole-number durationSeconds from ${STORYBOARD_MIN_SCENE_DURATION_SECONDS} to ${STORYBOARD_MAX_SCENE_DURATION_SECONDS} based on its actual action, visual information and role in the complete story. Similar scenes do not need equal durations.`,
+    `Every Manual duration is locked. Copy it exactly, including any 0.5-second value, still within ${STORYBOARD_MIN_SCENE_DURATION_SECONDS}-${STORYBOARD_MAX_SCENE_DURATION_SECONDS} seconds.`,
+    'Return every scene once, in the exact supplied order, with its exact sceneId. totalDurationSeconds must equal the exact sum of all returned durations.',
+    'Return exactly one strict JSON object and nothing else. Never use markdown or code fences.',
+    'Schema: {"totalDurationSeconds":number,"scenes":[{"sceneId":string,"durationSeconds":number}]}.',
+  ].join('\n')
+
+  const { images, manifest } = await prepareVisualReferences(opts.references, opts.signal)
+  let user = [
+    `COMPLETE STORY:\n${completeStory || '(No separate summary was provided. Base pacing only on the authored scene rows.)'}`,
+    `\nORDERED SCENES (authoritative JSON):\n${JSON.stringify(orderedScenes)}`,
+  ].join('\n')
+  if (manifest.length) {
+    user += `\n\nATTACHED STORY REFERENCES (read-only pacing context):\n${manifest.join('\n')}`
+    if (images.length) user += `\n\n${images.length} visual reference frame(s) are attached in the same order.`
+  }
+
+  const before = await fetchCredits(key)
+  try {
+    const raw = await chatComplete(key, opts.chatModel, system, user, images, { signal: opts.signal })
+    let parsed: unknown
+    try {
+      parsed = parseJsonObject(raw)
+    } catch (error) {
+      if (error instanceof ChatError) throw new ChatError('Storyboard timing returned malformed JSON. Try again.')
+      throw error
+    }
+    const result = validateStoryboardAutoTiming(parsed, scenes)
+    const after = await fetchCredits(key)
+    const chatCredits = before.ok && after.ok && before.credits != null && after.credits != null
+      ? Math.max(0, before.credits - after.credits)
+      : null
+    return { ...result, chatCredits }
+  } catch (error) {
+    if (opts.signal?.aborted) throw error
+    const after = await fetchCredits(key)
+    const credits = before.ok && after.ok && before.credits != null && after.credits != null
+      ? Math.max(0, before.credits - after.credits)
+      : null
+    if (error instanceof ChatError) {
+      error.credits = credits
+      throw error
+    }
+    const wrapped = new ChatError(error instanceof Error ? error.message : 'Automatic storyboard timing failed. Try again.')
     wrapped.credits = credits
     throw wrapped
   }

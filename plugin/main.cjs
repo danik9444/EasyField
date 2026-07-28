@@ -34,6 +34,7 @@ const { loadWorkflowIntegration } = require('./workflow-integration.cjs');
 const { timecodeToFrames, timelineFrameToTimecode, timelinePlayheadToSourceFrame } = require('./timecode.cjs');
 const {
     applyWindowMode,
+    assertWindowHeightMode,
     clampWindowToWorkArea,
     createResolveAwareFloatingController,
     windowBoundsForMode,
@@ -1868,6 +1869,7 @@ let mainWindow = null;
 let stateStore = null;
 let accountService = null;
 let currentWindowMode = 'compact';
+let currentWindowHeightMode = 'standard';
 let floatingController = null;
 let displayChangeHandler = null;
 
@@ -2572,7 +2574,15 @@ function registerHostIpc() {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
         currentWindowMode = mode;
-        applyWindowMode(mainWindow, screen, mode, { animate: true });
+        applyWindowMode(mainWindow, screen, mode, { animate: true, heightMode: currentWindowHeightMode });
+    });
+    registerTrustedHandler('ef:window:set-layout', (mode, heightMode) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
+        assertWindowHeightMode(heightMode);
+        currentWindowMode = mode;
+        currentWindowHeightMode = heightMode;
+        applyWindowMode(mainWindow, screen, mode, { animate: true, heightMode });
     });
     registerTrustedHandler('ef:billing:open-credit-purchase', async () => {
         const context = await accountService?.getFreshDirectProviderContext?.();
@@ -2643,7 +2653,7 @@ function createWindow() {
         },
     });
     mainWindow.setMenu(null);
-    applyWindowMode(mainWindow, screen, currentWindowMode, { initial: true });
+    applyWindowMode(mainWindow, screen, currentWindowMode, { initial: true, heightMode: currentWindowHeightMode });
     floatingController = createResolveAwareFloatingController(mainWindow);
 
     // Re-clamp on resolution, work-area, scale-factor and monitor changes. The
@@ -2651,7 +2661,7 @@ function createWindow() {
     // another monitor stays there rather than jumping back to the primary one.
     displayChangeHandler = () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        clampWindowToWorkArea(mainWindow, screen, currentWindowMode);
+        clampWindowToWorkArea(mainWindow, screen, currentWindowMode, currentWindowHeightMode);
     };
     screen.on('display-metrics-changed', displayChangeHandler);
     screen.on('display-removed', displayChangeHandler);
