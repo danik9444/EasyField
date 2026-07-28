@@ -23,10 +23,8 @@ function skip(reason) {
   process.exit(0)
 }
 
-// CI never pushes, so it has no use for a pre-push hook. More importantly the
-// release job holds contents/id-token/attestations write scopes while npm ci
-// runs, so this lifecycle script should do nothing there rather than write into
-// the runner's .git during a credentialed build.
+// CI never pushes, so it has no use for a pre-push hook. This lifecycle script
+// should also never write into an unattended runner's .git during a build.
 if (process.env.CI || process.env.GITHUB_ACTIONS) skip('CI environment')
 
 if (!fs.existsSync(sourceDir)) skip('scripts/hooks is missing')
