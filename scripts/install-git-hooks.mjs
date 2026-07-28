@@ -54,17 +54,41 @@ try {
 
 fs.mkdirSync(hooksDir, { recursive: true })
 
+// Read a path through one descriptor, so nothing can swap the file between a
+// check and the read. Returns null when it is absent or not a regular file.
+function readRegularFile(filePath) {
+  let handle
+  try {
+    handle = fs.openSync(filePath, fs.constants.O_RDONLY)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+  try {
+    return fs.fstatSync(handle).isFile() ? fs.readFileSync(handle) : null
+  } finally {
+    fs.closeSync(handle)
+  }
+}
+
 const installed = []
 for (const name of fs.readdirSync(sourceDir)) {
-  const from = path.join(sourceDir, name)
-  if (!fs.statSync(from).isFile()) continue
+  const next = readRegularFile(path.join(sourceDir, name))
+  if (!next) continue
+
   const to = path.join(hooksDir, name)
-  const next = fs.readFileSync(from)
+  const current = readRegularFile(to)
+  if (current && current.equals(next)) continue
 
-  if (fs.existsSync(to) && fs.readFileSync(to).equals(next)) continue
-
-  fs.writeFileSync(to, next, { mode: 0o755 })
-  fs.chmodSync(to, 0o755)
+  // Truncate and set the mode on the descriptor we opened rather than
+  // reopening by path, so the write and the chmod cannot land on two files.
+  const handle = fs.openSync(to, 'w', 0o755)
+  try {
+    fs.fchmodSync(handle, 0o755)
+    fs.writeSync(handle, next, 0, next.length, 0)
+  } finally {
+    fs.closeSync(handle)
+  }
   installed.push(name)
 }
 
