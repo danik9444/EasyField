@@ -61,6 +61,10 @@ top-up quoting with an estimated charge, and auto-reload controls. All of it
 reads from a client-side constant in `src/data/subscriptions.ts`, so **pricing
 does not require a backend to render**.
 
+That is a statement about rendering only. The server keeps its own catalog in
+`billing_private.plan_catalog`, seeded by migration and guarded by an immutability
+trigger, so the two must be changed together — see item 6.
+
 **Billing infrastructure** — the SQL layer is the most complete part of the
 system: FIFO credit lots, reservations, an append-only ledger, checkout intents,
 payment events, auto-reload settings, subscription grant schedules, and atomic
@@ -118,11 +122,24 @@ config, the webhook signature format, and `PARTNER_REVERSAL_HANDLING_READY`.
    | Pro | $60 | $720 | $588 | saves $132 |
    | Studio | $129 | $1,548 | $1,188 | saves $360 |
 
-   The source of truth states it outright: `annualMonthlyEquivalentMoneyMicros` is
-   $25 for Creator against a $24 monthly charge. Every other tier saves money;
-   Creator's annual plan is more expensive than paying monthly. The UI clamps the
-   displayed saving to zero rather than showing a negative number, and a test
-   encodes that clamped outcome, so nothing currently fails.
+   The source of truth stated it outright: `annualMonthlyEquivalentMoneyMicros` was
+   $25 for Creator against a $24 monthly charge. Every other tier saved money;
+   Creator's annual plan cost more than paying monthly. The UI clamps the displayed
+   saving to zero rather than showing a negative number, and a test encoded that
+   clamped outcome, so nothing failed.
+
+   **Resolved** — Creator annual is now **$240** ($20/month equivalent, saving $48),
+   shipped in [#37](https://github.com/danik9444/EasyField/pull/37). The clamp
+   remains, but the test no longer encodes its output: `tests/subscriptions.test.ts`
+   now asserts directly that every plan's annual price is strictly below twelve
+   monthly charges, so inverting a tier fails loudly instead of quietly dropping a
+   badge.
+
+   Worth recording for the next price change: the server owns a catalog too
+   (`billing_private.plan_catalog`), so a price is **not** a client-only edit. It
+   took a forward-only migration alongside the constant — deployed migrations are
+   never edited in place, and two existing tests deliberately pin the old values as
+   proof that history stayed intact.
 
 7. **Prove it end to end with a fake adapter.** A stub checkout adapter allows the
    whole purchase state machine — intent, pending, recovery, reconciliation,
