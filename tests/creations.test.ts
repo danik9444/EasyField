@@ -311,6 +311,29 @@ test('Library hydration repairs malformed companions and drops invalid creation 
             return request
           },
           delete: (id: string) => { deleted.push(id) },
+          // Creations are now read through a reverse cursor on the createdAt
+          // index so hydration can prune while it reads. Model that here rather
+          // than only getAll, or the sanitiser under test is never reached.
+          index: () => ({
+            openCursor: () => {
+              const request: Record<string, unknown> = {}
+              const rows = [...stored[name]].reverse()
+              let position = 0
+              const step = () => queueMicrotask(() => {
+                const row = rows[position] as Record<string, unknown> | undefined
+                request.result = row
+                  ? {
+                    value: row,
+                    delete: () => { deleted.push(row.id as string) },
+                    continue: () => { position += 1; step() },
+                  }
+                  : null
+                ;(request.onsuccess as (() => void) | undefined)?.()
+              })
+              step()
+              return request
+            },
+          }),
         }),
       }
       if (mode === 'readwrite') queueMicrotask(() => transaction.oncomplete?.())

@@ -20,10 +20,9 @@ interface TestTimelinePlacementContext {
   timelineId?: string
 }
 
-let resolve: {
-  isBridgeConnected: () => boolean
-  placeToTimeline: (input: TestPlaceInput) => Promise<{ ok: boolean; error?: string }>
-}
+// Bind to the real module contract rather than a narrowed local shape, so the
+// test fails if resolve's surface drifts instead of silently accepting it.
+let resolve: (typeof import('../src/services/resolve.ts'))['resolve']
 let sendToTimeline: (
   items: TestTimelineItem[],
   kind: 'image' | 'video' | 'audio',

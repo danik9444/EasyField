@@ -736,7 +736,7 @@ async function hydrateFromStorage(): Promise<void> {
   try {
     const [storedCreations, storedFolders] = await Promise.all([
       readStoredCreations(),
-      readStore<Folder>(FOLDER_STORE),
+      readStore(FOLDER_STORE),
     ])
 
     // Keep the pruning reader from the storage work AND the record validation
