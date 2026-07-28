@@ -65,7 +65,11 @@ function writeSource(installed, source) {
   }))
 }
 
-function createRemoteEnvelope(manifest, { repository = 'easyfield/releases', releaseNotes = 'Security and stability update.' } = {}) {
+function createRemoteEnvelope(manifest, {
+  repository = 'easyfield/releases',
+  releaseNotes = 'Security and stability update.',
+  ciStructure = false,
+} = {}) {
   manifest = validateManifest(manifest)
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
   const publicKeyBase64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64')
@@ -75,7 +79,10 @@ function createRemoteEnvelope(manifest, { repository = 'easyfield/releases', rel
     feedUrl: `https://github.com/${repository}/releases/latest/download/easyfield-update.json`,
     publicKey: publicKeyBase64,
   }
-  const name = `EasyField-${manifest.version}-plugin.tar.gz`
+  const name = ciStructure
+    ? `EasyField-${manifest.version}-ci-structure-plugin.tar.gz`
+    : `EasyField-${manifest.version}-plugin.tar.gz`
+  if (ciStructure) releaseNotes = `[CI STRUCTURE TEST — NO ACCOUNT CONFIG — NOT FOR DISTRIBUTION]\n${releaseNotes}`
   const payload = {
     pluginId: 'com.easyfield.panel',
     channel: 'stable',
@@ -97,7 +104,11 @@ function createRemoteEnvelope(manifest, { repository = 'easyfield/releases', rel
     payload,
     signature: crypto.sign(null, Buffer.from(canonicalReleasePayload(payload)), privateKey).toString('base64'),
   }
-  return { descriptor, envelope, release: validateRemoteRelease(envelope, descriptor) }
+  return {
+    descriptor,
+    envelope,
+    release: validateRemoteRelease(envelope, descriptor, { allowCiStructure: ciStructure }),
+  }
 }
 
 function writeRemoteSource(installed, descriptor) {
@@ -276,6 +287,17 @@ test('verifies an Ed25519-signed GitHub release and rejects metadata tampering',
 
   const wrongRepository = { ...descriptor, feedUrl: 'https://github.com/other/releases/releases/latest/download/easyfield-update.json' }
   assert.throws(() => validateRemoteRelease(envelope, wrongRepository), /archive URL/i)
+})
+
+test('CI-only archive naming is accepted only by the explicit package-builder validator mode', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-updater-ci-structure-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const manifest = createRelease(root, { version: '1.2.0', createdAt: '2026-07-14T02:00:00.000Z', salt: 'ci-only' })
+  const { descriptor, envelope, release } = createRemoteEnvelope(manifest, { ciStructure: true })
+  assert.equal(release.ciStructure, true)
+  assert.match(release.archive.name, /-ci-structure-plugin\.tar\.gz$/)
+  assert.throws(() => validateRemoteRelease(envelope, descriptor), /Invalid update archive/)
+  assert.equal(validateRemoteRelease(envelope, descriptor, { allowCiStructure: true }).ciStructure, true)
 })
 
 test('checks and installs a signed GitHub candidate without accepting renderer URLs', async (t) => {

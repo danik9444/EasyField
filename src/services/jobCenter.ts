@@ -62,6 +62,8 @@ export interface JobHandle {
   beginSubmission: () => Promise<void>
   acceptTask: (taskId: string, family: ProviderFamily) => Promise<void>
   settleTask: (taskId: string, family: ProviderFamily) => Promise<void>
+  /** Persists verified local artifact URLs while keeping the job non-terminal. */
+  secureResults: (urls: string[], resultCount?: number, detail?: string) => Promise<void>
   savePartialResults: (urls: string[], completedTasks: ProviderTaskRef[], resultCount: number, detail: string) => Promise<void>
   commitResults: (urls: string[], resultCount?: number, detail?: string) => Promise<void>
   pause: (error: unknown, detail?: string) => void
@@ -76,6 +78,7 @@ const backgroundHandlers = new Map<string, () => void>()
 let jobs: JobRecord[] = []
 let counter = 0
 const TERMINAL = new Set<JobStatus>(['succeeded', 'failed', 'cancelled'])
+const MANAGED_ARTIFACT_URL = /^\/artifacts\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const recovering = new Set<string>()
 let hydrated = false
 let hydrationPromise: Promise<void> | null = null
@@ -153,6 +156,9 @@ async function precommitJobResults(id: string, urls: string[], resultCount: numb
   const safeNewUrls = safeResultUrls(urls)
   if (safeNewUrls.length !== new Set(urls).size) {
     throw new Error('Job results were not valid durable artifact references.')
+  }
+  if (host.isPlugin() && safeNewUrls.some((url) => !MANAGED_ARTIFACT_URL.test(url))) {
+    throw new Error('Plugin jobs can finish only after every result is secured in the local Artifact Store.')
   }
   const resultUrls = safeResultUrls([...(current.resultUrls ?? []), ...safeNewUrls])
   patchJob(id, {
@@ -359,10 +365,23 @@ export function startJob(input: NewJob): JobHandle {
     beginSubmission: () => beginProviderSubmission(id),
     acceptTask: (taskId, family) => acceptProviderTask(id, taskId, family),
     settleTask: (taskId, family) => settleProviderTask(id, taskId, family),
+    secureResults: async (urls, resultCount = urls.length, detail) => {
+      if (!hydrated) throw new Error('Job ledger was not ready before artifact precommit')
+      await precommitJobResults(id, urls, resultCount)
+      if (detail) patchJob(id, { detail })
+    },
     savePartialResults: (urls, completedTasks, resultCount, detail) => savePartialJobResults(id, urls, completedTasks, resultCount, detail),
     commitResults: (urls, resultCount, detail) => commitJobResults(id, urls, resultCount, detail),
     pause: (error, detail) => pauseJob(id, error, detail),
-    succeed: (resultCount, detail) => settleJob(id, { status: 'succeeded', detail: detail || 'Generation complete', resultCount }),
+    succeed: (resultCount = 0, detail) => {
+      const current = jobs.find((job) => job.id === id)
+      if (!current || TERMINAL.has(current.status)) return
+      const providerLifecycleStarted = current.submissionState === 'submitting' || hasAcceptedProviderWork(current)
+      if (resultCount > 0 || providerLifecycleStarted) {
+        throw new Error('Submitted provider jobs must commit durable artifact results before success.')
+      }
+      settleJob(id, { status: 'succeeded', detail: detail || 'Generation complete', resultCount: 0 })
+    },
     fail: (error) => {
       const message = safeErrorMessage(error)
       if (/cancel|abort/i.test(message)) settleJob(id, { status: 'cancelled', detail: 'Cancelled' })

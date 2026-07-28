@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "architectures": [
+    "arm64",
+    "x64"
+  ],
+  "releaseReady": false,
+  "licenseReview": {
+    "status": "pending",
+    "evidence": null
+  },
+  "components": [
+    {
+      "id": "ffmpeg",
+      "requiredExecutables": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "spdx": null,
+      "targets": {
+        "arm64": null,
+        "x64": null
+      }
+    },
+    {
+      "id": "librosa-python",
+      "requiredExecutables": [
+        "python3"
+      ],
+      "spdx": null,
+      "targets": {
+        "arm64": null,
+        "x64": null
+      }
+    },
+    {
+      "id": "whispercpp",
+      "requiredExecutables": [
+        "whisper-cli"
+      ],
+      "spdx": null,
+      "targets": {
+        "arm64": null,
+        "x64": null
+      }
+    }
+  ]
+}

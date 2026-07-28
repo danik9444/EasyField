@@ -367,26 +367,31 @@ function runProcess(command, args, options = {}) {
     });
 }
 
-function runtimeCandidates(runtimeRoot, extraCandidates) {
+function runtimeCandidates(runtimeRoot, extraCandidates, allowEnvironmentOverrides) {
     // An explicit candidate list is dependency injection (used by packaged
     // runtime probes and tests), so do not silently fall through to an
     // unrelated Homebrew/global installation when it is provided.
     if (Array.isArray(extraCandidates)) {
         return extraCandidates.filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
     }
+    const allowDevelopmentRuntime = allowEnvironmentOverrides === true;
     return [
-        process.env.EF_WHISPER_CLI,
+        allowDevelopmentRuntime ? process.env.EF_WHISPER_CLI : null,
         path.join(runtimeRoot, 'bin', 'whisper-cli'),
         path.join(__dirname, 'bin', 'whisper-cli'),
-        '/opt/homebrew/bin/whisper-cli',
-        '/usr/local/bin/whisper-cli',
-        'whisper-cli',
-        'whisper-cpp',
+        allowDevelopmentRuntime ? '/opt/homebrew/bin/whisper-cli' : null,
+        allowDevelopmentRuntime ? '/usr/local/bin/whisper-cli' : null,
+        allowDevelopmentRuntime ? 'whisper-cli' : null,
+        allowDevelopmentRuntime ? 'whisper-cpp' : null,
     ].filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
 }
 
 async function probeRuntime(options = {}) {
-    const candidates = runtimeCandidates(options.runtimeRoot, options.cliCandidates);
+    const candidates = runtimeCandidates(
+        options.runtimeRoot,
+        options.cliCandidates,
+        options.allowEnvironmentOverrides === true,
+    );
     for (const candidate of candidates) {
         if (candidate.includes(path.sep) && !fs.existsSync(candidate)) continue;
         const versionResult = await runProcess(candidate, ['--version'], { timeoutMs: 10000 });
@@ -651,6 +656,11 @@ function createTranscriptionService(options = {}) {
     const modelDownloadTimeoutMs = Math.max(30000, finite(options.modelDownloadTimeoutMs, DEFAULT_MODEL_DOWNLOAD_TIMEOUT_MS));
     const downloading = new Map();
     let installState = 'unavailable';
+    const runtimeProbeOptions = {
+        runtimeRoot,
+        cliCandidates: options.cliCandidates,
+        allowEnvironmentOverrides: options.allowEnvironmentOverrides === true,
+    };
 
     const authorize = (req, res) => !options.authorizeRequest || options.authorizeRequest(req, res);
     const operationSignal = (req, res) => {
@@ -662,7 +672,7 @@ function createTranscriptionService(options = {}) {
     };
 
     const status = async () => {
-        const runtime = await probeRuntime({ runtimeRoot, cliCandidates: options.cliCandidates });
+        const runtime = await probeRuntime(runtimeProbeOptions);
         return {
             ok: true,
             engine: ENGINE,
@@ -721,7 +731,7 @@ function createTranscriptionService(options = {}) {
         if (!modelReady(modelRoot, transcriptionOptions.model) && !options.allowUnmarkedModels) {
             throw new TranscriptionError('Download and verify this Whisper model before transcription.', 'MODEL_NOT_READY', 409);
         }
-        const runtime = await probeRuntime({ runtimeRoot, cliCandidates: options.cliCandidates });
+        const runtime = await probeRuntime(runtimeProbeOptions);
         if (!runtime.available) throw new TranscriptionError(runtime.error, runtime.code, 503);
         const controller = operationSignal(req, res);
         const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-transcribe-'));

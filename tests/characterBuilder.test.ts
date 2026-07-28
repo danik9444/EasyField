@@ -134,6 +134,15 @@ test('structured enhancer context excludes free-form notes', () => {
   assert.doesNotMatch(context, /secret phrase/i)
 })
 
+test('tattoo selection never invents a placement when no region was chosen', () => {
+  const draft = createDefaultCharacterDraft()
+  draft.basics.tattoos = 'tattoos'
+
+  const context = compileCharacterSelectionContext(draft)
+  assert.match(context, /tattoos with placement left unspecified/i)
+  assert.doesNotMatch(context, /chosen to suit/i)
+})
+
 test('an exact custom age is validated and invalid custom age becomes unselected', () => {
   const clamped = normalizeCharacterDraft({ basics: { age: 'custom' }, customAge: 999 })
   assert.equal(clamped.basics.age, 'custom')

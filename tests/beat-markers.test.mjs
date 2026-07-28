@@ -19,6 +19,7 @@ class TestError extends Error {
 function harness(t, { failAt = -1 } = {}) {
   const mediaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ef-beat-markers-'))
   const mediaPath = path.join(mediaRoot, 'track.wav')
+  const mediaId = '1d8189f0-d6e6-4a6f-a616-1cdfcd1c8fb4'
   fs.writeFileSync(mediaPath, Buffer.from('audio'))
   t.after(() => fs.rmSync(mediaRoot, { recursive: true, force: true }))
   const addedPool = []
@@ -56,11 +57,14 @@ function harness(t, { failAt = -1 } = {}) {
   const service = createBeatMarkerService({
     async getContext() { return { project, timeline } },
     async withTimelineOperationLock(operation) { return await operation() },
-    mediaRoot,
+    resolveMediaReference(reference) {
+      if (reference !== mediaId) throw new TestError('Unknown media receipt', 'BAD_REQUEST', 400)
+      return mediaPath
+    },
     EFError: TestError,
   })
   const payload = {
-    path: mediaPath,
+    mediaId,
     analysisId: 'beat-analysis-1',
     color: 'Cyan',
     markers: [
@@ -68,7 +72,7 @@ function harness(t, { failAt = -1 } = {}) {
       { time: 2.5, confidence: 0.8, name: 'Beat 002' },
     ],
   }
-  return { service, payload, mediaRoot, addedPool, addedTimeline, rolledBack }
+  return { service, payload, mediaRoot, mediaPath, mediaId, addedPool, addedTimeline, rolledBack }
 }
 
 test('reviewed beats are added as relative clip markers in Media Pool or Timeline', async (t) => {
@@ -83,6 +87,8 @@ test('reviewed beats are added as relative clip markers in Media Pool or Timelin
   assert.equal(h.addedTimeline.every((marker) => marker.duration === 1), true)
   assert.equal(h.addedTimeline.every((marker) => marker.customData.startsWith('easyfield-beat-')), true)
   assert.equal(timeline.undoToken.customData.length, 2)
+  assert.equal(timeline.undoToken.mediaId, h.mediaId)
+  assert.equal(Object.hasOwn(timeline.undoToken, 'path'), false)
 })
 
 test('marker application rolls back only EasyField-owned markers after a partial failure', async (t) => {
@@ -95,10 +101,18 @@ test('marker application rolls back only EasyField-owned markers after a partial
   assert.deepEqual(h.rolledBack, [h.addedTimeline[0].customData])
 })
 
-test('marker application rejects paths outside the EasyField media root', async (t) => {
+test('marker application rejects renderer filesystem paths', async (t) => {
   const h = harness(t)
   await assert.rejects(
     h.service.applyMarkers({ ...h.payload, path: '/etc/hosts', target: 'media-pool' }),
-    (error) => error instanceof TestError && error.code === 'UNSAFE_PATH',
+    (error) => error instanceof TestError && error.code === 'BAD_REQUEST',
+  )
+})
+
+test('marker application rejects an unknown opaque media receipt', async (t) => {
+  const h = harness(t)
+  await assert.rejects(
+    h.service.applyMarkers({ ...h.payload, mediaId: 'f70c234d-faa7-435a-bbf1-f3d1a83ef003', target: 'media-pool' }),
+    (error) => error instanceof TestError && error.code === 'BAD_REQUEST',
   )
 })

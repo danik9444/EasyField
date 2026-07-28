@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Instrument Sans Variable', 'Heebo Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #f8f7fb;
+  background: #08080c;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --ef-canvas: #08080c;
+  --ef-canvas-raised: #0d0d13;
+  --ef-surface: #15151d;
+  --ef-surface-hover: #1a1a24;
+  --ef-line: rgba(255, 255, 255, .085);
+  --ef-line-bright: rgba(255, 255, 255, .16);
+  --ef-ink: #f8f7fb;
+  --ef-ink-soft: #c9c7d2;
+  --ef-ink-muted: #8f8c9d;
+  --ef-blue: #6f95ff;
+  --ef-purple: #a878ff;
+  --ef-pink: #e26bd2;
+  --ef-green: #42dfa2;
+  --ef-amber: #ffbd6a;
+  --ef-gradient: linear-gradient(125deg, var(--ef-blue), var(--ef-purple) 48%, var(--ef-pink));
+  --ef-display: 'Space Grotesk Variable', 'Heebo Variable', 'Instrument Sans Variable', sans-serif;
+  --ef-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 92px;
+  background: var(--ef-canvas);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 8% -8%, rgba(111, 149, 255, .08), transparent 28rem),
+    radial-gradient(circle at 92% 3%, rgba(226, 107, 210, .07), transparent 25rem),
+    var(--ef-canvas);
+}
+
+body,
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+::selection {
+  color: #0b0b11;
+  background: #d991ef;
+}
+
+:focus-visible {
+  outline: 2px solid #8eaaff;
+  outline-offset: 4px;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

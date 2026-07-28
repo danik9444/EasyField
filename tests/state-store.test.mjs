@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readdir, rm, stat, symlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -33,7 +33,12 @@ test('SQLite state store persists namespaced records and updates atomically', as
   assert.equal(store.get('jobs', 'ledger'), null)
 
   assert.throws(() => store.set('settings', 'invalid', undefined), /not JSON serializable/)
+  assert.equal((await stat(directory)).mode & 0o777, 0o700)
   assert.equal((await stat(store.databasePath)).mode & 0o777, 0o600)
+  for (const name of await readdir(directory)) {
+    if (!name.startsWith('easyfield.sqlite3')) continue
+    assert.equal((await stat(path.join(directory, name))).mode & 0o777, 0o600, `${name} must remain private`)
+  }
 
   const { DatabaseSync } = require('node:sqlite')
   const inspection = new DatabaseSync(store.databasePath)
@@ -46,4 +51,16 @@ test('SQLite state store persists namespaced records and updates atomically', as
   store = createStateStore(directory)
   assert.deepEqual(store.get('projects', 'restart-proof'), { name: 'Persistent project' })
   assert.equal(store.list('projects').length, 1, 'reopening must not duplicate or erase migrated state')
+})
+
+test('SQLite state store rejects a symlinked user-data boundary', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'easyfield-state-symlink-test-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = path.join(root, 'target')
+  const linked = path.join(root, 'linked')
+  await chmod(root, 0o700)
+  await mkdir(target, { mode: 0o700 })
+  await symlink(target, linked)
+  assert.equal((await lstat(linked)).isSymbolicLink(), true)
+  assert.throws(() => createStateStore(linked), /state directory must be a local directory/)
 })

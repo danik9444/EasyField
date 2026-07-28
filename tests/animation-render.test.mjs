@@ -12,6 +12,7 @@ const {
   RenderError,
   buildEncoderArgs,
   createAnimationRenderService,
+  resolveFfmpegPath,
   validateRenderPayload,
 } = require('../plugin/animation-render.cjs')
 const {
@@ -35,6 +36,18 @@ const props = {
   bg: '#101015',
   assetUrls: [],
 }
+
+test('packaged animation rendering ignores environment executable overrides', () => {
+  const previous = process.env.EF_FFMPEG_PATH
+  process.env.EF_FFMPEG_PATH = '/tmp/untrusted-animation-ffmpeg'
+  try {
+    assert.notEqual(resolveFfmpegPath('ffmpeg', false), process.env.EF_FFMPEG_PATH)
+    assert.equal(resolveFfmpegPath('ffmpeg', true), process.env.EF_FFMPEG_PATH)
+  } finally {
+    if (previous === undefined) delete process.env.EF_FFMPEG_PATH
+    else process.env.EF_FFMPEG_PATH = previous
+  }
+})
 
 function assertRenderError(fn, code) {
   assert.throws(fn, (error) => error instanceof RenderError && error.code === code)

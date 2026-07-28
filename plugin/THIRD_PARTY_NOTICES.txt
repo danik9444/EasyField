@@ -47,6 +47,17 @@ External AI services, models and generated outputs are accessed through
 EasyField Cloud and are not third-party code redistributed in the EasyField
 installer. Applicable service and model/output terms still apply to use.
 
+## Portable runtimes not currently redistributed
+
+The source catalog names FFmpeg/ffprobe, a CPython/librosa environment and
+whisper.cpp as required local capabilities, but the checked-in catalog contains
+no runtime binary, download URL or checksum and is marked release-unavailable.
+Before any of these components is added to an installer, record the exact
+version/source/build provenance, every applicable license and notice, codec
+configuration and redistribution approval. The production artifact builders
+reject a runtime payload until that approval record and the signed,
+architecture-specific checksum inventories are present.
+
 ## MIT License (React and React DOM)
 
 Copyright (c) Meta Platforms, Inc. and affiliates.

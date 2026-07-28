@@ -53,6 +53,10 @@ export async function importAudioWithBeatMarkers(input: {
     toast('DaVinci not connected — open EasyField inside Resolve')
     return false
   }
+  if (!resolve.getStatus().capabilities?.includes('opaque-placement-media')) {
+    toast('Update the EasyField Resolve integration before importing audio with markers')
+    return false
+  }
   if (!input.markers.length) {
     toast('No reviewed beat markers to import')
     return false
@@ -63,12 +67,12 @@ export async function importAudioWithBeatMarkers(input: {
     kind: 'audio',
     placement: input.target === 'media-pool' ? 'media-pool' : 'playhead',
   })
-  if (!placement.ok || !placement.path) {
+  if (!placement.ok || !placement.mediaId) {
     toast(placement.error ? `Audio import failed — ${placement.error}` : 'Audio import failed')
     return false
   }
   const markerResult = await resolve.applyBeatMarkers({
-    path: placement.path,
+    mediaId: placement.mediaId,
     target: input.target,
     analysisId: input.analysisId,
     color: input.color,

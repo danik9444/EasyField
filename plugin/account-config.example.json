@@ -1,0 +1,12 @@
+{
+  "supabaseUrl": "https://YOUR_PROJECT.supabase.co",
+  "anonKey": "YOUR_PUBLIC_SUPABASE_ANON_KEY",
+  "accountApiUrl": "https://YOUR_PROJECT.supabase.co/functions/v1/easyfield-account",
+  "oauthProviders": [
+    "google",
+    "apple"
+  ],
+  "checkoutHosts": [
+    "YOUR_CHECKOUT_HOST"
+  ]
+}

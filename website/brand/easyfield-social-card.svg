@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">EasyField — AI plugin for DaVinci Resolve 21</title>
+  <desc id="desc">Twenty focused AI workflows built around the Resolve timeline</desc>
+  <defs>
+    <linearGradient id="brand" x1="82" y1="65" x2="1130" y2="590" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6F95FF"/>
+      <stop offset=".48" stop-color="#A878FF"/>
+      <stop offset="1" stop-color="#E26BD2"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientTransform="translate(950 70) rotate(130) scale(430 390)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E26BD2" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#E26BD2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientTransform="translate(115 560) rotate(-34) scale(520 380)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6F95FF" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#6F95FF" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
+      <path d="M42 0H0V42" fill="none" stroke="#fff" stroke-opacity=".035"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" rx="32" fill="#08080C"/>
+  <rect width="1200" height="630" rx="32" fill="url(#glowA)"/>
+  <rect width="1200" height="630" rx="32" fill="url(#glowB)"/>
+  <rect width="1200" height="630" rx="32" fill="url(#grid)"/>
+  <rect x="72" y="68" width="70" height="70" rx="19" fill="url(#brand)"/>
+  <path d="M107 85c1.28 12.87 9.13 20.72 22 22-12.87 1.28-20.72 9.13-22 22-1.28-12.87-9.13-20.72-22-22 12.87-1.28 20.72-9.13 22-22Z" fill="#0B0B11"/>
+  <circle cx="127" cy="88" r="3.2" fill="#0B0B11" fill-opacity=".72"/>
+  <text x="161" y="116" fill="#F8F7FB" font-family="Arial, sans-serif" font-size="42" font-weight="700" letter-spacing="-1.7">EasyField</text>
+  <text x="72" y="266" fill="#F8F7FB" font-family="Arial, sans-serif" font-size="70" font-weight="600" letter-spacing="-3.6">AI plugin for Resolve 21.</text>
+  <text x="72" y="348" fill="url(#brand)" font-family="Arial, sans-serif" font-size="70" font-weight="600" letter-spacing="-3.6">Built around your timeline.</text>
+  <text x="75" y="415" fill="#9693A2" font-family="Arial, sans-serif" font-size="23">20 focused image, video, motion and audio workflows.</text>
+  <g transform="translate(750 155)">
+    <rect width="370" height="330" rx="18" fill="#0C0C12" stroke="#fff" stroke-opacity=".11"/>
+    <rect x="16" y="16" width="338" height="48" rx="10" fill="#15151D"/>
+    <circle cx="39" cy="40" r="11" fill="url(#brand)"/>
+    <path d="M39 33c.4 4.1 2.9 6.6 7 7-4.1.4-6.6 2.9-7 7-.4-4.1-2.9-6.6-7-7 4.1-.4 6.6-2.9 7-7Z" fill="#0B0B11"/>
+    <text x="59" y="45" fill="#F8F7FB" font-family="Arial, sans-serif" font-size="16" font-weight="700">EasyField</text>
+    <circle cx="311" cy="40" r="3" fill="#42DFA2"/>
+    <rect x="16" y="80" width="104" height="90" rx="10" fill="#15151D" stroke="#E26BD2" stroke-opacity=".22"/>
+    <rect x="133" y="80" width="104" height="90" rx="10" fill="#15151D" stroke="#6F95FF" stroke-opacity=".22"/>
+    <rect x="250" y="80" width="104" height="90" rx="10" fill="#15151D" stroke="#42DFA2" stroke-opacity=".22"/>
+    <circle cx="40" cy="106" r="10" fill="#E26BD2" fill-opacity=".2"/>
+    <circle cx="157" cy="106" r="10" fill="#6F95FF" fill-opacity=".2"/>
+    <circle cx="274" cy="106" r="10" fill="#42DFA2" fill-opacity=".2"/>
+    <rect x="33" y="129" width="63" height="6" rx="3" fill="#F8F7FB" fill-opacity=".68"/>
+    <rect x="150" y="129" width="63" height="6" rx="3" fill="#F8F7FB" fill-opacity=".68"/>
+    <rect x="267" y="129" width="63" height="6" rx="3" fill="#F8F7FB" fill-opacity=".68"/>
+    <rect x="16" y="185" width="338" height="129" rx="12" fill="#111119" stroke="#A878FF" stroke-opacity=".22"/>
+    <circle cx="43" cy="212" r="13" fill="url(#brand)" fill-opacity=".55"/>
+    <rect x="66" y="202" width="84" height="7" rx="3.5" fill="#F8F7FB" fill-opacity=".75"/>
+    <rect x="66" y="215" width="58" height="5" rx="2.5" fill="#F8F7FB" fill-opacity=".26"/>
+    <rect x="31" y="241" width="308" height="55" rx="8" fill="#fff" fill-opacity=".035"/>
+    <rect x="44" y="255" width="235" height="6" rx="3" fill="#F8F7FB" fill-opacity=".25"/>
+    <rect x="44" y="270" width="174" height="6" rx="3" fill="#F8F7FB" fill-opacity=".16"/>
+  </g>
+  <text x="75" y="559" fill="#7E7B8A" font-family="Arial, sans-serif" font-size="16" letter-spacing="2.5">PRIVATE BETA · COMPATIBLE WITH DAVINCI RESOLVE STUDIO 21</text>
+</svg>

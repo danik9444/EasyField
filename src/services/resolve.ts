@@ -83,7 +83,8 @@ export interface PlaceInput {
 }
 export interface PlaceResult {
   ok: boolean
-  path?: string
+  /** Opaque Main-owned reference for follow-up operations such as markers. */
+  mediaId?: string
   error?: string
 }
 
@@ -94,7 +95,7 @@ export interface BeatMarkerInput {
 }
 
 export interface BeatMarkerUndoToken {
-  path: string
+  mediaId: string
   target: 'timeline' | 'media-pool'
   customData: string[]
 }
@@ -210,10 +211,11 @@ function subscribe(cb: () => void): () => void {
 // Grabs (frame / clip / audio)
 // ---------------------------------------------------------------------------
 
-// The server caps clip/audio extraction at 30s and rendered boundaries at 20s.
-// Keep the renderer above both so a healthy queued operation is not abandoned
-// while it is still allowed to run server-side.
+// Audio extraction and frame boundaries are short operations. Generic video
+// Grab may need to transcode an exact ProRes/HEVC/DNxHR range to browser-safe
+// H.264, so that call opts into its own finite long-running deadline.
 const GRAB_TIMEOUT_MS = 35000
+const CLIP_GRAB_TIMEOUT_MS = 15 * 60_000 + 2_000
 
 // Turn a successful grab response into real local bytes. Errors are returned as
 // structured failures so callers can explain the problem without creating a
@@ -438,21 +440,21 @@ async function placeToTimeline(input: PlaceInput): Promise<PlaceResult> {
     }
     const json = (await res.json().catch(() => null)) as PlaceResult | null
     if (!res.ok || !json) return { ok: false, error: json?.error || `Place failed (${res.status})` }
-    return { ok: !!json.ok, path: json.path, error: json.error }
+    return { ok: !!json.ok, mediaId: json.mediaId, error: json.error }
   } catch {
     return { ok: false, error: BRIDGE_DOWN }
   }
 }
 
 async function applyBeatMarkers(input: {
-  path: string
+  mediaId: string
   target: 'timeline' | 'media-pool'
   analysisId: string
   color: string
   markers: BeatMarkerInput[]
 }): Promise<BeatMarkerApplyResult> {
   if (status.compatibilityError) return { ok: false, error: status.compatibilityError }
-  if (status.connected && !status.capabilities?.includes('beat-markers')) {
+  if (status.connected && (!status.capabilities?.includes('beat-markers') || !status.capabilities.includes('opaque-placement-media'))) {
     return { ok: false, error: 'Update the EasyField Resolve integration to import Beat Detection markers.' }
   }
   try {
@@ -563,7 +565,7 @@ export const resolve = {
   grabUpscaleSource,
   grabShotStartFrame: (): Promise<Grab> => grab('/bridge/grab/shot-start-frame', true, 'grab-shot-start-frame', 'rendered shot start frame'),
   grabShotEndFrame: (): Promise<Grab> => grab('/bridge/grab/shot-end-frame', true, 'grab-shot-end-frame', 'rendered shot end frame'),
-  grabClip: (): Promise<Grab> => grab('/bridge/grab/clip', true),
+  grabClip: (): Promise<Grab> => grab('/bridge/grab/clip', true, undefined, 'timeline clip', CLIP_GRAB_TIMEOUT_MS),
   grabAudio: (): Promise<Grab> => grab('/bridge/grab/audio', true),
   applyBeatMarkers,
   undoBeatMarkers,

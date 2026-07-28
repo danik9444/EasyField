@@ -396,7 +396,7 @@ test('reviewed beat markers use the dedicated capability-gated Resolve endpoint'
       return new Response(JSON.stringify({
         connected: true,
         timeline: 'Main edit',
-        capabilities: ['grab-frame', 'grab-clip', 'grab-audio', 'beat-markers', 'media-pool', 'append', 'place-at-playhead'],
+        capabilities: ['grab-frame', 'grab-clip', 'grab-audio', 'beat-markers', 'opaque-placement-media', 'media-pool', 'append', 'place-at-playhead'],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     assert.equal(url, '/bridge/beat/apply-markers')
@@ -415,7 +415,7 @@ test('reviewed beat markers use the dedicated capability-gated Resolve endpoint'
   const { resolve } = await import('../src/services/resolve.ts?beat-markers')
   await resolve.refreshStatus()
   const result = await resolve.applyBeatMarkers({
-    path: '/tmp/easyfield-track.wav',
+    mediaId: '6f71673f-397b-47c1-9c1c-5f8cf7a885aa',
     target: 'timeline',
     analysisId: 'beat-analysis-1',
     color: 'Cyan',
@@ -424,6 +424,8 @@ test('reviewed beat markers use the dedicated capability-gated Resolve endpoint'
   assert.equal(result.ok, true)
   assert.equal(result.applied, 2)
   assert.equal(markerBody?.target, 'timeline')
+  assert.equal(markerBody?.mediaId, '6f71673f-397b-47c1-9c1c-5f8cf7a885aa')
+  assert.equal(Object.hasOwn(markerBody ?? {}, 'path'), false)
   assert.equal(Array.isArray(markerBody?.markers), true)
 })
 
@@ -447,7 +449,7 @@ test('an older Resolve integration cannot pretend Beat marker import is supporte
 
   const { resolve } = await import('../src/services/resolve.ts?legacy-beat-markers')
   await resolve.refreshStatus()
-  const result = await resolve.applyBeatMarkers({ path: '/tmp/track.wav', target: 'media-pool', analysisId: 'beat-analysis-1', color: 'Cyan', markers: [{ time: 1, confidence: 1, name: 'Beat' }] })
+  const result = await resolve.applyBeatMarkers({ mediaId: '6f71673f-397b-47c1-9c1c-5f8cf7a885aa', target: 'media-pool', analysisId: 'beat-analysis-1', color: 'Cyan', markers: [{ time: 1, confidence: 1, name: 'Beat' }] })
   assert.equal(result.ok, false)
   assert.match(result.error ?? '', /update.*Beat Detection markers/i)
   assert.equal(requests.includes('/bridge/beat/apply-markers'), false)
@@ -667,7 +669,7 @@ test('captured-cut placement sends the frozen project, timeline and record frame
     }
     assert.equal(url, '/bridge/place')
     placementBody = JSON.parse(String(init?.body)) as Record<string, unknown>
-    return new Response(JSON.stringify({ ok: true, path: '/tmp/transition.mp4' }), {
+    return new Response(JSON.stringify({ ok: true, mediaId: 'b5eec575-003b-47ad-882b-c6f2a68298d3' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
@@ -764,7 +766,7 @@ test('saved Library artifacts place through an opaque artifactId without exposin
     }
     assert.equal(url, '/bridge/place')
     placementBody = JSON.parse(String(init?.body)) as Record<string, unknown>
-    return new Response(JSON.stringify({ ok: true, path: '/managed/artifact.png' }), {
+    return new Response(JSON.stringify({ ok: true, mediaId: 'cde57fe0-ce3a-4c24-b449-245f62e3a929' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })

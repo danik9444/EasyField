@@ -89,3 +89,98 @@ test('plugin credentials continue to forward through the host IPC contract', asy
   ])
   assert.equal(webStorageReads, 0)
 })
+
+test('direct cloud connection uses only the narrow plugin validation contract', async () => {
+  let candidateReceived = false
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      easyfield: {
+        plugin: true,
+        directCloud: {
+          connect: async (candidate: string) => {
+            candidateReceived = candidate === 'synthetic-candidate'
+            return { credits: 4321 }
+          },
+        },
+      },
+    },
+  })
+
+  const result = await host.connectDirectCloudCredential('synthetic-candidate')
+  assert.equal(candidateReceived, true)
+  assert.deepEqual(result, { credits: 4321 })
+  assert.equal(webStorageReads, 0)
+})
+
+test('existing direct cloud adoption exposes only availability and verified credits', async () => {
+  const calls: string[] = []
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      easyfield: {
+        plugin: true,
+        directCloud: {
+          hasExisting: async () => {
+            calls.push('has-existing')
+            return true
+          },
+          adoptExisting: async () => {
+            calls.push('adopt-existing')
+            return { credits: 7654 }
+          },
+          connect: async () => ({ credits: 0 }),
+        },
+      },
+    },
+  })
+
+  assert.equal(await host.hasExistingDirectCloudCredential(), true)
+  assert.deepEqual(await host.adoptExistingDirectCloudCredential(), { credits: 7654 })
+  assert.deepEqual(calls, ['has-existing', 'adopt-existing'])
+  assert.equal(webStorageReads, 0)
+})
+
+test('current account direct cloud presence is distinct from a legacy adoption candidate', async () => {
+  const calls: string[] = []
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      easyfield: {
+        plugin: true,
+        directCloud: {
+          hasExisting: async () => true,
+          hasScoped: async () => {
+            calls.push('has-scoped')
+            return false
+          },
+          connect: async () => ({ credits: 0 }),
+          adoptExisting: async () => ({ credits: 0 }),
+        },
+      },
+    },
+  })
+
+  assert.equal(await host.hasExistingDirectCloudCredential(), true)
+  assert.equal(await host.hasCurrentAccountDirectCloudCredential(), false)
+  assert.deepEqual(calls, ['has-scoped'])
+})
+
+test('existing direct cloud adoption fails closed on malformed renderer responses', async () => {
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      easyfield: {
+        plugin: true,
+        directCloud: {
+          hasExisting: async () => 'yes',
+          adoptExisting: async () => ({ credits: Number.NaN, credential: 'must-not-cross-host' }),
+          connect: async () => ({ credits: 0 }),
+        },
+      },
+    },
+  })
+
+  assert.equal(await host.hasExistingDirectCloudCredential(), false)
+  await assert.rejects(() => host.adoptExistingDirectCloudCredential(), /invalid response/i)
+})
