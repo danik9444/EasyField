@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, constants, fstatSync, openSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -27,14 +27,43 @@ function stripComments(value: string): string {
   return value.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 }
 
+/**
+ * Reads through one descriptor rather than testing a path and then acting on it
+ * again — the rule in CLAUDE.md, modelled on `readRegularFile` in
+ * scripts/install-git-hooks.mjs. Absence comes from ENOENT on open, not from a
+ * prior existence check.
+ */
+function readRegularFile(filePath: string): string | null {
+  let handle: number
+  try {
+    handle = openSync(filePath, constants.O_RDONLY)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null
+    throw error
+  }
+  try {
+    return fstatSync(handle).isFile() ? readFileSync(handle, 'utf8') : null
+  } finally {
+    closeSync(handle)
+  }
+}
+
+function requireFile(filePath: string): string {
+  const contents = readRegularFile(filePath)
+  assert.ok(contents !== null, `${path.relative(projectRoot, filePath)} is missing`)
+  return contents
+}
+
 function readAll(directory: string, extensions: readonly string[]): string {
   let combined = ''
-  for (const entry of readdirSync(directory)) {
-    const full = path.join(directory, entry)
-    if (statSync(full).isDirectory()) {
+  // withFileTypes carries the entry kind from the single readdir call, so no
+  // separate stat is issued against a path that could change underneath it.
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name)
+    if (entry.isDirectory()) {
       combined += readAll(full, extensions)
-    } else if (extensions.some((extension) => entry.endsWith(extension))) {
-      combined += readFileSync(full, 'utf8')
+    } else if (extensions.some((extension) => entry.name.endsWith(extension))) {
+      combined += readRegularFile(full) ?? ''
     }
   }
   return combined
@@ -120,7 +149,7 @@ test('the built admin bundle carries no credential', () => {
 })
 
 test('the built console declares a policy that permits only the configured origin', () => {
-  const html = readFileSync(path.join(adminDist, 'index.html'), 'utf8')
+  const html = requireFile(path.join(adminDist, 'index.html'))
   assert.match(html, /Content-Security-Policy/)
   for (const directive of [
     /default-src &#39;self&#39;/,
@@ -138,7 +167,7 @@ test('the built console declares a policy that permits only the configured origi
 })
 
 test('the console is bound to loopback and asks not to be indexed', () => {
-  const config = readFileSync(path.join(projectRoot, 'vite.admin.config.ts'), 'utf8')
+  const config = requireFile(path.join(projectRoot, 'vite.admin.config.ts'))
   const hosts = [...config.matchAll(/host: '([^']+)'/g)].map((match) => match[1])
   assert.ok(hosts.length >= 2, 'both the dev server and the preview server must set a host')
   for (const host of hosts) {
@@ -146,7 +175,7 @@ test('the console is bound to loopback and asks not to be indexed', () => {
   }
   assert.match(config, /sourcemap: false/)
 
-  const html = readFileSync(path.join(projectRoot, 'admin', 'index.html'), 'utf8')
+  const html = requireFile(path.join(projectRoot, 'admin', 'index.html'))
   assert.match(html, /name="robots" content="noindex, nofollow"/)
   assert.match(html, /name="referrer" content="no-referrer"/)
 })
