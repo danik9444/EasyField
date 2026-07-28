@@ -253,7 +253,9 @@ const envelope = {
   signature,
 }
 
-updater.validateRemoteRelease(envelope, descriptor)
+updater.validateRemoteRelease(envelope, descriptor, {
+  allowCiStructure: accountBuildMode.kind === 'ci-structure',
+})
 fs.mkdirSync(outDirectory, { recursive: true })
 atomicWrite(path.join(outDirectory, archiveName), archiveBytes)
 atomicWrite(path.join(outDirectory, 'easyfield-update.json'), `${JSON.stringify(envelope, null, 2)}\n`)
