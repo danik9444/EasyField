@@ -1,8 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useCreations, useFolders, usePersistenceState, type Creation, type CreationKind } from '../data/creations'
+import { LIBRARY_PAGE_SIZE } from '../data/libraryLimits'
 import { Icon } from '../icons'
 import { Lightbox } from './Lightbox'
+import { LibraryAudio, LibraryImage, LibraryVideo } from './LibraryMedia'
 
 const FOCUSABLE_SELECTOR = [
   'button:not(:disabled)',
@@ -67,6 +69,7 @@ export function LibraryPicker({
   const persistenceState = usePersistenceState()
   const dialogRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   const titleId = useId()
   const descriptionId = useId()
@@ -78,6 +81,7 @@ export function LibraryPicker({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<{ url: string; kind: 'image' | 'video' } | null>(null)
+  const [page, setPage] = useState(0)
   const allowedKinds = useMemo(() => [...new Set(kinds)], [kinds])
   const excludedIdSet = useMemo(() => new Set(excludedIds), [excludedIds])
   const unlimited = !Number.isFinite(max)
@@ -97,6 +101,7 @@ export function LibraryPicker({
     setBusy(false)
     setError('')
     setPreview(null)
+    setPage(0)
     const frame = requestAnimationFrame(() => searchRef.current?.focus())
     return () => {
       cancelAnimationFrame(frame)
@@ -119,6 +124,20 @@ export function LibraryPicker({
       && matchesSearch(creation, normalizedQuery)
     ))
   }, [activeFolder, activeKind, allowedKinds, creations, query])
+  const pageCount = Math.max(1, Math.ceil(visible.length / LIBRARY_PAGE_SIZE))
+  const pageItems = useMemo(
+    () => visible.slice(page * LIBRARY_PAGE_SIZE, (page + 1) * LIBRARY_PAGE_SIZE),
+    [page, visible],
+  )
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1))
+  }, [pageCount])
+
+  const goToPage = (nextPage: number) => {
+    setPage(Math.max(0, Math.min(nextPage, pageCount - 1)))
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }))
+  }
 
   if (!open || typeof document === 'undefined') return null
 
@@ -219,20 +238,20 @@ export function LibraryPicker({
         <div className="ef-library-picker-tools">
           <label className="ef-library-picker-search">
             <span aria-hidden="true">⌕</span>
-            <input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library…" aria-label="Search Library" />
+            <input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} placeholder="Search Library…" aria-label="Search Library" />
           </label>
           {allowedKinds.length > 1 && (
             <div className="ef-library-picker-filters" role="group" aria-label="Filter by media type">
-              <button type="button" className={activeKind === 'all' ? 'is-active' : ''} aria-pressed={activeKind === 'all'} onClick={() => setActiveKind('all')}>All</button>
+              <button type="button" className={activeKind === 'all' ? 'is-active' : ''} aria-pressed={activeKind === 'all'} onClick={() => { setActiveKind('all'); setPage(0) }}>All</button>
               {allowedKinds.map((kind) => (
-                <button type="button" key={kind} className={activeKind === kind ? 'is-active' : ''} aria-pressed={activeKind === kind} onClick={() => setActiveKind(kind)}>{KIND_LABELS[kind]}</button>
+                <button type="button" key={kind} className={activeKind === kind ? 'is-active' : ''} aria-pressed={activeKind === kind} onClick={() => { setActiveKind(kind); setPage(0) }}>{KIND_LABELS[kind]}</button>
               ))}
             </div>
           )}
           {folders.length > 0 && (
             <label className="ef-library-picker-folder">
               <span>Collection</span>
-              <select value={activeFolder} onChange={(event) => setActiveFolder(event.target.value)} aria-label="Library collection">
+              <select value={activeFolder} onChange={(event) => { setActiveFolder(event.target.value); setPage(0) }} aria-label="Library collection">
                 <option value="all">All Library</option>
                 <option value="root">Unfiled</option>
                 {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
@@ -246,50 +265,62 @@ export function LibraryPicker({
           <strong id={statusId} aria-live="polite">{unlimited ? `${selectedIds.length} selected` : `${selectedIds.length} / ${effectiveMax} selected`}</strong>
         </div>
 
-        <div className="ef-library-picker-scroll ef-scroll">
+        <div ref={scrollRef} className="ef-library-picker-scroll ef-scroll">
           {visible.length > 0 ? (
-            <div className="ef-library-picker-grid">
-              {visible.map((creation) => {
-                const selected = selectedIds.includes(creation.id)
-                const alreadyAttached = excludedIdSet.has(creation.id)
-                const selectionBlocked = alreadyAttached || (!unlimited && !selected && selectedIds.length >= effectiveMax)
-                const name = displayName(creation)
-                return (
-                  <article key={creation.id} className={'ef-library-picker-item' + (selected ? ' is-selected' : '') + (selectionBlocked ? ' is-blocked' : '')}>
-                    <button
-                      type="button"
-                      className="ef-library-picker-select"
-                      aria-pressed={selected}
-                      aria-label={alreadyAttached ? `${name} is already attached` : `${selected ? 'Deselect' : 'Select'} ${name}`}
-                      aria-describedby={statusId}
-                      disabled={selectionBlocked || busy}
-                      onClick={() => toggle(creation.id)}
-                    >
-                      <span className={'ef-library-picker-thumb is-' + creation.kind}>
-                        {creation.kind === 'image' && <span style={{ backgroundImage: `url(${creation.url})` }} />}
-                        {creation.kind === 'video' && <video src={creation.url} muted playsInline preload="metadata" />}
-                        {creation.kind === 'audio' && <Icon glyph="music" size={24} />}
-                        <i className="ef-library-picker-selection-dot" aria-hidden="true" />
-                      </span>
-                      <span className="ef-library-picker-item-copy">
-                        <strong title={name}>{name}</strong>
-                        <small><Icon glyph={KIND_GLYPHS[creation.kind]} size={10} /> {creation.model || KIND_LABELS[creation.kind]}{creation.meta ? ` · ${creation.meta}` : ''}</small>
-                      </span>
-                    </button>
-                    <div className="ef-library-picker-item-actions">
-                      {creation.kind !== 'audio' ? (
-                        <button type="button" disabled={busy} onClick={() => setPreview({ url: creation.url, kind: creation.kind === 'image' ? 'image' : 'video' })}>Preview</button>
-                      ) : (
-                        <audio src={creation.url} controls preload="metadata" aria-label={`Preview ${name}`} />
-                      )}
-                      {alreadyAttached
-                        ? <span>Attached</span>
-                        : creation.durability === 'link-only' && <span title="EasyField is still localizing this provider link">Cloud link</span>}
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
+            <>
+              <div className="ef-library-picker-grid">
+                {pageItems.map((creation) => {
+                  const selected = selectedIds.includes(creation.id)
+                  const alreadyAttached = excludedIdSet.has(creation.id)
+                  const selectionBlocked = alreadyAttached || (!unlimited && !selected && selectedIds.length >= effectiveMax)
+                  const name = displayName(creation)
+                  return (
+                    <article key={creation.id} className={'ef-library-picker-item' + (selected ? ' is-selected' : '') + (selectionBlocked ? ' is-blocked' : '')}>
+                      <button
+                        type="button"
+                        className="ef-library-picker-select"
+                        aria-pressed={selected}
+                        aria-label={alreadyAttached ? `${name} is already attached` : `${selected ? 'Deselect' : 'Select'} ${name}`}
+                        aria-describedby={statusId}
+                        disabled={selectionBlocked || busy}
+                        onClick={() => toggle(creation.id)}
+                      >
+                        <span className={'ef-library-picker-thumb is-' + creation.kind}>
+                          {creation.kind === 'image' && <LibraryImage className="ef-library-picker-media" src={creation.url} />}
+                          {creation.kind === 'video' && <LibraryVideo className="ef-library-picker-media" src={creation.url} />}
+                          {creation.kind === 'audio' && <Icon glyph="music" size={24} />}
+                          <i className="ef-library-picker-selection-dot" aria-hidden="true" />
+                        </span>
+                        <span className="ef-library-picker-item-copy">
+                          <strong title={name}>{name}</strong>
+                          <small><Icon glyph={KIND_GLYPHS[creation.kind]} size={10} /> {creation.model || KIND_LABELS[creation.kind]}{creation.meta ? ` · ${creation.meta}` : ''}</small>
+                        </span>
+                      </button>
+                      <div className="ef-library-picker-item-actions">
+                        {creation.kind !== 'audio' ? (
+                          <button type="button" disabled={busy} onClick={() => setPreview({ url: creation.url, kind: creation.kind === 'image' ? 'image' : 'video' })}>Preview</button>
+                        ) : (
+                          <LibraryAudio className="ef-library-picker-audio-shell" src={creation.url} ariaLabel={`Preview ${name}`} />
+                        )}
+                        {alreadyAttached
+                          ? <span>Attached</span>
+                          : creation.durability === 'link-only' && <span title="EasyField is still localizing this provider link">Cloud link</span>}
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+              {pageCount > 1 && (
+                <nav className="ef-library-pagination" aria-label="Library picker pages">
+                  <button type="button" disabled={page === 0 || busy} onClick={() => goToPage(page - 1)}>‹ Previous</button>
+                  <span>
+                    Page {page + 1} of {pageCount}
+                    <small>{page * LIBRARY_PAGE_SIZE + 1}–{Math.min((page + 1) * LIBRARY_PAGE_SIZE, visible.length)} of {visible.length}</small>
+                  </span>
+                  <button type="button" disabled={page + 1 >= pageCount || busy} onClick={() => goToPage(page + 1)}>Next ›</button>
+                </nav>
+              )}
+            </>
           ) : (
             <div className="ef-library-picker-empty" role="status">
               <span><Icon glyph="board" size={22} /></span>
