@@ -5,6 +5,7 @@
 // captures are never persisted as pixel-less placeholders.
 import { useSyncExternalStore } from 'react'
 import { host } from '../services/host.ts'
+import { MAX_LIBRARY_CREATIONS } from './libraryLimits.ts'
 
 export type CreationKind = 'image' | 'video' | 'audio'
 export type CreationDurability = 'local' | 'link-only'
@@ -78,9 +79,10 @@ let counter = 0
 let persistenceState: PersistenceState = 'loading'
 
 const DB_NAME = 'easyfield-library'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const CREATION_STORE = 'creations'
 const FOLDER_STORE = 'folders'
+const CREATION_CREATED_AT_INDEX = 'createdAt'
 const removedCreationIds = new Set<string>()
 const removedFolderIds = new Set<string>()
 
@@ -107,7 +109,12 @@ function openDatabase(): Promise<IDBDatabase | null> {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const db = request.result
-      if (!db.objectStoreNames.contains(CREATION_STORE)) db.createObjectStore(CREATION_STORE, { keyPath: 'id' })
+      const creationStore = db.objectStoreNames.contains(CREATION_STORE)
+        ? request.transaction!.objectStore(CREATION_STORE)
+        : db.createObjectStore(CREATION_STORE, { keyPath: 'id' })
+      if (!creationStore.indexNames.contains(CREATION_CREATED_AT_INDEX)) {
+        creationStore.createIndex(CREATION_CREATED_AT_INDEX, 'createdAt')
+      }
       if (!db.objectStoreNames.contains(FOLDER_STORE)) db.createObjectStore(FOLDER_STORE, { keyPath: 'id' })
     }
     request.onsuccess = () => {
@@ -147,6 +154,48 @@ async function readStore<T>(name: string): Promise<T[]> {
     const request = tx.objectStore(name).getAll()
     request.onsuccess = () => resolve((request.result ?? []) as T[])
     request.onerror = () => {
+      setPersistenceState('error')
+      resolve([])
+    }
+    tx.onabort = () => {
+      setPersistenceState('error')
+      resolve([])
+    }
+  })
+}
+
+async function readStoredCreations(): Promise<StoredCreation[]> {
+  const db = await openDatabase()
+  if (!db) return []
+  return new Promise((resolve) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(CREATION_STORE, 'readwrite')
+    } catch {
+      dbPromise = null
+      setPersistenceState('error')
+      resolve([])
+      return
+    }
+
+    const retained: StoredCreation[] = []
+    const request = tx.objectStore(CREATION_STORE).index(CREATION_CREATED_AT_INDEX).openCursor(null, 'prev')
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      const creation = cursor.value as StoredCreation
+      if ((!creation.blob && !creation.url) || retained.length >= MAX_LIBRARY_CREATIONS) {
+        cursor.delete()
+      } else {
+        retained.push(creation)
+      }
+      cursor.continue()
+    }
+    request.onerror = () => {
+      setPersistenceState('error')
+    }
+    tx.oncomplete = () => resolve(retained)
+    tx.onerror = () => {
       setPersistenceState('error')
       resolve([])
     }
@@ -254,6 +303,18 @@ function deleteStoredCreations(ids: string[]): void {
   void writeStore(CREATION_STORE, (store) => ids.forEach((id) => store.delete(id)))
 }
 
+function pruneCreationRecords(): void {
+  if (creations.length <= MAX_LIBRARY_CREATIONS) return
+  const pruned = creations.slice(MAX_LIBRARY_CREATIONS)
+  creations = creations.slice(0, MAX_LIBRARY_CREATIONS)
+  const ids = pruned.map((creation) => creation.id)
+  ids.forEach((id) => removedCreationIds.add(id))
+  pruned.forEach((creation) => {
+    if (creation.url.startsWith('blob:')) URL.revokeObjectURL(creation.url)
+  })
+  deleteStoredCreations(ids)
+}
+
 function persistFolder(folder: Folder): void {
   void writeStore(FOLDER_STORE, (store) => store.put(folder))
 }
@@ -353,8 +414,10 @@ function addOrMergeCreations(items: NewCreation[]): Creation[] {
   // a screen can enrich the minimal record committed by the paid-job path
   // without duplicating the same managed artifact in Library.
   creations = [...newlyAdded].reverse().concat(creations)
+  pruneCreationRecords()
   emit()
-  return added
+  const retainedIds = new Set(creations.map((creation) => creation.id))
+  return added.filter((creation) => retainedIds.has(creation.id))
 }
 
 export function addCreations(items: NewCreation[]): Creation[] {
@@ -536,15 +599,13 @@ export function usePersistenceState(): PersistenceState {
 async function hydrateFromStorage(): Promise<void> {
   try {
     const [storedCreations, storedFolders] = await Promise.all([
-      readStore<StoredCreation>(CREATION_STORE),
+      readStoredCreations(),
       readStore<Folder>(FOLDER_STORE),
     ])
 
     const knownCreations = new Set(creations.map((creation) => creation.id))
-    const legacyPlaceholders = storedCreations.filter((creation) => !creation.blob && !creation.url)
-    if (legacyPlaceholders.length) deleteStoredCreations(legacyPlaceholders.map((creation) => creation.id))
     const hydratedCreations: Creation[] = storedCreations
-      .filter((creation) => (creation.blob || creation.url) && !knownCreations.has(creation.id) && !removedCreationIds.has(creation.id))
+      .filter((creation) => !knownCreations.has(creation.id) && !removedCreationIds.has(creation.id))
       .map(({ blob, ...creation }) => ({
         ...creation,
         url: blob ? URL.createObjectURL(blob) : creation.url,
@@ -555,13 +616,16 @@ async function hydrateFromStorage(): Promise<void> {
 
     if (hydratedCreations.length || hydratedFolders.length) {
       creations = [...creations, ...hydratedCreations].sort((a, b) => b.createdAt - a.createdAt)
+      pruneCreationRecords()
       folders = [...folders, ...hydratedFolders].sort((a, b) => a.createdAt - b.createdAt)
       emit()
       // Older versions could retain temporary remote links. Resolve them into
       // Main-owned artifacts after hydration so successful migrations rewrite
       // both the Library index and future preview traffic to local URLs.
       if (host.isPlugin()) {
+        const retainedIds = new Set(creations.map((creation) => creation.id))
         hydratedCreations
+          .filter((creation) => retainedIds.has(creation.id))
           .filter((creation) => creation.durability === 'link-only' && /^https:\/\//i.test(creation.url))
           .forEach((creation) => void materializeCreation(creation.id))
       }

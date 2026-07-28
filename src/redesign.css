@@ -877,7 +877,7 @@ body::before {
 .ef-library-inspector-head strong { overflow: hidden; color: var(--ef-ink); font-family: 'Space Grotesk Variable',sans-serif; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .ef-library-inspector-scroll { flex: 1; min-height: 0; padding: 14px; overflow-y: auto; }
 .ef-library-inspector-preview { position: relative; width: 100%; min-height: 190px; overflow: hidden; border: 1px solid var(--ef-line); border-radius: 14px; background: #07070a; }
-.ef-library-inspector-preview > span { position: absolute; inset: 0; background-position: center; background-size: contain; background-repeat: no-repeat; }
+.ef-library-inspector-preview > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .ef-library-inspector-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .ef-library-inspector-preview.is-audio { min-height: 145px; padding: 17px 12px 12px; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
 .ef-library-inspector-preview audio { width: 100%; height: 34px; }
@@ -9435,6 +9435,8 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
 .ef-library-picker-item {
   min-width: 0;
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 250px;
   border: 1px solid var(--ef-line);
   border-radius: 14px;
   background: rgba(255,255,255,.026);
@@ -9487,8 +9489,7 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
     repeating-linear-gradient(135deg,#15151d 0 8px,#111117 8px 16px);
 }
 
-.ef-library-picker-thumb > span,
-.ef-library-picker-thumb > video {
+.ef-library-picker-thumb > span {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -9497,6 +9498,14 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
+  object-fit: cover;
+}
+
+.ef-library-picker-media > img,
+.ef-library-picker-media > video {
+  width: 100%;
+  height: 100%;
+  display: block;
   object-fit: cover;
 }
 
@@ -9607,6 +9616,15 @@ body:has(.ef-workspace-actionbar) .ef-job-center {
   max-width: 100%;
   height: 44px;
   accent-color: var(--ef-library-accent);
+}
+
+.ef-library-picker-audio-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.ef-library-picker-audio-shell .ef-library-audio-load {
+  height: 44px;
 }
 
 .ef-library-picker-item-actions > span {

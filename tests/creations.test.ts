@@ -8,6 +8,7 @@ import {
   getCreations,
   removeCreations,
 } from '../src/data/creations.ts'
+import { MAX_LIBRARY_CREATIONS } from '../src/data/libraryLimits.ts'
 
 test('paid provider outputs enter Library only after Main verifies a managed artifact', async (t) => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
@@ -241,5 +242,23 @@ test('Beat Detection companions stay linked to their media Library item', () => 
     assert.equal(companion.summary.markerCount, 4)
   } finally {
     removeCreations([creation.id])
+  }
+})
+
+test('Library retention stays bounded and prunes the oldest records', () => {
+  const added = addCreations(Array.from({ length: MAX_LIBRARY_CREATIONS + 1 }, (_, index) => ({
+    kind: 'image' as const,
+    url: `asset:retention-${index}`,
+    prompt: `Retention ${index}`,
+    durability: 'local' as const,
+  })))
+
+  try {
+    assert.equal(added.length, MAX_LIBRARY_CREATIONS)
+    assert.equal(getCreations().length, MAX_LIBRARY_CREATIONS)
+    assert.equal(getCreations().some((creation) => creation.prompt === 'Retention 0'), false)
+    assert.equal(getCreations().some((creation) => creation.prompt === `Retention ${MAX_LIBRARY_CREATIONS}`), true)
+  } finally {
+    removeCreations(added.map((creation) => creation.id))
   }
 })
