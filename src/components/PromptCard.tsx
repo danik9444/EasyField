@@ -155,9 +155,7 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
         <Dropdown options={AGENT_MODELS} selected={enhanceModel} onSelect={pickEnhanceModel} label="Prompt enhancer model" align="left" optionMeta={AGENT_MODEL_META} />
         {footerEnd}
         <span className="ef-spacer" />
-        {error ? (
-          <span id={promptStatusId} className="ef-enhance-note error" title={error} role="alert">✕ enhancement failed</span>
-        ) : enhancing ? (
+        {!error && (enhancing ? (
           <span id={promptStatusId} className="ef-enhance-note" role="status" aria-live="polite">✨ directing…</span>
         ) : enhanced ? (
           <span id={promptStatusId} className="ef-enhance-note" role="status" aria-live="polite">
@@ -175,7 +173,7 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
             <span className="ef-billing-copy">Live token billing · </span>{characterCount.toLocaleString()} / {maxLength.toLocaleString()}
             {overLimit && <span className="ef-char-over-label"> · shorten by {(characterCount - maxLength).toLocaleString()}</span>}
           </span>
-        )}
+        ))}
         {!manuallyResizable && (
           <button
             type="button"
@@ -190,6 +188,7 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
           </button>
         )}
       </div>
+      {error && <span id={promptStatusId} className="ef-enhance-note error" role="alert">✕ {error}</span>}
     </div>
   )
 }
