@@ -100,6 +100,10 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
       setResolution(options.resolution)
       setExtras(options.extraOptionValues)
       setDraftReady(true)
+    }).catch(() => {
+      if (!active) return
+      setDraftReady(true)
+      setError('Your saved Angles draft could not be restored. You can continue with the defaults.')
     })
     return () => { active = false }
   }, [])

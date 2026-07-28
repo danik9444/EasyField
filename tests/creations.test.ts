@@ -240,3 +240,87 @@ test('Beat Detection companions stay linked to their media Library item', () => 
     removeCreations([creation.id])
   }
 })
+
+test('Library hydration repairs malformed companions and drops invalid creation records', async (t) => {
+  const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
+  const stored = {
+    creations: [
+      {
+        id: 'legacy-with-bad-companions',
+        kind: 'image',
+        url: 'https://media.example.test/legacy.png',
+        prompt: { invalid: true },
+        createdAt: 10,
+        durability: 'link-only',
+        companions: {},
+      },
+      {
+        id: 'unsupported-schema',
+        schemaVersion: 99,
+        kind: 'image',
+        url: 'https://media.example.test/future.png',
+        createdAt: 20,
+      },
+    ],
+    folders: [],
+  }
+  const deleted: string[] = []
+  const database = {
+    objectStoreNames: { contains: () => true },
+    onversionchange: null as (() => void) | null,
+    close: () => {},
+    transaction: (name: keyof typeof stored, mode: 'readonly' | 'readwrite') => {
+      const transaction: {
+        objectStore: () => {
+          getAll: () => Record<string, unknown>
+          delete: (id: string) => void
+        }
+        oncomplete?: () => void
+        onerror?: () => void
+        onabort?: () => void
+      } = {
+        objectStore: () => ({
+          getAll: () => {
+            const request: Record<string, unknown> = {}
+            queueMicrotask(() => {
+              request.result = stored[name]
+              ;(request.onsuccess as (() => void) | undefined)?.()
+            })
+            return request
+          },
+          delete: (id: string) => { deleted.push(id) },
+        }),
+      }
+      if (mode === 'readwrite') queueMicrotask(() => transaction.oncomplete?.())
+      return transaction
+    },
+  }
+  Object.defineProperty(globalThis, 'indexedDB', {
+    configurable: true,
+    value: {
+      open: () => {
+        const request: Record<string, unknown> = {}
+        queueMicrotask(() => {
+          request.result = database
+          ;(request.onsuccess as (() => void) | undefined)?.()
+        })
+        return request
+      },
+    },
+  })
+  t.after(() => {
+    if (originalIndexedDb) Object.defineProperty(globalThis, 'indexedDB', originalIndexedDb)
+    else delete (globalThis as { indexedDB?: unknown }).indexedDB
+  })
+
+  const isolated = await import(new URL('../src/data/creations.ts?hydration-sanitizer', import.meta.url).href) as typeof import('../src/data/creations.ts')
+  await isolated.prepareCreationLibrary()
+  await Promise.resolve()
+
+  const creation = isolated.getCreations().find((item) => item.id === 'legacy-with-bad-companions')
+  assert.ok(creation)
+  assert.equal(creation.prompt, undefined)
+  assert.equal(creation.companions, undefined)
+  assert.equal(isolated.getCreations().some((item) => item.id === 'unsupported-schema'), false)
+  assert.deepEqual(deleted, ['unsupported-schema'])
+})

@@ -42,9 +42,24 @@ interface ImagePerModel {
   extraOptionValues: Record<string, string>
 }
 
+type StoredImagePerModel = Partial<ImagePerModel>
+
+function sanitizeImagePerModel(value: unknown): StoredImagePerModel | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const stored = value as Record<string, unknown>
+  const extraOptionValues = stored.extraOptionValues
+  return {
+    ...(typeof stored.aspect === 'string' ? { aspect: stored.aspect } : {}),
+    ...(typeof stored.resolution === 'string' ? { resolution: stored.resolution } : {}),
+    ...(extraOptionValues && typeof extraOptionValues === 'object' && !Array.isArray(extraOptionValues)
+      ? { extraOptionValues: Object.fromEntries(Object.entries(extraOptionValues).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) }
+      : {}),
+  }
+}
+
 // Resolve a model's settings from stored prefs, falling back to defaults and
 // dropping any value no longer valid for the model's current config.
-function resolveImageSettings(model: string, stored?: ImagePerModel): ImagePerModel {
+function resolveImageSettings(model: string, stored?: StoredImagePerModel): ImagePerModel {
   const cfg = IMAGE_MODEL_CONFIG[model]
   const def = defaultOptionsFor(model)
   const extraOptionValues: Record<string, string> = {}
@@ -53,8 +68,8 @@ function resolveImageSettings(model: string, stored?: ImagePerModel): ImagePerMo
     extraOptionValues[opt.key] = v && opt.values.includes(v) ? v : opt.values[0]
   })
   return {
-    aspect: stored && cfg.aspectRatios.includes(stored.aspect) ? stored.aspect : def.aspect,
-    resolution: stored && cfg.resolutions.includes(stored.resolution) ? stored.resolution : def.resolution,
+    aspect: stored?.aspect && cfg.aspectRatios.includes(stored.aspect) ? stored.aspect : def.aspect,
+    resolution: stored?.resolution && cfg.resolutions.includes(stored.resolution) ? stored.resolution : def.resolution,
     extraOptionValues,
   }
 }
@@ -70,7 +85,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
   const [phase, setPhase] = useState<Phase>('form')
   const [charged, setCharged] = useState<number | null>(null)
   const prefsKey = mode === 'character' ? 'create-character' : 'create-image'
-  const prefsRef = useRef(loadGenPrefs<ImagePerModel>(prefsKey))
+  const prefsRef = useRef(loadGenPrefs<StoredImagePerModel>(prefsKey, sanitizeImagePerModel))
   const initialModel = useMemo(() => {
     const saved = prefsRef.current.model
     const m = saved ? IMAGE_MODEL_ALIASES[saved] ?? saved : undefined
@@ -134,6 +149,10 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
       if (!active) return
       setCharacterDraft(normalizeCharacterDraft(saved))
       setCharacterDraftReady(true)
+    }).catch(() => {
+      if (!active) return
+      setCharacterDraftReady(true)
+      setError('Your saved character design could not be restored. You can continue with the defaults.')
     })
     return () => { active = false }
   }, [mode])
