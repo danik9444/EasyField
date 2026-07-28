@@ -9,8 +9,8 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.3.0",
-  "createdAt": "2026-07-28T21:41:41.378Z",
-  "buildId": "9581db40a301386736ac672b731b8e0ea92651d0a9f3a84279fb84f6aa996fdf",
+  "createdAt": "2026-07-28T21:46:44.429Z",
+  "buildId": "9c72373e0f5581cd8c65b29fcefbe5d4161799e8f505f054aba79bd7898ca94f",
   "files": [
     {
       "path": "account-config.example.json",
@@ -138,14 +138,14 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-ZR5Ef6sr.js",
+      "path": "ui/assets/AnimationRenderHost-B4AZs9O7.js",
       "size": 247271,
-      "sha256": "bf336df5f1c0e4bac3f75acac670060efef4633764a8aab255a3d994571c0d02"
+      "sha256": "03fda1933740bd6e3a4da46b5910b071f1a585c3551758c2be8847d43f5493dd"
     },
     {
-      "path": "ui/assets/App-BcnFfUZ4.js",
-      "size": 1145011,
-      "sha256": "3c7ec3ba46dd0ab58cb14ad73422c001b37f2c58caefaa7963d0d68be31a0462"
+      "path": "ui/assets/App-Ceepg8pJ.js",
+      "size": 1145083,
+      "sha256": "ccf627a09be728e5f79389cfec2c21231a02421d1e3786df14a29c8cb87ba096"
     },
     {
       "path": "ui/assets/App-CHU5hHBn.css",
@@ -193,19 +193,19 @@
       "sha256": "5b3391f991449172eb3d91264615b3f7020cb4edb2c565e4fb44010f5e1f4b39"
     },
     {
-      "path": "ui/assets/index-D_xDz3Au.js",
+      "path": "ui/assets/index-B0U9f1wf.js",
+      "size": 197566,
+      "sha256": "fffa57504ba60c4dac9fe722264fe5e114efae0b73cbdd1af2f1143a9a5dc5fc"
+    },
+    {
+      "path": "ui/assets/index-Cxi0-mW3.js",
       "size": 66,
-      "sha256": "0817128af8d656a4e7145e64d5b97d6b188b04947f78ca5b5e18bf79e27553c5"
+      "sha256": "943e5fab7e3e203b6eccb6f9000124b9e117a393a4658ff52be0031d658a2e5f"
     },
     {
       "path": "ui/assets/index-DbAETXw7.css",
       "size": 549661,
       "sha256": "ee2b355276a5b6e34eb3ce4bf57ee77a4b9e339252c4f19849e53f8f9329ce14"
-    },
-    {
-      "path": "ui/assets/index-DxGJaq51.js",
-      "size": 197566,
-      "sha256": "d0a571bb57160b860cdd1a323d7de8adc371196a0834e5b426cd787c3d46c4a1"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -275,7 +275,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "eecf7b2879c2fc265d07b3d0f20dd8ee4242bbd49ab6b88a8e9a89895a8ea90b"
+      "sha256": "f13c72649877fbad58dc49e76d64cdbb1eccb4b63c3091a578eeecf0000eda57"
     },
     {
       "path": "url-context.cjs",
