@@ -3420,7 +3420,6 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
             <StoryboardTimingEditor
               timingMode={draft.timingMode}
               totalDurationSeconds={effectiveTiming.totalDurationSeconds}
-              scenes={effectiveTiming.scenes}
               disabled={referenceInputsLocked}
               onTimingModeChange={changeTimingMode}
               onTotalDurationChange={changeTotalDuration}

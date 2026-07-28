@@ -2,7 +2,6 @@ import type { KeyboardEvent } from 'react'
 import {
   STORYBOARD_MAX_TOTAL_DURATION_SECONDS,
   STORYBOARD_MIN_TOTAL_DURATION_SECONDS,
-  type StoryboardScene,
   type StoryboardTimingMode,
 } from '../data/storyboard'
 import { DurationSlider } from './DurationSlider'
@@ -10,7 +9,6 @@ import { DurationSlider } from './DurationSlider'
 interface StoryboardTimingEditorProps {
   timingMode: StoryboardTimingMode
   totalDurationSeconds: number
-  scenes: readonly StoryboardScene[]
   disabled?: boolean
   onTimingModeChange: (timingMode: StoryboardTimingMode) => void
   onTotalDurationChange: (durationSeconds: number) => void
@@ -36,7 +34,7 @@ export function StoryboardTimingEditor({
   const timingModes: Array<{ value: StoryboardTimingMode; label: string; note: string }> = [
     { value: 'none', label: 'No timing', note: 'Visual board only' },
     { value: 'auto', label: 'Auto', note: 'Pace from the story' },
-    { value: 'manual', label: 'Manual', note: 'Set exact times' },
+    { value: 'manual', label: 'Manual', note: 'Set total duration' },
   ]
 
   const handleModeKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: StoryboardTimingMode) => {
