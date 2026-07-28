@@ -28,8 +28,6 @@ import {
 } from '../data/elevenLabsConfig'
 import { loadValue, saveValue } from '../data/prefs'
 import { VOICE_MODEL_META } from '../data/modelPresentation'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 
 const PREFS_KEY = 'voice-over'
 const TEXT_MAX = 5000
@@ -286,8 +284,6 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   const connected = isConnected()
   const estimate = ttsRunEstimate(model, chars)
   const auditionPriceLabel = formatEstimate(ttsRunEstimate(auditionModel, AUDITION_TEXT.length))
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const hasText = kind === 'dialogue' ? lines.some((line) => line.text.trim()) : Boolean(text.trim())
   const inputInvalid = !hasText || chars > TEXT_MAX
   const turboLanguageOptions = TURBO_LANGUAGES.map((language) => language.label)
@@ -576,18 +572,16 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Voice generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${error || spendBlocked || inputInvalid ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || spendBlocked || inputInvalid ? 'alert' : 'status'} aria-live="polite">
+          <div className={`ef-create-footer-message ${error || inputInvalid ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || inputInvalid ? 'alert' : 'status'} aria-live="polite">
             {error
               ? `✕ ${error}`
               : !connected
                 ? 'Connect EasyField Cloud to generate voice'
                 : inputInvalid
                   ? `✕ ${kind === 'dialogue' ? 'Add dialogue text (5,000 characters maximum)' : 'Add narration text (5,000 characters maximum)'}`
-                : spendBlocked
-                  ? `✕ ${spendApproval.reason}`
-                  : `${kind === 'dialogue' ? `${lines.length} dialogue lines` : `${chars} characters`} · original timing preserved`}
+                : `${kind === 'dialogue' ? `${lines.length} dialogue lines` : `${chars} characters`} · original timing preserved`}
           </div>
-          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || !spendApproval.approved || inputInvalid}>
+          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || inputInvalid}>
             <Icon glyph="spark" color="#0E0E13" size={13} /> {kind === 'dialogue' ? 'Perform dialogue' : 'Generate voice'}
           </button>
         </footer>

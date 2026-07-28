@@ -28,8 +28,6 @@ import {
 } from '../data/extendVideoConfig'
 import { initialTransitionPrompt, TRANSITION_VIDEO_MODELS } from '../data/transitionVideoConfig'
 import { loadGenPrefs, saveGenPrefs } from '../data/prefs'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import type { ReferenceImage, MediaFile } from '../data/referenceImage'
 import type { EnhanceReference } from '../services/chat'
 import {
@@ -1016,16 +1014,14 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
       : undefined,
   }
   const estimate = videoRunEstimate(model, resolution, requestDuration, extraOptionValues, Number(count), priceContext)
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const footerMessage = !connected
     ? 'Connect EasyField Cloud from the credits badge on Home to generate.'
-    : validationError ?? error ?? (spendBlocked ? spendApproval.reason : undefined) ?? (isTransition
+    : validationError ?? error ?? (isTransition
       ? `Ready to generate ${count} transition${count === '1' ? '' : 's'}.`
       : multiShotActive
         ? `Ready to ${isExtend ? 'extend into' : 'generate'} ${count} connected sequence${count === '1' ? '' : 's'} · ${shots.length} shots · ${storyboardDuration}s.`
         : `Ready to ${isExtend ? 'extend' : 'generate'} ${count} clip${count === '1' ? '' : 's'}.`)
-  const footerHasError = connected && !!(validationError || error || spendBlocked)
+  const footerHasError = connected && !!(validationError || error)
 
   const generate = async () => {
     setError(null)
@@ -1689,7 +1685,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
             type="button"
             className="ef-generate ef-create-footer-action"
             onClick={generate}
-            disabled={!connected || !!validationError || !spendApproval.approved}
+            disabled={!connected || !!validationError}
             aria-describedby={`${workspaceMode}-video-footer-message`}
           >
             <Icon glyph="spark" color="#0E0E13" size={13} /> {actionLabel}
