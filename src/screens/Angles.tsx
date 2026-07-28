@@ -30,8 +30,6 @@ import { host } from '../services/host'
 import { resolve } from '../services/resolve'
 import { sendToTimeline } from '../services/timeline'
 import { isConnected, isGenerationExit, runAnglesBatch, saveUrl } from '../services/run'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import type { EnhanceReference } from '../services/chat'
 import { promptCharacterCount } from '../data/promptLimits'
 
@@ -225,11 +223,9 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
   const outputCount = mode === 'random' ? randomCount : 1
   const estimate = imageRunEstimate(model, resolution, extras, outputCount, { referenceCount: 1 })
   const connected = isConnected()
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const promptMissing = mode === 'custom' && !customEntry
   const promptOverLimit = mode === 'custom' && !!customEntry && promptCharacterCount(customEntry.prompt) > providerPromptMax
-  const canGenerate = draftReady && sourceReady && !promptMissing && !promptOverLimit && connected && spendApproval.approved && !sourceGrabPending
+  const canGenerate = draftReady && sourceReady && !promptMissing && !promptOverLimit && connected && !sourceGrabPending
 
   const enhanceReferences: EnhanceReference[] = source?.kind === 'upload'
     ? [{ role: 'primary source — preserve subject and scene; change camera viewpoint only', label: source.name, imageUrl: source.url }]
@@ -326,7 +322,7 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
     }
   }
 
-  const footerHasError = !!error || spendBlocked || promptMissing || promptOverLimit
+  const footerHasError = !!error || promptMissing || promptOverLimit
   const footerMessage = error
     ? `✕ ${error}`
     : !draftReady
@@ -339,11 +335,9 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
             ? `${model} allows ${providerPromptMax.toLocaleString()} prompt characters including the camera-preservation instructions · shorten the direction.`
           : !connected
             ? 'Connect EasyField Cloud to generate camera angles'
-            : spendBlocked
-              ? spendApproval.reason
-              : mode === 'random'
-                ? `${randomCount} distinct camera positions · identity preservation requested`
-                : 'One precise custom viewpoint · identity preservation requested'
+            : mode === 'random'
+              ? `${randomCount} distinct camera positions · identity preservation requested`
+              : 'One precise custom viewpoint · identity preservation requested'
 
   const registerUnusedClear = useCallback((_clear: () => void) => {}, [])
 

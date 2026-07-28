@@ -38,8 +38,6 @@ import { IMAGE_MODEL_CONFIG, resolveImageOptions } from '../data/imageModelConfi
 import { AGENT_MODELS, DEFAULT_AGENT_MODEL, IMAGE_MODELS } from '../data/models'
 import { AGENT_MODEL_META, IMAGE_MODEL_META } from '../data/modelPresentation'
 import { formatEstimate, imageRunEstimate, resolveCharged, type Estimate } from '../data/pricing'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import { loadValue, saveValue } from '../data/prefs'
 import { isDecodableReferenceImageFile, type ReferenceImage } from '../data/referenceImage'
 import { promptCharacterCount } from '../data/promptLimits'
@@ -2143,20 +2141,6 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
       scene.title.trim() || sceneLabel(ordinal),
     )
     const versionCount = clampStoryboardVersionCount(scene.versionCount)
-    if (scene.prompt.trim().length >= SCENE_PROMPT_MIN_LENGTH) {
-      const estimate = imageRunEstimate(
-        current.model,
-        current.resolution,
-        current.extras,
-        versionCount,
-        { referenceCount: references.length },
-      )
-      const approval = getSpendApproval(estimate, loadSettings().spendLimit)
-      if (!approval.approved) {
-        toast(approval.reason ?? 'This generation needs a new spending approval.')
-        return
-      }
-    }
     const settings: GenerationSnapshot = {
       model: current.model,
       aspect: current.aspect,
@@ -2412,12 +2396,6 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
       requestedVersions,
       { referenceCount: references.length },
     )
-    const approval = getSpendApproval(estimate, loadSettings().spendLimit)
-    if (!approval.approved) {
-      setBoardRuntime({ state: 'error', error: approval.reason ?? 'This generation needs a new spending approval.' })
-      toast(approval.reason ?? 'This generation needs a new spending approval.')
-      return false
-    }
     if (!options.skipConfirmation) {
       const confirmed = window.confirm(
         `Create the complete storyboard as ${requestedVersions === 1 ? 'one generated board image' : `${requestedVersions} generated board versions`}?\n\nEstimated cost: ${formatEstimate(estimate, false)}. Every result is saved to Library immediately.`,
@@ -2907,16 +2885,10 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
     { referenceCount: singleBoardCompile.ok ? singleBoardCompile.referenceCount : 0 },
   )
   const activeEstimate = draft.workflowMode === 'full' ? singleBoardEstimate : estimate
-  const spendApproval = getSpendApproval(activeEstimate, loadSettings().spendLimit)
-  const paidWorkCount = draft.workflowMode === 'full'
-    ? boardVersionCount
-    : generatedVersionCount
-  const spendBlocked = connected && paidWorkCount > 0 && !spendApproval.approved
   const activeIncompleteCount = draft.workflowMode === 'full' ? 0 : incompleteCount
   const activeOverLimitSceneCount = draft.workflowMode === 'full' ? 0 : overLimitSceneCount
   const footerError = activeReferencesUnavailable
     || continuityReferencesUnavailable
-    || spendBlocked
     || activeOverLimitSceneCount > 0
     || Boolean(sceneReferenceCompileError)
     || (draft.workflowMode === 'full' && !singleBoardCompile.ok)
@@ -3119,11 +3091,6 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
         orderedSceneGenerationReferenceIds(current, scene.referenceCreationIds).length,
       ) },
     )))
-    const currentSpendApproval = getSpendApproval(currentEstimate, loadSettings().spendLimit)
-    if (generationScenes.length && !currentSpendApproval.approved) {
-      toast(currentSpendApproval.reason ?? 'This generation needs a new spending approval.')
-      return
-    }
     if (generationScenes.length) {
       const exactCount = currentActions.filter((action) => action === 'use-reference').length
       const confirmed = window.confirm(
@@ -3420,7 +3387,6 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
             <StoryboardTimingEditor
               timingMode={draft.timingMode}
               totalDurationSeconds={effectiveTiming.totalDurationSeconds}
-              scenes={effectiveTiming.scenes}
               disabled={referenceInputsLocked}
               onTimingModeChange={changeTimingMode}
               onTotalDurationChange={changeTotalDuration}
@@ -3686,9 +3652,7 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
                             ? `✕ ${singleBoardCompile.error}`
                             : !connected
                               ? 'Connect EasyField Cloud to generate the complete storyboard'
-                              : spendBlocked
-                                ? `✕ ${spendApproval.reason}`
-                                : `Complete board · ${formatEstimate(singleBoardEstimate, false)}`
+                              : `Complete board · ${formatEstimate(singleBoardEstimate, false)}`
                     : batchRunning
                       ? `Generating ${batchProgress.complete}/${batchProgress.total} scenes · ${boardVersionCount} version${boardVersionCount === 1 ? '' : 's'} each · completed results are already safe`
                       : sceneReferenceCompileError && !sceneReferenceCompileError.ok
@@ -3697,15 +3661,13 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
                         ? hasAutoSceneTiming
                           ? 'Connect EasyField Cloud so Auto can choose final timing from the complete story'
                           : 'Connect EasyField Cloud to generate missing scene frames'
-                        : spendBlocked
-                          ? `✕ ${spendApproval.reason}`
-                          : overLimitSceneCount
-                            ? `✕ ${overLimitSceneCount} scene prompt${overLimitSceneCount === 1 ? ' is' : 's are'} over ${draft.model}'s ${config.promptMax.toLocaleString()}-character limit`
-                            : incompleteCount
-                              ? `${incompleteCount} scene${incompleteCount === 1 ? ' needs' : 's need'} a description`
-                              : missingCount
-                                ? `${approvedCount ? `Keeps ${approvedCount} approved · ` : ''}${scenesNeedingGeneration.length ? `generates ${scenesNeedingGeneration.length} scene${scenesNeedingGeneration.length === 1 ? '' : 's'} × ${boardVersionCount}` : ''}${scenesNeedingGeneration.length && exactReferenceCount ? ' · ' : ''}${exactReferenceCount ? `reuses ${exactReferenceCount} exact reference${exactReferenceCount === 1 ? '' : 's'}` : ''}`
-                                : `Ready to assemble · ${approvedCount}/${draft.scenes.length} selected`}
+                        : overLimitSceneCount
+                          ? `✕ ${overLimitSceneCount} scene prompt${overLimitSceneCount === 1 ? ' is' : 's are'} over ${draft.model}'s ${config.promptMax.toLocaleString()}-character limit`
+                          : incompleteCount
+                            ? `${incompleteCount} scene${incompleteCount === 1 ? ' needs' : 's need'} a description`
+                            : missingCount
+                              ? `${approvedCount ? `Keeps ${approvedCount} approved · ` : ''}${scenesNeedingGeneration.length ? `generates ${scenesNeedingGeneration.length} scene${scenesNeedingGeneration.length === 1 ? '' : 's'} × ${boardVersionCount}` : ''}${scenesNeedingGeneration.length && exactReferenceCount ? ' · ' : ''}${exactReferenceCount ? `reuses ${exactReferenceCount} exact reference${exactReferenceCount === 1 ? '' : 's'}` : ''}`
+                              : `Ready to assemble · ${approvedCount}/${draft.scenes.length} selected`}
           </div>
           <button
             type="button"
@@ -3722,8 +3684,8 @@ export function Storyboard({ onBack, onOpenLibrary, toast, onSpend }: Storyboard
               : boardRuntime.state === 'generating' || boardRuntime.state === 'pending'
                 ? false
                 : draft.workflowMode === 'full'
-                  ? !hydrated || !connected || referencesBlocked || referenceImporting || briefBusy || anySceneBusy || timingResolving || !singleBoardCompile.ok || !spendApproval.approved
-                  : !hydrated || (!connected && (scenesNeedingGeneration.length > 0 || hasAutoSceneTiming)) || referenceInputsLocked || !!incompleteCount || !!overLimitSceneCount || (scenesNeedingGeneration.length > 0 && !spendApproval.approved)}
+                  ? !hydrated || !connected || referencesBlocked || referenceImporting || briefBusy || anySceneBusy || timingResolving || !singleBoardCompile.ok
+                  : !hydrated || (!connected && (scenesNeedingGeneration.length > 0 || hasAutoSceneTiming)) || referenceInputsLocked || !!incompleteCount || !!overLimitSceneCount}
             aria-describedby="storyboard-footer-message"
           >
             {!batchRunning && boardRuntime.state !== 'generating' && boardRuntime.state !== 'pending' && <Icon glyph="spark" color="#0E0E13" size={15} />}

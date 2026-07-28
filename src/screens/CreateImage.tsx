@@ -18,8 +18,6 @@ import { PriceEstimate } from '../components/PriceEstimate'
 import { GenerationCancelControl, useGenerationJobControl } from '../components/GenerationCancelControl'
 import { imageRunEstimate, resolveCharged, formatCharged } from '../data/pricing'
 import { loadGenPrefs, saveGenPrefs } from '../data/prefs'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import { isDecodableReferenceImageFile, type ReferenceImage } from '../data/referenceImage'
 import type { EnhanceReference } from '../services/chat'
 import { promptCharacterCount } from '../data/promptLimits'
@@ -334,8 +332,6 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
 
   const connected = isConnected()
   const estimate = imageRunEstimate(model, resolution, extraOptionValues, Number(count), { referenceCount: effectiveReferences.length })
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const selectedResults = results.filter((result) => selectedResultIds.includes(result.id))
   const toggleResult = (id: string) => {
     setSelectedResultIds((current) => current.includes(id) ? current.filter((resultId) => resultId !== id) : [...current, id])
@@ -523,9 +519,9 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
           <PriceEstimate estimate={estimate} />
           <div
             id="create-image-footer-message"
-            className={`ef-create-footer-message ${error || spendBlocked || promptOverLimit ? 'is-error' : connected ? 'is-ready' : 'is-help'}`}
-            role={error || spendBlocked || promptOverLimit ? 'alert' : 'status'}
-            aria-live={error || spendBlocked || promptOverLimit ? 'assertive' : 'polite'}
+            className={`ef-create-footer-message ${error || promptOverLimit ? 'is-error' : connected ? 'is-ready' : 'is-help'}`}
+            role={error || promptOverLimit ? 'alert' : 'status'}
+            aria-live={error || promptOverLimit ? 'assertive' : 'polite'}
           >
             {error
               ? `✕ ${error}`
@@ -536,18 +532,16 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
                 : !characterDraftReady
                   ? 'Loading character design…'
                   : !characterReferenceReady
-                    ? currentReferenceLimit > 0
-                      ? 'Add a character sample to generate'
-                      : `${model} does not accept character samples`
-                : spendBlocked
-                  ? `✕ ${spendApproval.reason}`
-                  : `${count} ${mode === 'character' ? 'character' : 'image'}${count === '1' ? '' : 's'} · ${resolution || aspect}`}
+                  ? currentReferenceLimit > 0
+                    ? 'Add a character sample to generate'
+                    : `${model} does not accept character samples`
+                : `${count} ${mode === 'character' ? 'character' : 'image'}${count === '1' ? '' : 's'} · ${resolution || aspect}`}
           </div>
           <button
             type="button"
             className="ef-generate ef-create-footer-action"
             onClick={generate}
-            disabled={!connected || !spendApproval.approved || !characterDraftReady || !characterReferenceReady || promptOverLimit}
+            disabled={!connected || !characterDraftReady || !characterReferenceReady || promptOverLimit}
             aria-describedby="create-image-footer-message"
           >
             <Icon glyph="spark" color="#0E0E13" size={13} /> Generate

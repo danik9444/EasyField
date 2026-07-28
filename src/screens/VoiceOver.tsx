@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../icons'
 import { Dropdown } from '../components/Dropdown'
 import { PriceEstimate } from '../components/PriceEstimate'
-import { VoicePicker, type VoiceAuditionRunOptions } from '../components/VoicePicker'
+import { VoicePicker, type VoiceAuditionCache, type VoiceAuditionRunOptions } from '../components/VoicePicker'
 import { GenerationCancelControl, useGenerationJobControl } from '../components/GenerationCancelControl'
 import { runTts, runDialogue, isConnected, isGenerationExit } from '../services/run'
 import { sendToTimeline } from '../services/timeline'
@@ -28,8 +28,6 @@ import {
 } from '../data/elevenLabsConfig'
 import { loadValue, saveValue } from '../data/prefs'
 import { VOICE_MODEL_META } from '../data/modelPresentation'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 
 const PREFS_KEY = 'voice-over'
 const TEXT_MAX = 5000
@@ -69,6 +67,21 @@ interface VoicePrefs {
 interface TtsModelState extends TtsSettings {
   voice: string
   text: string
+}
+
+function voiceAuditionCacheKey(modelId: string, voiceId: string, settings: TtsSettings): string {
+  return JSON.stringify({
+    voiceId,
+    modelId,
+    text: AUDITION_TEXT,
+    stability: settings.stability,
+    similarity: settings.similarity,
+    style: settings.style,
+    speed: settings.speed,
+    previousText: settings.previousText,
+    nextText: settings.nextText,
+    languageCode: modelId === 'turbo-2-5' ? settings.languageCode.trim().toLowerCase() : '',
+  })
 }
 
 function loadVoiceState(): VoicePrefs {
@@ -124,6 +137,9 @@ const DEFAULT_LINES: DialogueLine[] = [
 
 export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   const saved = useRef(loadVoiceState()).current
+  // runTts returns Library-owned URLs. This screen cache borrows them and must
+  // leave object URL revocation to the Library when a creation is removed.
+  const auditionCacheUrls = useRef(new Map<string, string>()).current
   const [phase, setPhase] = useState<Phase>('form')
   const [charged, setCharged] = useState<number | null>(null)
   const [model, setModel] = useState(() =>
@@ -164,6 +180,12 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   const kind = modelKind(model)
   const ttsState = settingsByModel[model] ?? normalizeTtsState(undefined, model)
   const { voice, text, timestamps, previousText, nextText } = ttsState
+  const auditionModel = kind === 'tts' ? model : 'turbo-2-5'
+  const auditionSettings = settingsByModel[auditionModel] ?? normalizeTtsState(undefined, auditionModel)
+  const auditionCache: VoiceAuditionCache = {
+    urls: auditionCacheUrls,
+    keyFor: (voiceId) => voiceAuditionCacheKey(auditionModel, voiceId, auditionSettings),
+  }
   const sliders = ttsState as unknown as Record<string, number>
   const setTtsState = (patch: Partial<TtsModelState>) =>
     setSettingsByModel((previous) => ({
@@ -202,8 +224,6 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   }
 
   const auditionVoice = async (voiceId: string, options: VoiceAuditionRunOptions): Promise<string> => {
-    const auditionModel = kind === 'tts' ? model : 'turbo-2-5'
-    const auditionSettings = settingsByModel[auditionModel] ?? normalizeTtsState(undefined, auditionModel)
     const result = await runTts(auditionModel, voiceId, AUDITION_TEXT, auditionSettings, {
       autoOpenJob: false,
       signal: options.signal,
@@ -263,10 +283,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
   const modelOptions = ELEVEN_MODELS.map((m) => m.label)
   const connected = isConnected()
   const estimate = ttsRunEstimate(model, chars)
-  const auditionModel = kind === 'tts' ? model : 'turbo-2-5'
   const auditionPriceLabel = formatEstimate(ttsRunEstimate(auditionModel, AUDITION_TEXT.length))
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const hasText = kind === 'dialogue' ? lines.some((line) => line.text.trim()) : Boolean(text.trim())
   const inputInvalid = !hasText || chars > TEXT_MAX
   const turboLanguageOptions = TURBO_LANGUAGES.map((language) => language.label)
@@ -306,7 +323,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
 
         {kind === 'tts' ? (
           <>
-            <VoicePicker voices={ELEVEN_VOICES} value={voice} onChange={(value) => setTtsState({ voice: value })} onAudition={auditionVoice} auditionPriceLabel={auditionPriceLabel} />
+            <VoicePicker voices={ELEVEN_VOICES} value={voice} onChange={(value) => setTtsState({ voice: value })} onAudition={auditionVoice} auditionCache={auditionCache} auditionPriceLabel={auditionPriceLabel} />
 
             <div className="ef-field">
               <div className="ef-ref-header">
@@ -421,7 +438,7 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
                 {lines.map((line) => (
                   <div className="ef-dialogue-line" key={line.id}>
                     <div className="ef-dialogue-line-head">
-                      <VoicePicker voices={ELEVEN_VOICES} value={line.voice} onChange={(voiceId) => setLineVoice(line.id, voiceId)} label="Speaker" onAudition={auditionVoice} auditionPriceLabel={auditionPriceLabel} />
+                      <VoicePicker voices={ELEVEN_VOICES} value={line.voice} onChange={(voiceId) => setLineVoice(line.id, voiceId)} label="Speaker" onAudition={auditionVoice} auditionCache={auditionCache} auditionPriceLabel={auditionPriceLabel} />
                       <button
                         className="ef-dialogue-remove"
                         aria-label="Remove line"
@@ -555,18 +572,16 @@ export function VoiceOver({ onBack, toast, onSpend }: VoiceOverProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Voice generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${error || spendBlocked || inputInvalid ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || spendBlocked || inputInvalid ? 'alert' : 'status'} aria-live="polite">
+          <div className={`ef-create-footer-message ${error || inputInvalid ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || inputInvalid ? 'alert' : 'status'} aria-live="polite">
             {error
               ? `✕ ${error}`
               : !connected
                 ? 'Connect EasyField Cloud to generate voice'
                 : inputInvalid
                   ? `✕ ${kind === 'dialogue' ? 'Add dialogue text (5,000 characters maximum)' : 'Add narration text (5,000 characters maximum)'}`
-                : spendBlocked
-                  ? `✕ ${spendApproval.reason}`
-                  : `${kind === 'dialogue' ? `${lines.length} dialogue lines` : `${chars} characters`} · original timing preserved`}
+                : `${kind === 'dialogue' ? `${lines.length} dialogue lines` : `${chars} characters`} · original timing preserved`}
           </div>
-          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || !spendApproval.approved || inputInvalid}>
+          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || inputInvalid}>
             <Icon glyph="spark" color="#0E0E13" size={13} /> {kind === 'dialogue' ? 'Perform dialogue' : 'Generate voice'}
           </button>
         </footer>

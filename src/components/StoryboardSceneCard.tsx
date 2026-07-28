@@ -491,12 +491,12 @@ export function StoryboardSceneCard({
             <button
               type="button"
               className="ef-story-library-action"
-              aria-label={`Add ${sceneLabel} frame to Library and open Library`}
-              title="Already saved safely · open in Library"
+              aria-label={`Open ${sceneLabel} frame in Library`}
+              title="Open saved frame in Library"
               onClick={() => onAddCandidateToLibrary(activeCandidate.id)}
             >
               <Icon glyph="img" size={13} />
-              Add to Library
+              Open in Library
             </button>
             <button
               type="button"

@@ -6,7 +6,7 @@
 //   2. Embedded HTTP server: static UI + streaming cloud-provider proxies + /bridge.
 //   3. BrowserWindow that loads the UI from the embedded server.
 
-const { app, BrowserWindow, ipcMain, safeStorage, screen, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -726,7 +726,7 @@ const MIME = {
 const STATIC_SECURITY_HEADERS = Object.freeze({
     'Content-Security-Policy': [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",
+        "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
         "font-src 'self' data:",
         "img-src 'self' data: blob: https:",
@@ -1867,11 +1867,142 @@ function startServer() {
 
 let mainWindow = null;
 let stateStore = null;
+let stateStoreDegradation = null;
 let accountService = null;
 let currentWindowMode = 'compact';
 let currentWindowHeightMode = 'standard';
 let floatingController = null;
 let displayChangeHandler = null;
+
+function createInMemoryStateStore() {
+    const namespaces = new Map();
+
+    function recordsFor(namespace) {
+        let records = namespaces.get(namespace);
+        if (!records) {
+            records = new Map();
+            namespaces.set(namespace, records);
+        }
+        return records;
+    }
+
+    return Object.freeze({
+        databasePath: null,
+        get(namespace, key) {
+            const record = namespaces.get(namespace)?.get(key);
+            return record ? JSON.parse(record.valueJson) : null;
+        },
+        list(namespace) {
+            return [...(namespaces.get(namespace)?.entries() || [])]
+                .map(([key, record]) => ({
+                    key,
+                    value: JSON.parse(record.valueJson),
+                    updatedAt: record.updatedAt,
+                }))
+                .sort((a, b) => b.updatedAt - a.updatedAt);
+        },
+        set(namespace, key, value) {
+            const valueJson = JSON.stringify(value);
+            if (valueJson === undefined) throw new TypeError('State value is not JSON serializable');
+            recordsFor(namespace).set(key, { valueJson, updatedAt: Date.now() });
+            return true;
+        },
+        delete(namespace, key) {
+            const records = namespaces.get(namespace);
+            records?.delete(key);
+            if (records && records.size === 0) namespaces.delete(namespace);
+            return true;
+        },
+        close() {
+            namespaces.clear();
+        },
+    });
+}
+
+function quarantineStateDatabase(userDataPath) {
+    const userDataInfo = fs.lstatSync(userDataPath);
+    if (!userDataInfo.isDirectory() || userDataInfo.isSymbolicLink()) {
+        throw new Error('EasyField state directory must be a local directory');
+    }
+    const databasePath = path.join(userDataPath, 'easyfield.sqlite3');
+    const quarantineBase = `${databasePath}.corrupt-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const quarantinedPaths = [];
+    for (const suffix of ['', '-wal', '-shm']) {
+        const sourcePath = databasePath + suffix;
+        try {
+            const quarantinePath = quarantineBase + suffix;
+            fs.renameSync(sourcePath, quarantinePath);
+            quarantinedPaths.push(quarantinePath);
+        } catch (error) {
+            if (!error || error.code !== 'ENOENT') throw error;
+        }
+    }
+    return quarantinedPaths;
+}
+
+function openStateStoreWithRecovery(userDataPath) {
+    try {
+        return createStateStore(userDataPath);
+    } catch (error) {
+        console.error('[EasyField] State database failed to open:', error && error.message);
+    }
+
+    let quarantinedPaths = [];
+    try {
+        quarantinedPaths = quarantineStateDatabase(userDataPath);
+        if (quarantinedPaths.length) {
+            console.warn('[EasyField] Quarantined unreadable state database:', quarantinedPaths[0]);
+        }
+    } catch (error) {
+        console.error('[EasyField] State database quarantine failed:', error && error.message);
+    }
+
+    try {
+        const store = createStateStore(userDataPath);
+        stateStoreDegradation = Object.freeze({
+            mode: 'recovered',
+            quarantinedPaths: Object.freeze(quarantinedPaths),
+        });
+        console.warn('[EasyField] State database recovered after one retry.');
+        return store;
+    } catch (error) {
+        console.error('[EasyField] State database retry failed:', error && error.message);
+        stateStoreDegradation = Object.freeze({
+            mode: 'memory',
+            quarantinedPaths: Object.freeze(quarantinedPaths),
+        });
+        console.warn('[EasyField] Using temporary in-memory state for this session.');
+        return createInMemoryStateStore();
+    }
+}
+
+function surfaceStateStoreDegradation() {
+    if (!stateStoreDegradation || !dialog || typeof dialog.showMessageBox !== 'function') return;
+    const quarantinedName = stateStoreDegradation.quarantinedPaths.length
+        ? path.basename(stateStoreDegradation.quarantinedPaths[0])
+        : '';
+    const recovered = stateStoreDegradation.mode === 'recovered';
+    const detail = recovered
+        ? quarantinedName
+            ? `The unreadable state database was moved to ${quarantinedName}, and a fresh database was created. Previous drafts and job history may need to be recovered from the quarantined file.`
+            : 'Local storage failed to open once but recovered on retry. New changes will be saved normally.'
+        : `EasyField could not open its local state database after a recovery attempt. The panel is available, but changes made this session will be lost when EasyField closes.${quarantinedName ? ` The unreadable database was moved to ${quarantinedName}.` : ''}`;
+    try {
+        const notice = dialog.showMessageBox(mainWindow, {
+            type: 'warning',
+            title: 'EasyField storage recovery',
+            message: recovered
+                ? 'EasyField recovered local storage.'
+                : 'EasyField opened with temporary storage.',
+            detail,
+        });
+        if (notice && typeof notice.catch === 'function') {
+            notice.catch((error) => console.error('[EasyField] Storage recovery notice failed:', error && error.message));
+        }
+    } catch (error) {
+        console.error('[EasyField] Storage recovery notice failed:', error && error.message);
+    }
+}
 
 // Artifact rows contain absolute paths and are Main-owned. They deliberately do
 // not participate in the renderer's generic state IPC surface.
@@ -2441,7 +2572,7 @@ function artifactBytesFromIpc(value) {
 
 function registerHostIpc() {
     if (!ipcMain || typeof ipcMain.handle !== 'function') return;
-    stateStore = createStateStore(app.getPath('userData'));
+    stateStore = openStateStoreWithRecovery(app.getPath('userData'));
 
     const accountConfig = loadAccountPublicConfig();
     accountService = createAccountService({
@@ -2739,6 +2870,7 @@ function createWindow() {
     });
     mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
     mainWindow.loadURL(url);
+    surfaceStateStoreDegradation();
 
     mainWindow.on('close', () => {
         floatingController?.dispose();

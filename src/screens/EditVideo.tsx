@@ -24,8 +24,6 @@ import {
   resolveVideoEditOptions,
 } from '../data/videoEditConfig'
 import { loadValue, saveValue } from '../data/prefs'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import { wavDurationSeconds } from '../data/audioMetadata'
 import { VIDEO_EDIT_MODEL_META } from '../data/modelPresentation'
 import type { MediaFile, ReferenceImage } from '../data/referenceImage'
@@ -572,8 +570,6 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
   const priceModel = utilityAction === 'upscale' ? UPSCALE_MODEL : activeModel
   const connected = isConnected()
   const editEstimate = videoEditRunEstimate(operation, priceModel, params, upscaleFactor)
-  const spendApproval = getSpendApproval(editEstimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const sourceReady = source?.kind === 'upload' && !!source.url
   const promptMissing = !utilityAction && !prompt.trim()
   const promptProviderMax = VIDEO_EDIT_CONFIG[activeModel].promptMax
@@ -582,7 +578,7 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
     : 0
   const activePromptMax = Math.max(1, promptProviderMax - promptScaffoldLength)
   const promptOverLimit = !utilityAction && promptCharacterCount(prompt) > activePromptMax
-  const footerHasError = !!error || spendBlocked || promptMissing || promptOverLimit
+  const footerHasError = !!error || promptMissing || promptOverLimit
   const footerMessage = error
     ? `✕ ${error}`
     : !sourceReady
@@ -593,11 +589,9 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
           ? `${activeModel} allows ${promptProviderMax.toLocaleString()} prompt characters including EasyField's source/reference instructions · shorten by ${(promptCharacterCount(prompt) - activePromptMax).toLocaleString()}.`
         : !connected
           ? 'Connect EasyField Cloud to run this edit'
-          : spendBlocked
-            ? spendApproval.reason
-            : utilityAction === 'upscale'
-              ? 'Upscale is ready · original clip remains unchanged'
-              : 'Primary clip stays the edit source · references are guidance only'
+          : utilityAction === 'upscale'
+            ? 'Upscale is ready · original clip remains unchanged'
+            : 'Primary clip stays the edit source · references are guidance only'
 
   return (
     <div className="ef-screen ef-legacy-workspace ef-edit-video-screen ef-video-reference-edit-screen">
@@ -747,7 +741,7 @@ export function EditVideo({ onBack, toast, onSpend, incomingSource }: EditVideoP
             {footerHasError && !error && <span aria-hidden="true">✕ </span>}
             {footerMessage}
           </div>
-          <button type="button" className="ef-generate ef-create-footer-action" onClick={apply} disabled={!sourceReady || promptMissing || promptOverLimit || !connected || !spendApproval.approved}>
+          <button type="button" className="ef-generate ef-create-footer-action" onClick={apply} disabled={!sourceReady || promptMissing || promptOverLimit || !connected}>
             <Icon glyph="spark" color="#0E0E13" size={13} /> {utilityAction === 'upscale' ? 'Upscale clip' : 'Apply edit'}
           </button>
         </footer>

@@ -29,9 +29,10 @@ import { loadCredits, saveCredits } from './data/usage'
 import { fetchCredits, fetchModelPrices } from './services/providerGateway'
 import { applyLivePrices } from './data/pricing'
 import { JobCenter } from './components/JobCenter'
+import { ScreenErrorBoundary } from './components/ScreenErrorBoundary'
 import { UpdateDialog } from './components/UpdateDialog'
 import { hydrateJobs, recoverDurableJobs, useJobs } from './services/jobCenter'
-import { host, type PluginUpdateStatus } from './services/host'
+import { host, type PluginUpdateStatus, type StateNamespace } from './services/host'
 import { ToolWorkspace } from './screens/ToolWorkspace'
 import { BeatDetection } from './screens/BeatDetection'
 import { Transcribe } from './screens/Transcribe'
@@ -80,6 +81,27 @@ const TOAST_MS = 1700
 const CHECKOUT_REFRESH_INTERVAL_MS = 4_000
 const CHECKOUT_REFRESH_ATTEMPTS = 45
 const ACTIVE_JOB_STATES = new Set(['preparing', 'queued', 'running'])
+
+type PersistedScreenState = readonly [namespace: StateNamespace, key: string]
+
+function persistedStateForScreen(screen: Screen, activeTool: ToolId): PersistedScreenState[] {
+  if (screen === 'home') return [['settings', 'home-overview']]
+  if (screen === 'character') return [['drafts', 'default:character-builder']]
+  if (screen === 'brain') return [['drafts', 'default:brain']]
+  if (screen !== 'workflow') return []
+  if (activeTool === 'storyboard') return [['drafts', 'default:storyboard-v1']]
+  if (activeTool === 'angles') return [['drafts', 'default:angles']]
+  if (activeTool === 'beat') return [['drafts', 'beat-detection:settings']]
+  if (activeTool === 'transcribe') return [['drafts', 'transcribe:settings']]
+  if (activeTool === 'captions') {
+    return [
+      ['drafts', 'default:captions'],
+      ['drafts', 'captions:incoming-transcript'],
+    ]
+  }
+  if (activeTool === 'upscale' || activeTool === 'extend' || activeTool === 'transition' || activeTool === 'avatar') return []
+  return [['drafts', `default:${activeTool}`]]
+}
 
 function accountErrorFeedback(error: AccountBridgeError): AccountFeedback {
   return { tone: 'error', message: error.message }
@@ -291,6 +313,13 @@ export default function App() {
     const previous = navigationHistoryRef.current.pop() ?? 'home'
     screenRef.current = previous
     setScreen(previous)
+  }, [])
+
+  const recoverHome = useCallback(() => {
+    navigationHistoryRef.current = []
+    screenRef.current = 'home'
+    setEditSource(null)
+    setScreen('home')
   }, [])
 
   useEffect(() => {
@@ -1200,9 +1229,19 @@ export default function App() {
   const checkoutRecovery = visibleCheckoutStatus
     ? checkoutRecoverySummary(visibleCheckoutStatus)
     : null
+  const recoverableScreenState = persistedStateForScreen(screen, activeTool)
 
   return (
     <div className={`ef-panel ef-panel--${settings.windowMode} ef-panel--screen-${screen}`}>
+      <ScreenErrorBoundary
+        key={`${screen}:${screen === 'workflow' ? activeTool : ''}`}
+        onReturnHome={recoverHome}
+        onClearSavedState={recoverableScreenState.length
+          ? async () => {
+              await Promise.all(recoverableScreenState.map(([namespace, key]) => host.deleteState(namespace, key)))
+            }
+          : undefined}
+      >
       {screen === 'home' && (
         <Home
           navigationMemory={homeNavigationMemoryRef.current}
@@ -1399,6 +1438,7 @@ export default function App() {
           directConnectionPending={apiStatus === 'connecting'}
         />
       )}
+      </ScreenErrorBoundary>
 
       {screen !== 'account' && accountSignedIn && visibleCheckoutStatus && checkoutRecovery && (
         <button

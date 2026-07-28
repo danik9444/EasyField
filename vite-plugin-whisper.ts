@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import type { Plugin } from 'vite'
+import type { AuthorizeDevRequest } from './vite-dev-security'
 
 interface WhisperService {
   handleRequest: (
@@ -12,6 +13,7 @@ interface WhisperService {
 
 interface WhisperModule {
   createTranscriptionService: (options: {
+    authorizeRequest: AuthorizeDevRequest
     ffmpegPath: string
     maxBytes: number
   }) => WhisperService
@@ -20,10 +22,12 @@ interface WhisperModule {
 const require = createRequire(import.meta.url)
 const { createTranscriptionService } = require('./plugin/whisper-transcription.cjs') as WhisperModule
 
-export function whisperTranscriptionPlugin(): Plugin {
+export function whisperTranscriptionPlugin(authorizeRequest: AuthorizeDevRequest): Plugin {
+  if (typeof authorizeRequest !== 'function') throw new TypeError('Whisper development authorization is required')
   const homebrewFfmpeg = '/opt/homebrew/bin/ffmpeg'
   const intelHomebrewFfmpeg = '/usr/local/bin/ffmpeg'
   const service = createTranscriptionService({
+    authorizeRequest,
     ffmpegPath: existsSync(homebrewFfmpeg) ? homebrewFfmpeg : existsSync(intelHomebrewFfmpeg) ? intelHomebrewFfmpeg : 'ffmpeg',
     maxBytes: 1024 * 1024 * 1024,
   })
