@@ -34,7 +34,7 @@ import {
   type PlanCheckoutRequest,
   type TopUpCheckoutRequest,
 } from '../core/account'
-import type { AccountCapabilities, AccountCheckoutStatus, AccountPasswordRecoveryCompletion } from '../core/accountBridge'
+import type { AccountCapabilities, AccountCheckoutStatus, AccountPasswordRecoveryCompletion, AccountServiceHealth } from '../core/accountBridge'
 import { host } from '../services/host'
 
 export interface AccountFeedback {
@@ -46,6 +46,8 @@ export interface AccountProps {
   onBack: () => void
   session: AccountSession
   capabilities: AccountCapabilities
+  serviceHealth: AccountServiceHealth
+  lastSuccessfulRefreshAtMs: number | null
   /** Effective renderer readiness, including a required direct connection. */
   generationReady: boolean
   /** Active work that must finish before session or credential teardown. */
@@ -184,11 +186,32 @@ function Feedback({ value }: { value?: AccountFeedback | null }) {
   )
 }
 
+function formatAccountRefreshTime(epochMs: number): string {
+  return new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(epochMs)
+}
+
+function lastSuccessfulRefreshCopy(lastSuccessfulRefreshAtMs: number | null): string {
+  return lastSuccessfulRefreshAtMs == null
+    ? 'No successful account refresh yet.'
+    : `Last successful refresh ${formatAccountRefreshTime(lastSuccessfulRefreshAtMs)}.`
+}
+
+function missingBalanceLabel(serviceHealth: AccountServiceHealth): string {
+  if (serviceHealth === 'checking') return 'Checking…'
+  if (serviceHealth === 'available') return 'Not reported'
+  return 'Unavailable'
+}
+
 function AuthView(props: AccountProps) {
   const emailId = useId()
   const passwordId = useId()
   const signUp = props.authMode === 'sign-up'
-  const serviceUnavailable = !props.capabilities.accountConfigured
+  const serviceBlocked = props.serviceHealth !== 'available'
   const configuredOAuthProviders = Array.isArray(props.capabilities.oauthProviders)
     ? props.capabilities.oauthProviders
     : []
@@ -215,10 +238,19 @@ function AuthView(props: AccountProps) {
           <p>{signUp ? 'Keep plans, credits and billing controls tied to one verified identity.' : 'Sign in to review credits, plans and account settings.'}</p>
         </div>
 
-        {serviceUnavailable && (
-          <div className="ef-account-feedback is-error" role="alert">
-            EasyField Account is unavailable because the account service is not configured in this build.
+        {props.serviceHealth !== 'available' && (
+          <div className={`ef-account-feedback${props.serviceHealth === 'checking' ? '' : ' is-error'}`} role={props.serviceHealth === 'checking' ? 'status' : 'alert'}>
+            {props.serviceHealth === 'checking'
+              ? 'Checking the EasyField account service…'
+              : props.serviceHealth === 'unconfigured'
+                ? 'EasyField Account is unavailable because the account service is not configured in this build.'
+                : `EasyField Account cannot reach the configured account service. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`}
           </div>
+        )}
+        {props.serviceHealth === 'unavailable' && (
+          <button type="button" className="ef-account-secondary ef-account-service-retry" disabled={props.accountRefreshPending} aria-busy={props.accountRefreshPending || undefined} onClick={() => void props.onRequestRefreshAccount()}>
+            {props.accountRefreshPending ? 'Checking…' : 'Try account service again'}
+          </button>
         )}
 
         <div className="ef-account-auth-tabs" role="group" aria-label="Account access">
@@ -235,7 +267,7 @@ function AuthView(props: AccountProps) {
             autoComplete="email"
             placeholder="editor@studio.com"
             onChange={(event) => props.onAuthEmailChange(event.target.value)}
-            disabled={props.authPending || serviceUnavailable}
+            disabled={props.authPending || serviceBlocked}
             required
           />
           <label htmlFor={passwordId}>Password</label>
@@ -246,7 +278,7 @@ function AuthView(props: AccountProps) {
             autoComplete={signUp ? 'new-password' : 'current-password'}
             placeholder={signUp ? 'Create a secure password' : 'Enter your password'}
             onChange={(event) => props.onAuthPasswordChange(event.target.value)}
-            disabled={props.authPending || serviceUnavailable}
+            disabled={props.authPending || serviceBlocked}
             minLength={signUp ? 8 : undefined}
             aria-describedby={signUp ? `${passwordId}-help` : undefined}
             required
@@ -256,14 +288,14 @@ function AuthView(props: AccountProps) {
             <button
               type="button"
               className="ef-account-reset"
-              disabled={props.authPending || props.passwordResetPending || serviceUnavailable}
+              disabled={props.authPending || props.passwordResetPending || serviceBlocked}
               onClick={() => void props.onRequestPasswordReset(props.authEmail.trim())}
             >
               {props.passwordResetPending ? 'Sending reset email…' : 'Forgot password?'}
             </button>
           )}
           {signUp && <p className="ef-account-verification-note"><span aria-hidden="true">✉</span>Email verification is required before paid actions are available.</p>}
-          <button className="ef-account-primary" type="submit" disabled={props.authPending || serviceUnavailable}>
+          <button className="ef-account-primary" type="submit" disabled={props.authPending || serviceBlocked}>
             {props.authPending ? 'Please wait…' : signUp ? 'Create account' : 'Sign in'}
           </button>
         </form>
@@ -276,10 +308,10 @@ function AuthView(props: AccountProps) {
             <div className="ef-account-divider"><span>or continue with</span></div>
             <div className="ef-account-socials">
               {googleOAuthAvailable && (
-                <button type="button" onClick={() => void props.onRequestGoogleAuth()} disabled={props.authPending || serviceUnavailable}><b aria-hidden="true">G</b>Google</button>
+                <button type="button" onClick={() => void props.onRequestGoogleAuth()} disabled={props.authPending || serviceBlocked}><b aria-hidden="true">G</b>Google</button>
               )}
               {appleOAuthAvailable && (
-                <button type="button" onClick={() => void props.onRequestAppleAuth()} disabled={props.authPending || serviceUnavailable}><b aria-hidden="true">●</b>Apple</button>
+                <button type="button" onClick={() => void props.onRequestAppleAuth()} disabled={props.authPending || serviceBlocked}><b aria-hidden="true">●</b>Apple</button>
               )}
             </div>
           </>
@@ -405,8 +437,23 @@ function CheckoutRecoverySection({
   )
 }
 
-function BalanceSection({ balances, subscription }: Pick<AccountProps, 'balances' | 'subscription'>) {
-  const total = balances ? formatCreditMicros(totalCreditMicros(balances)) : '—'
+function BalanceSection(props: Pick<AccountProps, 'balances' | 'subscription' | 'serviceHealth' | 'lastSuccessfulRefreshAtMs' | 'accountRefreshPending' | 'accountRefreshFeedback' | 'onRequestRefreshAccount'>) {
+  const { balances, subscription } = props
+  const unavailableValue = missingBalanceLabel(props.serviceHealth)
+  const total = balances ? formatCreditMicros(totalCreditMicros(balances)) : unavailableValue
+  const status = balances
+    ? props.serviceHealth === 'unavailable'
+      ? `Showing balance measured ${formatAccountDate(balances.measuredAtMs)}. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`
+      : props.serviceHealth === 'checking'
+        ? `Checking for updates. Current balance measured ${formatAccountDate(balances.measuredAtMs)}.`
+        : `Balance measured ${formatAccountDate(balances.measuredAtMs)}. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`
+    : props.serviceHealth === 'checking'
+      ? `Loading balance data. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`
+      : props.serviceHealth === 'available'
+        ? `The latest account refresh returned no balance data. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`
+        : props.serviceHealth === 'unconfigured'
+          ? 'Balance data is unavailable because the account service is not configured.'
+          : `Balance data is unavailable while the account service is offline. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`
   return (
     <section className="ef-account-section ef-account-balance-section" aria-labelledby="ef-account-balance-title">
       <div className="ef-account-section-title">
@@ -416,12 +463,12 @@ function BalanceSection({ balances, subscription }: Pick<AccountProps, 'balances
       <div className="ef-account-balance-grid">
         <article className="ef-account-balance-card is-subscription">
           <span className="ef-account-balance-icon" aria-hidden="true">↻</span>
-          <div><small>SUBSCRIPTION CREDITS</small><strong>{balances ? formatCreditMicros(balances.subscriptionCreditMicros) : '—'}</strong></div>
-          <p>{balances?.subscriptionExpiresAtMs ? `Expires ${formatAccountDate(balances.subscriptionExpiresAtMs)}` : subscription ? 'Expiration date unavailable' : 'Available with an active plan'}</p>
+          <div><small>SUBSCRIPTION CREDITS</small><strong>{balances ? formatCreditMicros(balances.subscriptionCreditMicros) : unavailableValue}</strong></div>
+          <p>{balances?.subscriptionExpiresAtMs ? `Expires ${formatAccountDate(balances.subscriptionExpiresAtMs)}` : balances ? subscription ? 'Expiration date unavailable' : 'Available with an active plan' : 'No current balance data'}</p>
         </article>
         <article className="ef-account-balance-card is-purchased">
           <span className="ef-account-balance-icon" aria-hidden="true">＋</span>
-          <div><small>PURCHASED CREDITS</small><strong>{balances ? formatCreditMicros(balances.purchasedCreditMicros) : '—'}</strong></div>
+          <div><small>PURCHASED CREDITS</small><strong>{balances ? formatCreditMicros(balances.purchasedCreditMicros) : unavailableValue}</strong></div>
           <p>Purchased credits do not expire.</p>
         </article>
         {balances && balances.otherCreditMicros > 0 && (
@@ -432,7 +479,13 @@ function BalanceSection({ balances, subscription }: Pick<AccountProps, 'balances
           </article>
         )}
       </div>
-      {balances && <small className="ef-account-measured">Balance updated {formatAccountDate(balances.measuredAtMs)}</small>}
+      <div className="ef-account-balance-refresh">
+        <small className="ef-account-measured">{status}</small>
+        <button type="button" className="ef-account-secondary" disabled={props.accountRefreshPending || props.serviceHealth === 'unconfigured'} aria-busy={props.accountRefreshPending || undefined} onClick={() => void props.onRequestRefreshAccount()}>
+          {props.accountRefreshPending ? 'Refreshing…' : 'Refresh balance'}
+        </button>
+      </div>
+      {props.accountRefreshFeedback && <Feedback value={props.accountRefreshFeedback} />}
     </section>
   )
 }
@@ -627,6 +680,9 @@ function AutoReloadSection(props: AccountProps & { billingLocked: boolean; prici
   const policy = props.autoReloadPolicy
   const minimumCredits = wholeCreditsFromMicros(minimumTopUpCreditMicros(props.pricingPlanId))
   const errors = validateAutoReloadPolicy(props.pricingPlanId, policy)
+  const automaticCharge = policy.enabled
+    ? quoteTopUp(props.pricingPlanId, policy.topUpAmountCreditMicros).chargeMoneyMicros
+    : null
   const enable = () => props.onAutoReloadPolicyChange({
     enabled: true,
     triggerBalanceCreditMicros: 0,
@@ -658,6 +714,7 @@ function AutoReloadSection(props: AccountProps & { billingLocked: boolean; prici
           <label><span>When balance is below</span><div><input type="number" min="0" step="1" value={wholeCreditsFromMicros(policy.triggerBalanceCreditMicros)} onChange={(event) => props.onAutoReloadPolicyChange({ ...policy, triggerBalanceCreditMicros: microsFromWholeCredits(event.target.valueAsNumber) })} /><small>credits</small></div></label>
           <span className="ef-account-flow" aria-hidden="true">→</span>
           <label><span>Add</span><div><input type="number" min={minimumCredits} step="1" value={wholeCreditsFromMicros(policy.topUpAmountCreditMicros)} onChange={(event) => props.onAutoReloadPolicyChange({ ...policy, topUpAmountCreditMicros: microsFromWholeCredits(event.target.valueAsNumber) })} /><small>credits</small></div></label>
+          <div className="ef-account-quote ef-account-autoreload-quote" role="status" aria-live="polite"><small>ESTIMATED CHARGE</small><strong>{automaticCharge == null ? '—' : formatMoneyMicros(automaticCharge)}</strong><span>Saving authorizes this charge for each automatic reload.</span></div>
           <button type="button" onClick={() => void props.onRequestSaveAutoReload(policy)} disabled={props.autoReloadPending || props.billingLocked || errors.length > 0}>{props.autoReloadPending ? 'Saving…' : 'Save auto-reload'}</button>
         </div>
       )}
@@ -827,7 +884,9 @@ function OverviewSection({
 }) {
   const session = props.session.status === 'signed-in' ? props.session : null
   if (!session) return null
-  const customerCredits = props.balances ? formatCreditMicros(totalCreditMicros(props.balances)) : '—'
+  const customerCredits = props.balances
+    ? formatCreditMicros(totalCreditMicros(props.balances))
+    : missingBalanceLabel(props.serviceHealth)
   const access = isAdmin
     ? 'Admin direct access'
     : isSupport
@@ -958,6 +1017,13 @@ function ConnectionsSection(props: AccountProps) {
   const directAllowed = props.capabilities.directProviderAllowed
   const directPresent = props.directConnectionPresent === true
   const directConnected = directAllowed && directPresent && typeof props.directProviderCredits === 'number' && Number.isFinite(props.directProviderCredits)
+  const accountServiceRow = props.serviceHealth === 'checking'
+    ? { label: 'EasyField account', detail: `Checking the configured account service · ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`, state: 'Checking', tone: 'is-neutral' }
+    : props.serviceHealth === 'available'
+      ? { label: 'EasyField account', detail: `Authenticated account service · ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`, state: 'Connected', tone: 'is-ok' }
+      : props.serviceHealth === 'unconfigured'
+        ? { label: 'EasyField account', detail: 'No verified account-service configuration in this build', state: 'Not configured', tone: 'is-warning' }
+        : { label: 'EasyField account', detail: `Configured service is offline · ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`, state: 'Offline', tone: 'is-warning' }
   useEffect(() => {
     if (!directPresent) {
       setConfirmDisconnect(false)
@@ -986,7 +1052,7 @@ function ConnectionsSection(props: AccountProps) {
     }
   }
   const rows = [
-    { label: 'EasyField account', detail: props.capabilities.accountConfigured ? 'Authenticated account service' : 'Account service is unavailable', state: props.capabilities.accountConfigured ? 'Connected' : 'Unavailable', tone: props.capabilities.accountConfigured ? 'is-ok' : 'is-warning' },
+    accountServiceRow,
     { label: 'Generation access', detail: 'Server authorization and required connection state', state: props.generationReady ? 'Ready' : 'Needs attention', tone: props.generationReady ? 'is-ok' : 'is-warning' },
     { label: 'This Mac', detail: host.isPlugin() ? 'DaVinci Resolve workflow integration' : 'Browser development runtime', state: host.isPlugin() ? 'Plugin active' : 'Development', tone: 'is-neutral' },
     ...(directAllowed || directPresent ? [{ label: 'Direct cloud connection', detail: 'Private account-scoped connection on this Mac', state: directConnected ? 'Connected' : directPresent && !directAllowed ? 'Saved · access unavailable' : directPresent ? 'Saved · needs attention' : 'Connection needed', tone: directConnected ? 'is-ok' : 'is-warning' }] : []),
@@ -1048,7 +1114,9 @@ export function Account(props: AccountProps) {
   const topUpLocked = billingLocked || !hasEligiblePlan
   const activePartner = hasActivePartnerEntitlement(props.partnerEntitlement)
   const showCustomerBilling = signedInSession?.platformRole === 'customer' && !activePartner
-  const customerCreditLabel = props.balances ? formatCreditMicros(totalCreditMicros(props.balances)) : '—'
+  const customerCreditLabel = props.balances
+    ? formatCreditMicros(totalCreditMicros(props.balances))
+    : missingBalanceLabel(props.serviceHealth)
   const sectionStatus = section === 'overview'
     ? { label: props.generationReady ? 'Generation ready' : 'Needs attention', tone: props.generationReady ? 'ok' : 'warning' } as const
     : section === 'profile'
@@ -1067,7 +1135,13 @@ export function Account(props: AccountProps) {
           ? { label: isSupport ? 'No customer wallet' : isAdmin || activePartner ? `${providerCreditLabel(props)} credits` : `${customerCreditLabel} credits`, tone: 'neutral' } as const
           : section === 'security'
             ? { label: signedInSession?.emailVerified ? 'Email verified' : 'Verification needed', tone: signedInSession?.emailVerified ? 'ok' : 'warning' } as const
-            : { label: props.capabilities.accountConfigured ? 'Account connected' : 'Service unavailable', tone: props.capabilities.accountConfigured ? 'ok' : 'warning' } as const
+            : props.serviceHealth === 'checking'
+              ? { label: 'Checking account service', tone: 'neutral' } as const
+              : props.serviceHealth === 'available'
+                ? { label: 'Account connected', tone: 'ok' } as const
+                : props.serviceHealth === 'unconfigured'
+                  ? { label: 'Account not configured', tone: 'warning' } as const
+                  : { label: 'Account service offline', tone: 'warning' } as const
 
   return (
     <div className="ef-screen ef-account-screen">
@@ -1093,6 +1167,13 @@ export function Account(props: AccountProps) {
           >
             <AccountSectionHeader section={section} status={sectionStatus.label} tone={sectionStatus.tone} />
             {props.authFeedback && <Feedback value={props.authFeedback} />}
+            {props.serviceHealth === 'unavailable' && (
+              <section className="ef-account-verify" role="status">
+                <span aria-hidden="true">!</span>
+                <div><strong>Account data may be stale</strong><p>The configured account service is offline. {lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}</p></div>
+                <button type="button" disabled={props.accountRefreshPending} aria-busy={props.accountRefreshPending || undefined} onClick={() => void props.onRequestRefreshAccount()}>{props.accountRefreshPending ? 'Checking…' : 'Try again'}</button>
+              </section>
+            )}
             {props.checkoutStatus && (
               <CheckoutRecoverySection
                 checkoutStatus={props.checkoutStatus}
@@ -1123,7 +1204,7 @@ export function Account(props: AccountProps) {
                 <OverviewSection props={props} activePartner={activePartner} isAdmin={isAdmin} isSupport={isSupport} onSectionChange={setSection} />
                 {!props.checkoutStatus && (
                   <section className="ef-account-refresh" aria-label="Account status">
-                    <div><strong>Account status</strong><p>Refresh whenever access and credits look out of date.</p></div>
+                    <div><strong>Account status</strong><p>{props.serviceHealth === 'checking' ? `Checking now. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}` : props.serviceHealth === 'available' ? `Account data is current. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}` : props.serviceHealth === 'unconfigured' ? 'The account service is not configured in this build.' : `Account data may be stale. ${lastSuccessfulRefreshCopy(props.lastSuccessfulRefreshAtMs)}`}</p></div>
                     <button type="button" disabled={props.accountRefreshPending} aria-busy={props.accountRefreshPending || undefined} onClick={() => void props.onRequestRefreshAccount()}>
                       {props.accountRefreshPending ? 'Refreshing…' : 'Refresh account'}
                     </button>
@@ -1142,7 +1223,7 @@ export function Account(props: AccountProps) {
             )}
             {section === 'credits' && (
               <>
-                {showCustomerBilling && <BalanceSection balances={props.balances} subscription={props.subscription} />}
+                {showCustomerBilling && <BalanceSection balances={props.balances} subscription={props.subscription} serviceHealth={props.serviceHealth} lastSuccessfulRefreshAtMs={props.lastSuccessfulRefreshAtMs} accountRefreshPending={props.accountRefreshPending} accountRefreshFeedback={props.accountRefreshFeedback} onRequestRefreshAccount={props.onRequestRefreshAccount} />}
                 {showCustomerBilling && <TopUpSection {...props} billingLocked={topUpLocked} pricingPlanId={pricingPlanId} hasEligiblePlan={hasEligiblePlan} />}
                 {showCustomerBilling && <AutoReloadSection {...props} billingLocked={topUpLocked} pricingPlanId={pricingPlanId} hasEligiblePlan={hasEligiblePlan} />}
                 {isSupport && <SupportCreditsSection />}

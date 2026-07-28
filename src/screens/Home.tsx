@@ -8,6 +8,7 @@ import { resolve } from '../services/resolve'
 import { host } from '../services/host'
 import { SECURE_API_KEY_TOKEN, type Settings } from '../settings'
 import type { ToolId } from '../core/contracts'
+import type { AccountServiceHealth } from '../core/accountBridge'
 
 const MEDIA_CATEGORY_COPY: Record<string, { eyebrow: string; description: string }> = {
   footage: { eyebrow: 'ORGANIZE & ENHANCE MEDIA', description: 'Review selects, find coverage and improve source quality.' },
@@ -77,7 +78,7 @@ interface HomeProps {
   settings: Settings
   credits: number
   creditsLive: boolean
-  accountConfigured: boolean
+  accountServiceHealth: AccountServiceHealth
   accountReady: boolean
   accountSignedIn: boolean
   directProviderAllowed: boolean
@@ -113,7 +114,7 @@ export function Home({
   settings,
   credits,
   creditsLive,
-  accountConfigured,
+  accountServiceHealth,
   accountReady,
   accountSignedIn,
   directProviderAllowed,
@@ -305,7 +306,7 @@ export function Home({
     })).filter((group) => group.tools.length > 0)
   }, [activeCategory, query])
   const visibleToolCount = visibleGroups.reduce((count, group) => count + group.tools.length, 0)
-  const cloudReady = accountReady || (directProviderAllowed && creditsLive && apiStatus === 'connected')
+  const cloudReady = accountReady
   const setupNeeded = !cloudReady || !bridge.connected
   const storedSecureKey = settings.apiKey === SECURE_API_KEY_TOKEN
   const keyToValidate = keyDraft.trim() || (storedSecureKey ? SECURE_API_KEY_TOKEN : '')
@@ -609,15 +610,23 @@ export function Home({
                   <span className="ef-setup-step-title">{directProviderAllowed ? 'Direct provider access' : 'EasyField Account'}</span>
                   <span className="ef-setup-step-desc">
                     {directProviderAllowed
-                      ? apiStatus === 'connecting'
-                        ? 'Checking your saved direct credential…'
-                        : apiStatus === 'error'
-                          ? 'Connection failed. Review your direct credential.'
-                          : settings.apiKey
-                            ? 'Your saved credential is not connected. Review it and try again.'
-                            : 'Add a direct credential to use live generation models.'
-                      : !accountConfigured
-                        ? 'Account service is unavailable in this build.'
+                      ? accountServiceHealth === 'checking'
+                        ? 'Checking account authorization…'
+                        : accountServiceHealth === 'unavailable'
+                          ? 'Account service is offline. Open Account to try again.'
+                          : apiStatus === 'connecting'
+                            ? 'Checking your saved direct credential…'
+                            : apiStatus === 'error'
+                              ? 'Connection failed. Review your direct credential.'
+                              : settings.apiKey
+                                ? 'Your saved credential is not connected. Review it and try again.'
+                                : 'Add a direct credential to use live generation models.'
+                      : accountServiceHealth === 'checking'
+                        ? 'Checking the account service…'
+                        : accountServiceHealth === 'unconfigured'
+                          ? 'Account service is not configured in this build.'
+                          : accountServiceHealth === 'unavailable'
+                            ? 'Account service is offline. Open Account to try again.'
                         : accountSignedIn
                           ? 'Review your plan, balance or verification status to enable generation.'
                           : 'Sign in or create an account to activate a plan.'}

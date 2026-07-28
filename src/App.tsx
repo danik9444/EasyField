@@ -48,6 +48,7 @@ import {
   type AccountCheckoutStatus,
   type AccountPurchaseKind,
   type AccountPasswordRecoveryCompletion,
+  type AccountServiceHealth,
   type AccountViewSnapshot,
 } from './core/accountBridge'
 import {
@@ -170,6 +171,8 @@ export default function App() {
   const [dismissedUpdateBuild, setDismissedUpdateBuild] = useState<string | null>(null)
   const [, setPricingRevision] = useState(0)
   const [accountSnapshot, setAccountSnapshot] = useState<AccountViewSnapshot>(createUnavailableAccountSnapshot)
+  const [accountServiceHealth, setAccountServiceHealth] = useState<AccountServiceHealth>('checking')
+  const [lastSuccessfulAccountRefreshAtMs, setLastSuccessfulAccountRefreshAtMs] = useState<number | null>(null)
   const [accountAuthMode, setAccountAuthMode] = useState<AccountAuthMode>('sign-in')
   const [accountAuthEmail, setAccountAuthEmail] = useState('')
   const [accountAuthPassword, setAccountAuthPassword] = useState('')
@@ -216,6 +219,7 @@ export default function App() {
     anchorOffset: 0,
   })
   const accountRevisionRef = useRef(-1)
+  const lastSuccessfulAccountRefreshRef = useRef<number | null>(null)
   const accountIdentityRef = useRef<string | null>(null)
   const accountUiEpochRef = useRef(0)
   const accountOAuthAttemptRef = useRef<string | null>(null)
@@ -228,6 +232,16 @@ export default function App() {
   const applyAccountSnapshot = useCallback((snapshot: AccountViewSnapshot) => {
     if (snapshot.revision < accountRevisionRef.current) return
     accountRevisionRef.current = snapshot.revision
+    if (snapshot.capabilities.accountConfigured) {
+      const refreshedAtMs = Date.now()
+      lastSuccessfulAccountRefreshRef.current = refreshedAtMs
+      setLastSuccessfulAccountRefreshAtMs(refreshedAtMs)
+      setAccountServiceHealth('available')
+    } else {
+      lastSuccessfulAccountRefreshRef.current = null
+      setLastSuccessfulAccountRefreshAtMs(null)
+      setAccountServiceHealth('unconfigured')
+    }
     const nextAccountId = snapshot.session.status === 'signed-in' ? snapshot.session.accountId : null
     if (accountIdentityRef.current !== nextAccountId) {
       const previousAccountId = accountIdentityRef.current
@@ -294,6 +308,20 @@ export default function App() {
       setSelectedPlanId('starter')
     }
   }, [])
+
+  const markAccountServiceFailure = useCallback((error: AccountBridgeError, configurationKnown = false) => {
+    const unconfigured = configurationKnown
+      && error.code === 'service-unavailable'
+      && !error.retryable
+      && lastSuccessfulAccountRefreshRef.current == null
+    setAccountServiceHealth(unconfigured ? 'unconfigured' : 'unavailable')
+  }, [])
+
+  const markAccountOperationFailure = useCallback((error: AccountBridgeError) => {
+    if (error.code === 'network' || (error.code === 'service-unavailable' && error.retryable)) {
+      markAccountServiceFailure(error)
+    }
+  }, [markAccountServiceFailure])
 
   const accountRuntimeIdentity = accountSnapshot.session.status === 'signed-in'
     ? accountSnapshot.session.accountId
@@ -364,6 +392,7 @@ export default function App() {
         applyAccountSnapshot(result.value)
         setAccountAuthFeedback(null)
       } else {
+        markAccountServiceFailure(result.error, true)
         setAccountAuthFeedback(accountErrorFeedback(result.error))
       }
       setAccountRestoreComplete(true)
@@ -374,7 +403,7 @@ export default function App() {
       unsubscribeOAuth()
       unsubscribePasswordRecovery()
     }
-  }, [applyAccountSnapshot, navigate])
+  }, [applyAccountSnapshot, markAccountServiceFailure, navigate])
 
   useEffect(() => {
     let active = true
@@ -803,6 +832,7 @@ export default function App() {
       if (currentApiKey() === ACCOUNT_API_KEY_TOKEN) {
         void host.account.getSnapshot({ force: true }).then((result) => {
           if (result.ok) applyAccountSnapshot(result.value)
+          else markAccountServiceFailure(result.error)
         })
         return
       }
@@ -818,7 +848,7 @@ export default function App() {
         return next
       })
     },
-    [apiStatus, applyAccountSnapshot, refreshCredits, settings.apiKey],
+    [apiStatus, applyAccountSnapshot, markAccountServiceFailure, refreshCredits, settings.apiKey],
   )
 
   // Route a Library creation into the matching Edit screen as its source.
@@ -846,6 +876,7 @@ export default function App() {
         ? await host.account.signUp({ email: request.email, password: request.password })
         : await host.account.signIn({ email: request.email, password: request.password })
       if (!result.ok) {
+        markAccountOperationFailure(result.error)
         setAccountAuthFeedback(accountErrorFeedback(result.error))
         return
       }
@@ -863,7 +894,7 @@ export default function App() {
       setAccountAuthPassword('')
       setAccountAuthPending(false)
     }
-  }, [applyAccountSnapshot])
+  }, [applyAccountSnapshot, markAccountOperationFailure])
 
   const requestSocialAuth = useCallback(async (provider: 'google' | 'apple') => {
     setAccountAuthPending(true)
@@ -872,6 +903,7 @@ export default function App() {
     if (!result.ok) {
       accountOAuthAttemptRef.current = null
       setAccountAuthPending(false)
+      markAccountOperationFailure(result.error)
       setAccountAuthFeedback(accountErrorFeedback(result.error))
       return
     }
@@ -886,7 +918,7 @@ export default function App() {
       setAccountAuthPending(false)
       setAccountAuthFeedback({ tone: 'error', message: 'Social sign-in expired. Try again.' })
     }, Math.max(0, result.value.expiresAtMs - Date.now()) + 250)
-  }, [])
+  }, [markAccountOperationFailure])
 
   const requestResendVerification = useCallback(async () => {
     const email = accountSnapshot.session.status === 'signed-in'
@@ -904,10 +936,11 @@ export default function App() {
       setAccountAuthFeedback(result.ok
         ? { tone: 'success', message: 'If verification is pending, a new email is on the way.' }
         : accountErrorFeedback(result.error))
+      if (!result.ok) markAccountOperationFailure(result.error)
     } finally {
       if (accountUiEpochRef.current === uiEpoch) setVerificationPending(false)
     }
-  }, [accountAuthEmail, accountSnapshot.session])
+  }, [accountAuthEmail, accountSnapshot.session, markAccountOperationFailure])
 
   const requestPasswordReset = useCallback(async (email: string) => {
     const normalizedEmail = email.trim()
@@ -920,6 +953,7 @@ export default function App() {
     try {
       const result = await host.account.requestPasswordReset({ email: normalizedEmail })
       if (!result.ok) {
+        markAccountOperationFailure(result.error)
         setPasswordResetFeedback(accountErrorFeedback(result.error))
         return
       }
@@ -930,7 +964,7 @@ export default function App() {
     } finally {
       setPasswordResetPending(false)
     }
-  }, [])
+  }, [markAccountOperationFailure])
 
   const completePasswordRecovery = useCallback(async (attemptId: string, password: string) => {
     if (accountPasswordRecoveryAttemptRef.current !== attemptId) return
@@ -939,6 +973,7 @@ export default function App() {
     try {
       const result = await host.account.completePasswordRecovery({ attemptId, password })
       if (!result.ok) {
+        markAccountOperationFailure(result.error)
         setPasswordRecoveryFeedback(accountErrorFeedback(result.error))
         return
       }
@@ -949,7 +984,7 @@ export default function App() {
     } finally {
       setPasswordRecoveryPending(false)
     }
-  }, [applyAccountSnapshot])
+  }, [applyAccountSnapshot, markAccountOperationFailure])
 
   const cancelPasswordRecovery = useCallback(async (attemptId: string) => {
     if (accountPasswordRecoveryAttemptRef.current !== attemptId) return
@@ -957,6 +992,7 @@ export default function App() {
     try {
       const result = await host.account.cancelPasswordRecovery({ attemptId })
       if (!result.ok) {
+        markAccountOperationFailure(result.error)
         setPasswordRecoveryFeedback(accountErrorFeedback(result.error))
         return
       }
@@ -966,7 +1002,7 @@ export default function App() {
     } finally {
       setPasswordRecoveryPending(false)
     }
-  }, [])
+  }, [markAccountOperationFailure])
 
   const requestProfileUpdate = useCallback(async (displayName: string) => {
     setProfilePending(true)
@@ -974,6 +1010,7 @@ export default function App() {
     try {
       const result = await host.account.updateProfile({ displayName })
       if (!result.ok) {
+        markAccountOperationFailure(result.error)
         setProfileFeedback(accountErrorFeedback(result.error))
         return
       }
@@ -982,7 +1019,7 @@ export default function App() {
     } finally {
       setProfilePending(false)
     }
-  }, [applyAccountSnapshot])
+  }, [applyAccountSnapshot, markAccountOperationFailure])
 
   const requestSignOut = useCallback(async () => {
     if (activeJobCount > 0) {
@@ -997,13 +1034,14 @@ export default function App() {
         applyAccountSnapshot(result.value.snapshot)
         setAccountAuthFeedback({ tone: 'success', message: 'Signed out.' })
       } else {
+        markAccountOperationFailure(result.error)
         setAccountAuthFeedback(accountErrorFeedback(result.error))
       }
     } finally {
       setAccountAuthPassword('')
       setAccountAuthPending(false)
     }
-  }, [activeJobCount, applyAccountSnapshot])
+  }, [activeJobCount, applyAccountSnapshot, markAccountOperationFailure])
 
   const setPurchaseFeedback = useCallback((kind: AccountPurchaseKind, value: AccountFeedback | null) => {
     if (kind === 'subscription') setPlanFeedback(value)
@@ -1024,7 +1062,13 @@ export default function App() {
         await new Promise((resolve) => window.setTimeout(resolve, CHECKOUT_REFRESH_INTERVAL_MS))
         if (checkoutWatchRef.current !== watchId || accountUiEpochRef.current !== uiEpoch) return
         const refreshed = await host.account.getSnapshot({ force: true })
-        if (!refreshed.ok || checkoutWatchRef.current !== watchId || accountUiEpochRef.current !== uiEpoch) continue
+        if (!refreshed.ok) {
+          if (checkoutWatchRef.current === watchId && accountUiEpochRef.current === uiEpoch) {
+            markAccountServiceFailure(refreshed.error)
+          }
+          continue
+        }
+        if (checkoutWatchRef.current !== watchId || accountUiEpochRef.current !== uiEpoch) continue
         applyAccountSnapshot(refreshed.value)
         if (refreshed.value.session.status !== 'signed-in') return
         if (refreshed.value.checkoutStatus?.state !== 'pending') return
@@ -1036,7 +1080,7 @@ export default function App() {
         })
       }
     })()
-  }, [applyAccountSnapshot, setPurchaseFeedback])
+  }, [applyAccountSnapshot, markAccountServiceFailure, setPurchaseFeedback])
 
   useEffect(() => {
     const status = accountSnapshot.checkoutStatus
@@ -1083,6 +1127,7 @@ export default function App() {
       const result = await host.account.checkout(input)
       if (accountUiEpochRef.current !== uiEpoch) return
       if (!result.ok) {
+        markAccountOperationFailure(result.error)
         setFeedback(accountErrorFeedback(result.error))
         return
       }
@@ -1090,11 +1135,12 @@ export default function App() {
       if (input.kind === 'subscription' || input.kind === 'top-up' || input.kind === 'partner') {
         const refreshed = await host.account.getSnapshot({ force: true })
         if (refreshed.ok && accountUiEpochRef.current === uiEpoch) applyAccountSnapshot(refreshed.value)
+        else if (!refreshed.ok && accountUiEpochRef.current === uiEpoch) markAccountServiceFailure(refreshed.error)
       }
     } finally {
       if (accountUiEpochRef.current === uiEpoch) setPending(false)
     }
-  }, [applyAccountSnapshot])
+  }, [applyAccountSnapshot, markAccountOperationFailure, markAccountServiceFailure])
 
   const requestPlanCheckout = useCallback((request: PlanCheckoutRequest) => requestCheckout(
     { kind: 'subscription', planId: request.planId, billingInterval: request.billingInterval },
@@ -1137,6 +1183,7 @@ export default function App() {
       const result = await host.account.resumeCheckout()
       if (accountUiEpochRef.current !== uiEpoch) return
       if (!result.ok) {
+        markAccountOperationFailure(result.error)
         const feedback = accountErrorFeedback(result.error)
         setAccountRefreshFeedback(feedback)
         setPurchaseFeedback(status.kind, feedback)
@@ -1150,15 +1197,17 @@ export default function App() {
       setPurchaseFeedback(status.kind, reopenedFeedback)
       const refreshed = await host.account.getSnapshot({ force: true })
       if (refreshed.ok && accountUiEpochRef.current === uiEpoch) applyAccountSnapshot(refreshed.value)
+      else if (!refreshed.ok && accountUiEpochRef.current === uiEpoch) markAccountServiceFailure(refreshed.error)
     } finally {
       if (accountUiEpochRef.current === uiEpoch) setCheckoutResumePending(false)
     }
-  }, [accountSnapshot.checkoutStatus, applyAccountSnapshot, setPurchaseFeedback])
+  }, [accountSnapshot.checkoutStatus, applyAccountSnapshot, markAccountOperationFailure, markAccountServiceFailure, setPurchaseFeedback])
 
   const requestAccountRefresh = useCallback(async () => {
     const uiEpoch = accountUiEpochRef.current
     setAccountRefreshPending(true)
     setAccountRefreshFeedback(null)
+    setAccountServiceHealth('checking')
     try {
       const result = await host.account.getSnapshot({ force: true })
       if (accountUiEpochRef.current !== uiEpoch) return
@@ -1187,12 +1236,13 @@ export default function App() {
           setAccountRefreshFeedback(feedback)
         }
       } else {
+        markAccountServiceFailure(result.error, true)
         setAccountRefreshFeedback(accountErrorFeedback(result.error))
       }
     } finally {
       if (accountUiEpochRef.current === uiEpoch) setAccountRefreshPending(false)
     }
-  }, [applyAccountSnapshot, refreshCredits, watchPendingCheckout])
+  }, [applyAccountSnapshot, markAccountServiceFailure, refreshCredits, watchPendingCheckout])
 
   const requestSaveAutoReload = useCallback(async (policy: AutoReloadPolicy) => {
     const uiEpoch = accountUiEpochRef.current
@@ -1208,12 +1258,13 @@ export default function App() {
         }
       } else {
         setAutoReloadPolicy(accountSnapshot.autoReloadPolicy)
+        markAccountOperationFailure(result.error)
         setAutoReloadFeedback(accountErrorFeedback(result.error))
       }
     } finally {
       if (accountUiEpochRef.current === uiEpoch) setAutoReloadPending(false)
     }
-  }, [accountSnapshot.autoReloadPolicy, applyAccountSnapshot])
+  }, [accountSnapshot.autoReloadPolicy, applyAccountSnapshot, markAccountOperationFailure])
 
   const currentCheckoutStatusMarker = accountSnapshot.checkoutStatus
     ? checkoutStatusMarker(accountSnapshot.checkoutStatus)
@@ -1229,10 +1280,14 @@ export default function App() {
   const displayedCredits = directProviderAllowed
     ? apiCredits ?? (accountSnapshot.capabilities.accountConfigured ? 0 : credits)
     : accountCredits ?? 0
-  const displayedCreditsLive = directProviderAllowed ? apiCredits != null : accountCredits != null
+  const displayedCreditsLive = directProviderAllowed
+    ? apiCredits != null
+    : accountServiceHealth === 'available' && accountCredits != null
   const generationReady = directProviderAllowed
-    ? apiStatus === 'connected' && apiCredits != null
-    : accountSnapshot.capabilities.generationAccess
+    ? (accountServiceHealth === 'available' || !accountSnapshot.capabilities.accountConfigured)
+      && apiStatus === 'connected'
+      && apiCredits != null
+    : accountServiceHealth === 'available' && accountSnapshot.capabilities.generationAccess
   const checkoutRecovery = visibleCheckoutStatus
     ? checkoutRecoverySummary(visibleCheckoutStatus)
     : null
@@ -1255,7 +1310,7 @@ export default function App() {
           settings={settings}
           credits={displayedCredits}
           creditsLive={displayedCreditsLive}
-          accountConfigured={accountSnapshot.capabilities.accountConfigured}
+          accountServiceHealth={accountServiceHealth}
           accountReady={generationReady}
           accountSignedIn={accountSignedIn}
           directProviderAllowed={directProviderAllowed}
@@ -1342,7 +1397,8 @@ export default function App() {
           apiStatus={apiStatus}
           apiError={apiError}
           credits={displayedCredits}
-          accountConfigured={accountSnapshot.capabilities.accountConfigured}
+          accountServiceHealth={accountServiceHealth}
+          lastSuccessfulAccountRefreshAtMs={lastSuccessfulAccountRefreshAtMs}
           accountReady={generationReady}
           accountSignedIn={accountSignedIn}
           directProviderAllowed={directProviderAllowed}
@@ -1353,6 +1409,7 @@ export default function App() {
           onConnectApiKey={connectApiKey}
           onAdoptExistingConnection={adoptExistingDirectConnection}
           onRefreshApiConnection={refreshApiConnection}
+          onRefreshAccount={requestAccountRefresh}
           updateStatus={updateStatus}
           updateChecking={updateChecking}
           updateInstalling={updateInstalling}
@@ -1367,6 +1424,8 @@ export default function App() {
           onBack={goBack}
           session={accountSnapshot.session}
           capabilities={accountSnapshot.capabilities}
+          serviceHealth={accountServiceHealth}
+          lastSuccessfulRefreshAtMs={lastSuccessfulAccountRefreshAtMs}
           generationReady={generationReady}
           activeJobCount={activeJobCount}
           authMode={accountAuthMode}
