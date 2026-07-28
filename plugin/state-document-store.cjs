@@ -66,16 +66,23 @@ function createStateDocumentStore(userDataPath) {
 
     function read(reference) {
         const filePath = filePathFor(reference);
-        let info;
+        let handle;
         try {
-            info = fs.lstatSync(filePath);
-        } catch {
+            handle = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+        } catch (error) {
+            if (error?.code === 'ELOOP') throw new Error('Saved document state is invalid');
             throw new Error('Saved document state is unavailable');
         }
-        if (!info.isFile() || info.isSymbolicLink() || info.size !== reference.bytes) {
-            throw new Error('Saved document state is invalid');
+        let bytes;
+        try {
+            const info = fs.fstatSync(handle);
+            if (!info.isFile() || info.size !== reference.bytes) {
+                throw new Error('Saved document state is invalid');
+            }
+            bytes = fs.readFileSync(handle);
+        } finally {
+            fs.closeSync(handle);
         }
-        const bytes = fs.readFileSync(filePath);
         const checksum = crypto.createHash('sha256').update(bytes).digest();
         const expectedChecksum = Buffer.from(reference.checksum, 'hex');
         if (!crypto.timingSafeEqual(checksum, expectedChecksum)) {

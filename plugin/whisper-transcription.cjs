@@ -431,11 +431,16 @@ function modelPaths(modelRoot, model) {
 const verifiedModels = new Map();
 
 function modelMarkerReady(paths, model, definition) {
-    const stat = fs.lstatSync(paths.marker);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > MAX_MODEL_MARKER_BYTES) return false;
-    const marker = JSON.parse(fs.readFileSync(paths.marker, 'utf8'));
-    return marker.schemaVersion === 1 && marker.model === model
-        && marker.sha256 === definition.sha256 && marker.bytes === definition.bytes;
+    const handle = fs.openSync(paths.marker, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+        const stat = fs.fstatSync(handle);
+        if (!stat.isFile() || stat.size < 2 || stat.size > MAX_MODEL_MARKER_BYTES) return false;
+        const marker = JSON.parse(fs.readFileSync(handle, 'utf8'));
+        return marker.schemaVersion === 1 && marker.model === model
+            && marker.sha256 === definition.sha256 && marker.bytes === definition.bytes;
+    } finally {
+        fs.closeSync(handle);
+    }
 }
 
 function modelFileStat(paths, definition) {

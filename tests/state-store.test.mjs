@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, rm, stat, symlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -84,12 +84,16 @@ test('large document state is private, checksum-backed, and atomically replaceab
   const files = await readdir(documents.rootPath)
   assert.deepEqual(files, [`${reference.id}.json`])
   const filePath = path.join(documents.rootPath, files[0])
-  assert.equal((await stat(filePath)).mode & 0o777, 0o600)
-  assert.equal((await readFile(filePath, 'utf8')).length, json.length)
-
-  const corrupted = Buffer.from(json)
-  corrupted[corrupted.length - 20] = corrupted[corrupted.length - 20] === 0x78 ? 0x79 : 0x78
-  await writeFile(filePath, corrupted)
+  const handle = await open(filePath, 'r+')
+  try {
+    assert.equal((await handle.stat()).mode & 0o777, 0o600)
+    assert.equal((await handle.readFile('utf8')).length, json.length)
+    const corrupted = Buffer.from(json)
+    corrupted[corrupted.length - 20] = corrupted[corrupted.length - 20] === 0x78 ? 0x79 : 0x78
+    await handle.write(corrupted, 0, corrupted.length, 0)
+  } finally {
+    await handle.close()
+  }
   assert.throws(() => documents.read(reference), /corrupt/)
   assert.equal(documents.deleteReference(reference), true)
   assert.deepEqual(await readdir(documents.rootPath), [])
