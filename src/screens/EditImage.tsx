@@ -651,11 +651,11 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Image edit summary">
           <PriceEstimate estimate={editEstimate} />
-          <div className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">
+          <div id="edit-image-footer-message" className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">
             {footerHasError && !error && <span aria-hidden="true">✕ </span>}
             {footerMessage}
           </div>
-          <button type="button" className="ef-generate ef-create-footer-action" onClick={apply} disabled={!sourceReady || promptMissing || promptOverLimit || maskMissing || !connected}>
+          <button type="button" className="ef-generate ef-create-footer-action" onClick={apply} disabled={!sourceReady || promptMissing || promptOverLimit || maskMissing || !connected} aria-describedby="edit-image-footer-message">
             <Icon glyph="spark" color="#0E0E13" size={13} /> {utilityAction === 'upscale' ? 'Upscale image' : utilityAction === 'removebg' ? 'Remove background' : mode === 'inpaint' ? 'Apply inpaint' : 'Apply edit'}
           </button>
         </footer>

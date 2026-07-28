@@ -499,12 +499,13 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Camera-angle generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected || !draftReady ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
+          <div id="angles-footer-message" className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected || !draftReady ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
           <button
             type="button"
             className="ef-generate ef-create-footer-action"
             disabled={!canGenerate}
             aria-label={mode === 'random' ? `Generate ${randomCount} random camera angle${randomCount === 1 ? '' : 's'}` : 'Generate custom camera angle'}
+            aria-describedby="angles-footer-message"
             onClick={() => { void generate() }}
           >
             <Icon glyph="angles" color="#0E0E13" size={13} /> {mode === 'random' ? `Generate ×${randomCount}` : 'Generate angle'}

@@ -477,6 +477,7 @@ export function Home({
                 className="ef-apikey-btn"
                 disabled={!canValidateKey}
                 title={!keyToValidate ? 'Enter a credential first' : undefined}
+                aria-describedby="ef-home-api-status"
               >
                 {apiStatus === 'connecting' ? '…' : creditsLive ? 'Refresh' : 'Connect'}
               </button>

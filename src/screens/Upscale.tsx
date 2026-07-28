@@ -737,8 +737,8 @@ export function Upscale({ onBack, toast, onSpend }: UpscaleProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Upscale batch summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${error ? 'is-error' : !items.length || !connected || sourceBusy || !readyItems.length ? 'is-help' : 'is-ready'}`} role={error ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
-          <button type="button" className="ef-generate ef-create-footer-action" disabled={!readyItems.length || sourceBusy || !connected} onClick={() => void runItems()}><Icon glyph="spark" color="#0E0E13" size={13} /> Upscale {readyItems.length || ''} {readyItems.length === 1 ? 'source' : 'sources'}</button>
+          <div id="upscale-footer-message" className={`ef-create-footer-message ${error ? 'is-error' : !items.length || !connected || sourceBusy || !readyItems.length ? 'is-help' : 'is-ready'}`} role={error ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
+          <button type="button" className="ef-generate ef-create-footer-action" disabled={!readyItems.length || sourceBusy || !connected} aria-describedby="upscale-footer-message" onClick={() => void runItems()}><Icon glyph="spark" color="#0E0E13" size={13} /> Upscale {readyItems.length || ''} {readyItems.length === 1 ? 'source' : 'sources'}</button>
         </footer>
       )}
 
