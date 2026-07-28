@@ -8,9 +8,9 @@
   ],
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
-  "version": "1.2.0",
-  "createdAt": "2026-07-28T10:47:48.212Z",
-  "buildId": "4b4c501ac737f7a3dbdb97e75a87105da5438c8251a4b227db1723ad902a271e",
+  "version": "1.3.0",
+  "createdAt": "2026-07-28T17:01:13.083Z",
+  "buildId": "d0f2ed01607e34fe89a9f28087a825356eec9d4e634c2d1965e19d2a6d3d5e1c",
   "files": [
     {
       "path": "account-config.example.json",
@@ -65,12 +65,12 @@
     {
       "path": "manifest.xml",
       "size": 300,
-      "sha256": "56abffa918201ed14395c271bdf928befd0d1421829d5617b8e2df84af1dbb00"
+      "sha256": "7a5b2a35a30d0d89defa3be446d11a4381217e95561708e93dfd43fb037c1c25"
     },
     {
       "path": "package.json",
       "size": 163,
-      "sha256": "36290031f865bf484de65f16feab3b21897f28714ee6c9069827c5f160a1a847"
+      "sha256": "8684156780a3bc6c1f234dac34e1378b75a1f2b5646adc3f78977eb16b807c50"
     },
     {
       "path": "plugin-updater.cjs",
