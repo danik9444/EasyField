@@ -16,6 +16,7 @@ interface Window {
     }
     window?: {
       setMode: (mode: 'compact' | 'expanded') => Promise<void>
+      setLayout: (mode: 'compact' | 'expanded', heightMode: 'standard' | 'full') => Promise<void>
     }
     updates?: {
       check: () => Promise<import('./services/host').PluginUpdateStatus>

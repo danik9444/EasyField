@@ -1,5 +1,6 @@
 node_modules
 dist
+website/
 plugin/ui
 plugin/python/.venv
 .claude/
@@ -48,6 +49,7 @@ SHA256SUMS
 credentials*.json
 secrets*.json
 auth*.json
+plugin/account-config.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('easyfield', Object.freeze({
     }),
     window: Object.freeze({
         setMode: (mode) => ipcRenderer.invoke('ef:window:set-mode', mode),
+        setLayout: (mode, heightMode) => ipcRenderer.invoke('ef:window:set-layout', mode, heightMode),
     }),
     updates: Object.freeze({
         check: () => ipcRenderer.invoke('ef:updates:check'),

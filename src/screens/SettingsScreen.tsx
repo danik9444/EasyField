@@ -173,6 +173,11 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, onBack,
                   {(['compact', 'expanded'] as const).map((mode) => <button type="button" aria-pressed={settings.windowMode === mode} className={settings.windowMode === mode ? 'is-selected' : ''} key={mode} onClick={() => onChange({ windowMode: mode })}>{mode}</button>)}
                 </div>
               </SettingRow>
+              <SettingRow label="Window height" hint="Full height fits the panel to the usable height of the current display.">
+                <div className="ef-setting-segmented">
+                  {(['standard', 'full'] as const).map((mode) => <button type="button" aria-pressed={settings.windowHeightMode === mode} className={settings.windowHeightMode === mode ? 'is-selected' : ''} key={mode} onClick={() => onChange({ windowHeightMode: mode })}>{mode === 'full' ? 'Full height' : 'Standard'}</button>)}
+                </div>
+              </SettingRow>
               <SettingRow label="Accent" hint="Category colors stay semantic; this controls the personal accent.">
                 <div className="ef-accent-options">{ACCENT_OPTIONS.map((color) => <button type="button" key={color} aria-pressed={settings.accent === color} className={settings.accent === color ? 'is-selected' : ''} style={{ background: color }} aria-label={`Use ${color} accent`} onClick={() => onChange({ accent: color })} />)}</div>
               </SettingRow>

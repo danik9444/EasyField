@@ -6,7 +6,7 @@
 //   2. Embedded HTTP server: static UI + streaming cloud-provider proxies + /bridge.
 //   3. BrowserWindow that loads the UI from the embedded server.
 
-const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -1667,6 +1667,66 @@ function startServer() {
 
 let mainWindow = null;
 let stateStore = null;
+let nativeWindowHeightMode = 'standard';
+let standardWindowBounds = null;
+
+function clampNumber(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+function applyNativeWindowLayout(mode, heightMode) {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
+    if (heightMode !== 'standard' && heightMode !== 'full') throw new Error('Invalid window height mode');
+
+    const expanded = mode === 'expanded';
+    const preferredWidth = expanded ? 900 : 400;
+    const preferredHeight = expanded ? 860 : 820;
+    const canReadBounds = typeof mainWindow.getBounds === 'function';
+    const currentBounds = canReadBounds ? mainWindow.getBounds() : null;
+
+    if (heightMode === 'full') {
+        if (nativeWindowHeightMode !== 'full' && currentBounds) standardWindowBounds = { ...currentBounds };
+        const currentContentHeight = typeof mainWindow.getContentSize === 'function'
+            ? mainWindow.getContentSize()[1]
+            : preferredHeight;
+        mainWindow.setContentSize(preferredWidth, currentContentHeight, false);
+
+        const resizedBounds = canReadBounds ? mainWindow.getBounds() : null;
+        const display = screen && typeof screen.getDisplayMatching === 'function' && resizedBounds
+            ? screen.getDisplayMatching(resizedBounds)
+            : null;
+        const workArea = display && display.workArea;
+        if (workArea && resizedBounds && typeof mainWindow.setBounds === 'function') {
+            const width = Math.min(resizedBounds.width, workArea.width);
+            const x = clampNumber(resizedBounds.x, workArea.x, workArea.x + workArea.width - width);
+            mainWindow.setBounds({ x, y: workArea.y, width, height: workArea.height }, true);
+        } else {
+            // Synthetic/test shells may not expose Electron's display service.
+            mainWindow.setContentSize(preferredWidth, expanded ? 960 : 920, true);
+        }
+        nativeWindowHeightMode = 'full';
+        return;
+    }
+
+    mainWindow.setContentSize(preferredWidth, preferredHeight, true);
+    if (standardWindowBounds && canReadBounds && typeof mainWindow.setPosition === 'function') {
+        const resizedBounds = mainWindow.getBounds();
+        const display = screen && typeof screen.getDisplayMatching === 'function'
+            ? screen.getDisplayMatching(standardWindowBounds)
+            : null;
+        const workArea = display && display.workArea;
+        const x = workArea
+            ? clampNumber(standardWindowBounds.x, workArea.x, workArea.x + workArea.width - resizedBounds.width)
+            : standardWindowBounds.x;
+        const y = workArea
+            ? clampNumber(standardWindowBounds.y, workArea.y, workArea.y + workArea.height - resizedBounds.height)
+            : standardWindowBounds.y;
+        mainWindow.setPosition(x, y, true);
+    }
+    standardWindowBounds = null;
+    nativeWindowHeightMode = 'standard';
+}
 
 // Artifact rows contain absolute paths and are Main-owned. They deliberately do
 // not participate in the renderer's generic state IPC surface.
@@ -1818,10 +1878,10 @@ function registerHostIpc() {
         return stateStore.delete(namespace, key);
     });
     registerTrustedHandler('ef:window:set-mode', (mode) => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
-        const expanded = mode === 'expanded';
-        mainWindow.setContentSize(expanded ? 900 : 400, expanded ? 860 : 820, true);
+        applyNativeWindowLayout(mode, nativeWindowHeightMode);
+    });
+    registerTrustedHandler('ef:window:set-layout', (mode, heightMode) => {
+        applyNativeWindowLayout(mode, heightMode);
     });
     // No renderer argument is accepted: Main owns the verified source and the
     // fixed Resolve destination, including administrator-authorized rollback.
@@ -1869,6 +1929,8 @@ function createWindow() {
         height: 820,
         minWidth: 340,
         minHeight: 520,
+        resizable: true,
+        maximizable: true,
         useContentSize: true,
         // Match the panel background so resizing never reveals black/white gaps.
         backgroundColor: '#101015',

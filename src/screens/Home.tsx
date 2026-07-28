@@ -5,7 +5,6 @@ import { TOOL_BY_ID } from '../data/toolDefinitions'
 import { formatTokens } from '../data/usage'
 import { useCreations } from '../data/creations'
 import { resolve } from '../services/resolve'
-import { host } from '../services/host'
 import { SECURE_API_KEY_TOKEN, type Settings } from '../settings'
 import type { ToolId } from '../core/contracts'
 
@@ -17,6 +16,33 @@ const MEDIA_CATEGORY_COPY: Record<string, { eyebrow: string; description: string
   audio: { eyebrow: 'SOUND & TIMING', description: 'Generate sound, narration, transcripts and editorial timing.' },
 }
 
+// Home cards deliberately use the short editorial copy from the original
+// compact panel. The full definitions stay detailed everywhere else (search,
+// workspace introductions and accessibility), while this directory remains
+// fast to scan at Resolve-panel width.
+const HOME_TOOL_DESCRIPTIONS: Partial<Record<ToolId, string>> = {
+  culling: 'Sort raw footage',
+  broll: 'Auto-match b-roll',
+  upscale: 'Enhance up to 4K',
+  'create-image': 'Text to still frame',
+  storyboard: 'Script to frames',
+  character: 'Consistent identity',
+  'edit-image': 'Inpaint & retouch',
+  angles: 'New camera angles',
+  'create-video': 'Text/image to clip',
+  avatar: 'Talking presenter',
+  'edit-video': 'Prompt-based edits',
+  extend: 'Continue any shot',
+  transition: 'Generative morphs',
+  animations: 'AI motion graphics',
+  captions: 'Styled subtitles',
+  music: 'Score to your cut',
+  sfx: 'Foley on demand',
+  vo: 'Line-based narration',
+  transcribe: 'Speech to text',
+  beat: 'Cut markers on beat',
+}
+
 const HOME_WORKSPACES = CATALOG.map((category) => ({
   id: category.id,
   label: category.label,
@@ -25,6 +51,7 @@ const HOME_WORKSPACES = CATALOG.map((category) => ({
   color: category.color,
   tools: category.tools.map((tool) => ({
     ...tool,
+    homeDesc: HOME_TOOL_DESCRIPTIONS[tool.id] ?? tool.desc,
     media: category.label,
     mediaColor: category.color,
     mediaTint: category.tint,
@@ -33,7 +60,6 @@ const HOME_WORKSPACES = CATALOG.map((category) => ({
 
 const HOME_TOOL_COUNT = HOME_WORKSPACES.reduce((total, workspace) => total + workspace.tools.length, 0)
 const HOME_CATEGORY_IDS = ['all', ...HOME_WORKSPACES.map((workspace) => workspace.id)]
-const HOME_OVERVIEW_STATE_KEY = 'home-overview'
 
 interface HomeProps {
   settings: Settings
@@ -56,7 +82,9 @@ interface HomeProps {
   onOpenSettings: () => void
   onOpenTool: (toolId: ToolId) => void
   onToggleWindowMode: () => void
+  onToggleWindowHeight: () => void
   windowMode: 'compact' | 'expanded'
+  windowHeightMode: 'standard' | 'full'
   toast: (msg: string) => void
   searchFocusSignal: number
 }
@@ -82,18 +110,16 @@ export function Home({
   onOpenSettings,
   onOpenTool,
   onToggleWindowMode,
+  onToggleWindowHeight,
   windowMode,
+  windowHeightMode,
   searchFocusSignal,
 }: HomeProps) {
   const [query, setQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
-  const [overviewExpanded, setOverviewExpanded] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [keyDraft, setKeyDraft] = useState(() => settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey)
-  const [bridgeChecking, setBridgeChecking] = useState(false)
-  const [bridgeCheckFailed, setBridgeCheckFailed] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
-  const pendingSearchFocusRef = useRef(false)
   const keyInputRef = useRef<HTMLInputElement>(null)
   const settingsDialogRef = useRef<HTMLDivElement>(null)
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
@@ -116,29 +142,9 @@ export function Home({
 
   useEffect(() => {
     if (searchFocusSignal <= 0) return
-    pendingSearchFocusRef.current = true
-    setOverviewExpanded(true)
-    void host.setState('settings', HOME_OVERVIEW_STATE_KEY, { expanded: true })
-    if (overviewExpanded) {
-      pendingSearchFocusRef.current = false
-      requestAnimationFrame(() => searchRef.current?.focus())
-    }
-  }, [searchFocusSignal])
-
-  useEffect(() => {
-    if (!overviewExpanded || !pendingSearchFocusRef.current) return
-    pendingSearchFocusRef.current = false
     const frame = requestAnimationFrame(() => searchRef.current?.focus())
     return () => cancelAnimationFrame(frame)
-  }, [overviewExpanded])
-
-  useEffect(() => {
-    let active = true
-    void host.getState<{ expanded?: boolean }>('settings', HOME_OVERVIEW_STATE_KEY).then((saved) => {
-      if (active && typeof saved?.expanded === 'boolean') setOverviewExpanded(saved.expanded)
-    })
-    return () => { active = false }
-  }, [])
+  }, [searchFocusSignal])
 
   useEffect(() => {
     setKeyDraft(settings.apiKey === SECURE_API_KEY_TOKEN ? '' : settings.apiKey)
@@ -195,8 +201,6 @@ export function Home({
     })).filter((group) => group.tools.length > 0)
   }, [activeCategory, query])
   const visibleToolCount = visibleGroups.reduce((count, group) => count + group.tools.length, 0)
-  const cloudReady = creditsLive && apiStatus === 'connected'
-  const setupNeeded = !cloudReady || !bridge.connected
   const storedSecureKey = settings.apiKey === SECURE_API_KEY_TOKEN
   const keyToValidate = keyDraft.trim() || (storedSecureKey ? SECURE_API_KEY_TOKEN : '')
   const canValidateKey = Boolean(keyToValidate) && apiStatus !== 'connecting'
@@ -214,25 +218,6 @@ export function Home({
   const toggleApiSettings = () => {
     if (settingsOpen) closeApiSettings()
     else openApiSettings()
-  }
-
-  const checkResolve = async () => {
-    setBridgeChecking(true)
-    setBridgeCheckFailed(false)
-    try {
-      const next = await resolve.refreshStatus()
-      setBridgeCheckFailed(!next.connected)
-    } finally {
-      setBridgeChecking(false)
-    }
-  }
-
-  const toggleOverview = () => {
-    setOverviewExpanded((current) => {
-      const expanded = !current
-      void host.setState('settings', HOME_OVERVIEW_STATE_KEY, { expanded })
-      return expanded
-    })
   }
 
   const openTool = (toolId: ToolId) => {
@@ -269,6 +254,15 @@ export function Home({
           title={windowMode === 'compact' ? 'Expand workspace' : 'Compact workspace'}
         >
           {windowMode === 'compact' ? '↗' : '↙'}
+        </button>
+        <button
+          type="button"
+          className="ef-density-toggle"
+          onClick={onToggleWindowHeight}
+          aria-label={windowHeightMode === 'standard' ? 'Fill the available screen height' : 'Restore the standard window height'}
+          title={windowHeightMode === 'standard' ? 'Full height' : 'Standard height'}
+        >
+          {windowHeightMode === 'standard' ? '↕' : '↥'}
         </button>
         <button type="button" className="ef-density-toggle" onClick={onOpenSettings} aria-label="Open settings" title="Settings">⚙</button>
         <div className="ef-home-statuses" aria-label="Connections and account">
@@ -360,149 +354,6 @@ export function Home({
         </>
       )}
 
-      <div className={'ef-home-overview' + (overviewExpanded ? ' is-expanded' : ' is-collapsed')}>
-        <section className="ef-home-command" aria-label="Workspace overview">
-          <div className="ef-home-command-topline">
-            <span className="ef-home-eyebrow">
-              <i aria-hidden="true" />
-              {overviewExpanded
-                ? 'AI POST-PRODUCTION WORKSPACE'
-                : searching
-                  ? `${visibleToolCount} FILTERED ${visibleToolCount === 1 ? 'TOOL' : 'TOOLS'}`
-                  : setupNeeded
-                    ? 'WORKSPACE · SETUP NEEDED'
-                    : 'WORKSPACE CONTROLS'}
-            </span>
-            <button
-              type="button"
-              className="ef-home-overview-toggle"
-              aria-expanded={overviewExpanded}
-              aria-controls="ef-home-overview-content"
-              aria-label={`${overviewExpanded ? 'Hide' : 'Show'} workspace overview`}
-              onClick={toggleOverview}
-            >
-              <span>{overviewExpanded ? 'Hide' : 'Show'}</span>
-              <span className="ef-home-overview-chevron" aria-hidden="true">{overviewExpanded ? '⌃' : '⌄'}</span>
-            </button>
-          </div>
-
-          <div id="ef-home-overview-content" className="ef-home-command-content" hidden={!overviewExpanded}>
-            <div className="ef-home-command-copy">
-              <h1 id="ef-home-command-title">From idea to final timeline.</h1>
-              <p>Purpose-built tools for professional editors, organized around the work you need to finish.</p>
-            </div>
-
-            <div className="ef-home-command-actions">
-              <div className="ef-search">
-                <span className="ef-search-glyph" aria-hidden="true">
-                  <Icon glyph="mask" size={15} />
-                </span>
-                <input
-                  ref={searchRef}
-                  type="search"
-                  aria-label="Search all EasyField tools"
-                  aria-keyshortcuts="Meta+F Control+F"
-                  placeholder={`Search all ${HOME_TOOL_COUNT} tools…`}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                {searching ? (
-                  <button
-                    type="button"
-                    className="ef-search-clear"
-                    aria-label="Clear tool search"
-                    onClick={() => {
-                      setQuery('')
-                      searchRef.current?.focus()
-                    }}
-                  >
-                    ×
-                  </button>
-                ) : (
-                  <span className="ef-kbd" aria-hidden="true">⌘F</span>
-                )}
-              </div>
-              <button
-                type="button"
-                className="ef-home-brain-launch"
-                aria-label="Open SuperBrain to plan a complete workflow"
-                onClick={onOpenBrain}
-              >
-                <span className="ef-home-brain-icon" aria-hidden="true"><Icon glyph="spark" size={13} /></span>
-                <span className="ef-home-brain-copy">
-                  <strong>Plan with SuperBrain</strong>
-                  <small>Build a reviewed workflow before anything runs</small>
-                </span>
-                <span className="ef-home-brain-open" aria-hidden="true">Open</span>
-                <span className="ef-kbd" aria-hidden="true">⌘K</span>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {overviewExpanded && setupNeeded && (
-          <aside className="ef-setup-card ef-setup-card--compact" aria-labelledby="ef-setup-title">
-          <div className="ef-setup-header">
-            <span className="ef-setup-eyebrow">SETUP</span>
-            <div>
-              <h2 className="ef-setup-title" id="ef-setup-title">Finish connecting EasyField</h2>
-              <p className="ef-setup-copy">Connect generation and timeline placement.</p>
-            </div>
-          </div>
-          <div className="ef-setup-list">
-            {!cloudReady && (
-              <div className="ef-setup-step">
-                <span className="ef-setup-step-icon" aria-hidden="true">!</span>
-                <span className="ef-setup-step-content">
-                  <span className="ef-setup-step-title">EasyField Cloud</span>
-                  <span className="ef-setup-step-desc">
-                    {apiStatus === 'connecting'
-                      ? 'Checking your saved API key…'
-                      : apiStatus === 'error'
-                        ? 'Connection failed. Review your API key.'
-                        : settings.apiKey
-                          ? 'Your saved key is not connected. Review it and try again.'
-                          : 'Add an API key to use live generation models.'}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className="ef-setup-action"
-                  onClick={openApiSettings}
-                  disabled={apiStatus === 'connecting'}
-                >
-                  {apiStatus === 'connecting' ? 'Checking…' : settings.apiKey ? 'Review key' : 'Connect'}
-                </button>
-              </div>
-            )}
-            {!bridge.connected && (
-              <div className="ef-setup-step">
-                <span className="ef-setup-step-icon" aria-hidden="true">!</span>
-                <span className="ef-setup-step-content">
-                  <span className="ef-setup-step-title">DaVinci Resolve</span>
-                  <span className="ef-setup-step-desc" aria-live="polite">
-                    {bridge.compatibilityError
-                      ? 'Update the EasyField Resolve integration before using timeline or Media Pool actions.'
-                      : bridgeCheckFailed
-                      ? 'Still not connected. Open EasyField inside Resolve, then try again.'
-                      : 'Open EasyField from Workspace › Workflow Integrations.'}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className="ef-setup-action"
-                  onClick={() => void checkResolve()}
-                  disabled={bridgeChecking}
-                >
-                  {bridgeChecking ? 'Checking…' : bridge.compatibilityError ? 'Update required' : 'Check again'}
-                </button>
-              </div>
-            )}
-          </div>
-          </aside>
-        )}
-      </div>
-
       <button type="button" className="ef-library-entry" onClick={onOpenLibrary}>
         <span className="ef-library-entry-icon" aria-hidden="true">
           <Icon glyph="board" size={15} />
@@ -518,15 +369,42 @@ export function Home({
         <span className="ef-library-entry-arrow">›</span>
       </button>
 
-      <section className="ef-home-directory" aria-label="Media workspaces">
-        <header className="ef-home-directory-head">
-          <div>
-            <span>MEDIA WORKSPACES</span>
-          </div>
-          <span className="ef-home-directory-total">{HOME_TOOL_COUNT} TOOLS</span>
-        </header>
+      <section className="ef-home-search-panel" aria-label="Find and filter tools">
+        <div className="ef-search">
+          <span className="ef-search-glyph" aria-hidden="true">
+            <Icon glyph="mask" size={15} />
+          </span>
+          <input
+            ref={searchRef}
+            type="search"
+            aria-label="Search all EasyField tools"
+            aria-keyshortcuts="Meta+F Control+F"
+            placeholder={`Search all ${HOME_TOOL_COUNT} tools…`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {searching ? (
+            <button
+              type="button"
+              className="ef-search-clear"
+              aria-label="Clear tool search"
+              onClick={() => {
+                setQuery('')
+                searchRef.current?.focus()
+              }}
+            >
+              ×
+            </button>
+          ) : (
+            <span className="ef-kbd" aria-hidden="true">⌘F</span>
+          )}
+        </div>
+        <div className="ef-home-directory-intro">
+          <h1>Choose your workspace</h1>
+          <p>Start with your project media. Find the best tool to create, edit, analyze or finish.</p>
+        </div>
         <div className="ef-category-tabs" role="tablist" aria-label="Filter tools by media type">
-          <button type="button" role="tab" aria-selected={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All tools <span>{HOME_TOOL_COUNT}</span></button>
+          <button type="button" role="tab" aria-selected={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All <span>{HOME_TOOL_COUNT}</span></button>
           {HOME_WORKSPACES.map((group, index) => (
             <button
               type="button"
@@ -565,14 +443,10 @@ export function Home({
               style={{ '--ef-category-color': group.color } as CSSProperties}
             >
               <div className="ef-group-header">
-                <span className="ef-group-index" aria-hidden="true">{String(HOME_WORKSPACES.findIndex((item) => item.id === group.id) + 1).padStart(2, '0')}</span>
-                <div className="ef-group-heading-copy">
-                  <span>{group.eyebrow}</span>
-                  <h2 className="ef-group-label" id={headingId}>{group.label}</h2>
-                  <p>{group.description}</p>
-                </div>
+                <i className="ef-group-dot" aria-hidden="true" />
+                <h2 className="ef-group-label" id={headingId}>{group.label}</h2>
                 <span className="ef-group-rule" />
-                <span className="ef-group-count">{group.tools.length} {group.tools.length === 1 ? 'tool' : 'tools'}</span>
+                <span className="ef-group-count">{String(group.tools.length).padStart(2, '0')}</span>
               </div>
               <div className="ef-tool-grid">
                 {group.tools.map((tool, index) => (
@@ -581,28 +455,31 @@ export function Home({
                     className="ef-tool-card"
                     key={tool.id}
                     style={{ '--ef-category-color': group.color, '--ef-media-color': tool.mediaColor, '--ef-tool-order': index } as CSSProperties}
-                    aria-label={`${tool.name}. ${tool.desc}. ${tool.media} tool.`}
+                    aria-label={`${tool.name}. ${tool.homeDesc}. ${tool.media} tool.`}
                     onClick={() => openTool(tool.id)}
                   >
                     <span className="ef-tool-tile" style={{ background: tool.mediaTint }} aria-hidden="true">
                       <Icon glyph={tool.glyph} color={tool.mediaColor} />
                     </span>
                     <span className="ef-tool-text">
-                      <span className="ef-tool-card-meta">
-                        <span className="ef-tool-media">{TOOL_BY_ID[tool.id].workspace}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{TOOL_BY_ID[tool.id].privacy === 'local' ? 'Local' : TOOL_BY_ID[tool.id].privacy === 'hybrid' ? 'Local + cloud' : 'Cloud'}</span>
-                      </span>
                       <span className="ef-tool-name">{tool.name}</span>
-                      <span className="ef-tool-desc">{tool.desc}</span>
+                      <span className="ef-tool-desc">{tool.homeDesc}</span>
                     </span>
-                    <span className="ef-tool-arrow" aria-hidden="true">↗</span>
                   </button>
                 ))}
               </div>
             </section>
           )
         })}
+      </div>
+
+      <div className="ef-brain-bar-wrap ef-home-superbrain-wrap">
+        <button type="button" className="ef-brain-bar ef-home-superbrain-bar" onClick={onOpenBrain} aria-label="Ask SuperBrain to do it for you">
+          <span className="ef-brain-bar-spark" aria-hidden="true"><Icon glyph="spark" size={13} /></span>
+          <span className="ef-brain-bar-label">Ask SuperBrain to do it for you</span>
+          <span className="ef-spacer" />
+          <span className="ef-brain-bar-kbd" aria-hidden="true">⌘K</span>
+        </button>
       </div>
     </div>
   )

@@ -108,6 +108,18 @@ export const host = {
     await nativeHost()?.window?.setMode(mode)
   },
 
+  async setWindowLayout(mode: 'compact' | 'expanded', heightMode: 'standard' | 'full'): Promise<void> {
+    const api = nativeHost()?.window
+    if (api?.setLayout) {
+      await api.setLayout(mode, heightMode)
+      return
+    }
+    // Compatibility with an older installed preload while an update is being
+    // staged: width still changes, and Full height becomes available after the
+    // native integration restarts on the matching release.
+    await api?.setMode(mode)
+  },
+
   async checkForUpdates(): Promise<PluginUpdateStatus> {
     const api = nativeHost()
     if (api?.updates) return api.updates.check()

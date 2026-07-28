@@ -50,6 +50,25 @@ test('inline micro-jobs persist their opt-out while normal jobs default to Activ
   removeJob(normal.id)
 })
 
+test('workflow recovery metadata is retained locally and oversized payloads are rejected', () => {
+  const recoveryMetadata = {
+    namespace: 'easyfield.storyboard.complete-board.v1',
+    key: 'default:storyboard-v1',
+    payload: JSON.stringify({ version: 1, inputFingerprint: 'board-a' }),
+  }
+  const associated = startJob({ title: 'Associated board', kind: 'image', recoveryMetadata })
+  const oversized = startJob({
+    title: 'Oversized association',
+    kind: 'image',
+    recoveryMetadata: { ...recoveryMetadata, payload: 'x'.repeat(65 * 1024) },
+  })
+
+  assert.deepEqual(getJobs().find((job) => job.id === associated.id)?.recoveryMetadata, recoveryMetadata)
+  assert.equal(getJobs().find((job) => job.id === oversized.id)?.recoveryMetadata, undefined)
+  removeJob(associated.id)
+  removeJob(oversized.id)
+})
+
 test('restart recovery resumes every persisted provider family without submitting paid work again', async (t) => {
   const originalFetch = globalThis.fetch
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')

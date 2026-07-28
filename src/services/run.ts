@@ -24,7 +24,15 @@ import { assertSpendApproved } from './spendGuard'
 import { isRecoverableProviderTrackingError, runProviderModel, uploadUrl, type PollOptions } from './providerGateway'
 import { generationStartLimit, jobLimit, uploadLimit, mapLimit } from './taskQueue'
 import { createUploadReuseCache } from './uploadReuse'
-import { getJobs, hasAcceptedProviderWork, prepareJobLedger, startJob, type JobKind, type ProviderTaskRef } from './jobCenter'
+import {
+  getJobs,
+  hasAcceptedProviderWork,
+  prepareJobLedger,
+  startJob,
+  type JobKind,
+  type JobRecoveryMetadata,
+  type ProviderTaskRef,
+} from './jobCenter'
 import type { ReferenceImage, MediaFile } from '../data/referenceImage'
 import {
   TOPAZ_IMAGE_MAX_OUTPUT_SIDE,
@@ -371,6 +379,7 @@ interface TrackedRun {
   subtitle?: string
   kind: JobKind
   autoOpen?: boolean
+  recoveryMetadata?: JobRecoveryMetadata
 }
 
 function stateDetail(state: string): { status: 'queued' | 'running'; detail: string } {
@@ -566,6 +575,8 @@ async function finish(
 // ---- Create Image ----------------------------------------------------------
 export interface ImageRun {
   jobTitle?: string
+  /** Local-only association used to reconnect a durable Job to its workflow. */
+  jobRecoveryMetadata?: JobRecoveryMetadata
   model: string
   prompt: string
   aspect: string
@@ -586,7 +597,12 @@ export function preflightImagePrompt(r: Pick<ImageRun, 'model' | 'prompt'>): voi
 export async function runImage(r: ImageRun, opts: PollOptions = {}): Promise<RunResult> {
   preflightImagePrompt(r)
   assertSpendApproved(imageRunEstimate(r.model, r.resolution, r.extras, r.count, { referenceCount: r.refs.length }), 'Image generation', loadSettings().spendLimit)
-  return withTrackedJob({ title: r.jobTitle ?? 'Create image', subtitle: r.model, kind: 'image' }, opts, async (trackedOpts) => {
+  return withTrackedJob({
+    title: r.jobTitle ?? 'Create image',
+    subtitle: r.model,
+    kind: 'image',
+    recoveryMetadata: r.jobRecoveryMetadata,
+  }, opts, async (trackedOpts) => {
     const key = requireKey()
     const { urls: imageUrls, dropped } = await hostAll(key, r.refs, trackedOpts.signal)
     const ctx: ImageCtx = { prompt: r.prompt, aspect: r.aspect, resolution: r.resolution, extras: r.extras, imageUrls }

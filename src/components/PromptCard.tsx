@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../icons'
 import { Dropdown } from './Dropdown'
 import { enhancePrompt, type EnhanceMediaKind, type EnhanceReference, type EnhanceSupportingContext } from '../services/chat'
@@ -31,9 +31,13 @@ interface PromptCardProps {
   /** Changes whenever an attached primary source changes; stale enhancement is cancelled. */
   contextKey?: string
   onEnhanced?: (result: { text: string; enhancerModel: string }) => void
+  /** Optional action placed beside the enhancer model (for example Refs). */
+  footerEnd?: ReactNode
+  /** Use the native vertical resize handle instead of the expand/collapse button. */
+  resizeMode?: 'toggle' | 'vertical'
 }
 
-export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'enhancer-model', targetModel, mediaKind, ariaLabel, placeholder, style, references, supportingContext, onSpend, contextKey = '', onEnhanced }: PromptCardProps) {
+export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'enhancer-model', targetModel, mediaKind, ariaLabel, placeholder, style, references, supportingContext, onSpend, contextKey = '', onEnhanced, footerEnd, resizeMode = 'toggle' }: PromptCardProps) {
   const [enhanceModel, setEnhanceModel] = useState(() => {
     const v = loadValue(enhancerKey)
     return v && AGENT_MODELS.includes(v) ? v : DEFAULT_AGENT_MODEL
@@ -74,7 +78,8 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
   }
 
   const enhance = async () => {
-    if (enhancing || !prompt.trim()) return
+    const canEnhance = Boolean(prompt.trim()) || Boolean(references?.length)
+    if (enhancing || !canEnhance) return
     setError(null)
     setEnhancing(true)
     const controller = new AbortController()
@@ -105,6 +110,8 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
   const characterCount = promptCharacterCount(prompt)
   const overLimit = characterCount > maxLength
   const nearLimit = !overLimit && characterCount > maxLength * 0.9
+  const canEnhance = Boolean(prompt.trim()) || Boolean(references?.length)
+  const manuallyResizable = resizeMode === 'vertical'
 
   return (
     <div className="ef-prompt-card">
@@ -114,25 +121,26 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
         aria-label={promptLabel}
         aria-describedby={promptStatusId}
         aria-busy={enhancing}
-        className={'ef-prompt-textarea' + (expanded ? ' expanded' : '')}
-        rows={expanded ? 13 : 3}
+        className={'ef-prompt-textarea' + (manuallyResizable ? ' is-resizable' : expanded ? ' expanded' : '')}
+        rows={manuallyResizable ? 5 : expanded ? 13 : 3}
         placeholder={placeholder}
         value={prompt}
         aria-invalid={overLimit}
         onChange={(e) => handleChange(e.target.value)}
       />
-      <div className="ef-prompt-footer">
+      <div className={'ef-prompt-footer' + (footerEnd ? ' ef-prompt-footer--with-end' : '')}>
         <button
           type="button"
           className={'ef-enhance-btn' + (enhancing ? ' loading' : '')}
           aria-label={!connected ? 'Connect EasyField Cloud to enhance' : `Enhance prompt for ${targetModel} with ${enhanceModel}; token billed with no EasyField spend cap`}
           title={!connected ? 'Connect EasyField Cloud from the credits badge on Home to enhance' : `Rewrite for ${targetModel} · live token billing, no EasyField spend cap`}
-          disabled={enhancing || !prompt.trim() || overLimit || !connected}
+          disabled={enhancing || !canEnhance || overLimit || !connected}
           onClick={enhance}
         >
           <Icon glyph="spark" size={12} />
         </button>
         <Dropdown options={AGENT_MODELS} selected={enhanceModel} onSelect={pickEnhanceModel} label="Prompt enhancer model" align="left" optionMeta={AGENT_MODEL_META} />
+        {footerEnd}
         <span className="ef-spacer" />
         {error ? (
           <span id={promptStatusId} className="ef-enhance-note error" title={error} role="alert">✕ enhancement failed</span>
@@ -153,17 +161,19 @@ export function PromptCard({ prompt, onPromptChange, maxLength, enhancerKey = 'e
             {overLimit && <span className="ef-char-over-label"> · shorten by {(characterCount - maxLength).toLocaleString()}</span>}
           </span>
         )}
-        <button
-          type="button"
-          className="ef-prompt-expand"
-          title={expanded ? 'Collapse prompt' : 'Expand prompt'}
-          aria-label={expanded ? 'Collapse prompt' : 'Expand prompt'}
-          aria-controls={promptId}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? '⤡' : '⤢'}
-        </button>
+        {!manuallyResizable && (
+          <button
+            type="button"
+            className="ef-prompt-expand"
+            title={expanded ? 'Collapse prompt' : 'Expand prompt'}
+            aria-label={expanded ? 'Collapse prompt' : 'Expand prompt'}
+            aria-controls={promptId}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? '⤡' : '⤢'}
+          </button>
+        )}
       </div>
     </div>
   )
