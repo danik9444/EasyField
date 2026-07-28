@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   '../supabase/migrations/20260715175329_generation_gateway_control_plane.sql',
   import.meta.url,
 )
+const lockOrderMigrationUrl = new URL(
+  '../supabase/migrations/202607290001_generation_settlement_lock_order.sql',
+  import.meta.url,
+)
 
 test('generation prices are server-owned and client estimates cannot create quotes', async () => {
   const sql = await readFile(migrationUrl, 'utf8')
@@ -47,6 +51,35 @@ test('terminal accounting captures inside the approved ceiling and releases the 
   assert.match(sql, /customer_ceiling_applied/)
   assert.match(sql, /if v_job\.status <> 'prepared' then return false/)
   assert.match(sql, /'cancelled_before_submission'/)
+})
+
+test('generation settlement locks each account before its reservation', async () => {
+  const sql = await readFile(lockOrderMigrationUrl, 'utf8')
+  const functionNames = [
+    'easyfield_generation_reject_submission',
+    'easyfield_generation_record_poll',
+    'easyfield_generation_cancel_prepared',
+  ]
+  for (const functionName of functionNames) {
+    const start = sql.indexOf(`create or replace function public.${functionName}`)
+    const end = sql.indexOf('create or replace function', start + 1)
+    const functionSql = sql.slice(start, end === -1 ? undefined : end)
+    const accountLock = functionSql.indexOf('perform 1 from public.credit_accounts')
+    const reservationLock = functionSql.indexOf(
+      'where id = v_job.reservation_id for update',
+    )
+    const settlementCalls = [
+      functionSql.indexOf('perform billing_private.capture_credits'),
+      functionSql.indexOf('perform billing_private.release_credits'),
+    ].filter((position) => position !== -1)
+    assert.notEqual(start, -1, functionName)
+    assert.ok(accountLock !== -1 && accountLock < reservationLock, functionName)
+    assert.notEqual(settlementCalls.length, 0, functionName)
+    assert.ok(
+      reservationLock < Math.min(...settlementCalls),
+      functionName,
+    )
+  }
 })
 
 test('restart recovery exposes only nonterminal jobs owned by the authenticated user', async () => {

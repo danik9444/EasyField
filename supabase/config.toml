@@ -4,7 +4,7 @@ project_id = "xtnaqwvayenfcqzqelmh"
 verify_jwt = true
 
 # Keep this function undeployed until a merchant webhook secret is configured.
-# When it is enabled, the function verifies the raw-body HMAC itself because
-# payment providers cannot supply a Supabase user JWT.
+# When it is enabled, the function verifies the timestamp-bound raw-body HMAC
+# itself because payment providers cannot supply a Supabase user JWT.
 [functions.easyfield-billing-webhook]
 verify_jwt = false

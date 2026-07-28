@@ -38,11 +38,13 @@ the renderer and outside the packaged app.
   the desktop. It independently reports customer generation, customer
   checkout, Partner checkout, and billing-portal availability; absent or
   malformed capability data fails closed.
-- `easyfield-billing-webhook` verifies HMAC-SHA256 over the exact raw request
-  bytes, validates a strict provider-neutral event, and invokes one database
-  transaction that records and claims the event, reconciles the immutable
-  catalog amount, completes the purchase, materializes the entitlement, and
-  grants or schedules credits exactly once.
+- `easyfield-billing-webhook` verifies HMAC-SHA256 over a canonical Unix-seconds
+  timestamp, a `.` separator, and the exact raw request bytes. The signed
+  timestamp must be no more than five minutes old or 30 seconds in the future.
+  The function then validates a strict provider-neutral event and invokes one
+  database transaction that records and claims the event, reconciles the
+  immutable catalog amount, completes the purchase, materializes the
+  entitlement, and grants or schedules credits exactly once.
 - If materialization cannot be proven, its database subtransaction rolls back
   every entitlement and ledger write while retaining the signed event as
   `failed`; the webhook returns `503`, so the identical delivery can be retried
@@ -60,6 +62,8 @@ Apply the migrations in filename order, including:
 202607150006_checkout_status_recovery.sql
 20260715154941_creator_monthly_price_24.sql
 20260715170000_private_billing_rls_hardening.sql
+20260715175329_generation_gateway_control_plane.sql
+202607290001_generation_settlement_lock_order.sql
 ```
 
 The new public RPC names are callable only by `service_role`. Authenticated
@@ -113,10 +117,15 @@ EASYFIELD_BILLING_WEBHOOK_URL
 EASYFIELD_WEBHOOK_SECRET
 EASYFIELD_WEBHOOK_SIGNATURE_HEADER       # optional, default x-signature
 EASYFIELD_WEBHOOK_DELIVERY_HEADER        # optional, default x-delivery-id
+EASYFIELD_WEBHOOK_TIMESTAMP_HEADER       # optional, default x-timestamp
 
 EASYFIELD_PRIVILEGED_BALANCE_API_URL
 EASYFIELD_PRIVILEGED_BALANCE_API_TOKEN
 ```
+
+The timestamp header must contain canonical base-10 Unix seconds. The
+signature is the hexadecimal HMAC-SHA256 of
+`<timestamp>.<exact raw request bytes>`.
 
 `EASYFIELD_CHECKOUT_VARIANTS_JSON` is a JSON object. Supported keys are:
 
