@@ -50,7 +50,7 @@ test('the four plans use exact integer-micro prices, grants and top-up rates', (
     }),
     [
       ['Starter', 15_000_000, 12_000_000, 144_000_000, 800_000_000, 20_000],
-      ['Creator', 24_000_000, 25_000_000, 300_000_000, 2_000_000_000, 15_000],
+      ['Creator', 24_000_000, 20_000_000, 240_000_000, 2_000_000_000, 15_000],
       ['Pro', 60_000_000, 49_000_000, 588_000_000, 5_000_000_000, 12_000],
       ['Studio', 129_000_000, 99_000_000, 1_188_000_000, 12_000_000_000, 10_000],
     ],
@@ -68,12 +68,26 @@ test('the four plans use exact integer-micro prices, grants and top-up rates', (
   }
 })
 
-test('annual is the purchase-screen default and annual copy never claims a negative saving', () => {
+test('annual is the purchase-screen default and every plan saves against monthly', () => {
   assert.equal(DEFAULT_BILLING_INTERVAL, 'annual')
   assert.equal(annualSavingsMoneyMicros('starter'), 36_000_000)
-  assert.equal(annualSavingsMoneyMicros('creator'), 0)
+  assert.equal(annualSavingsMoneyMicros('creator'), 48_000_000)
   assert.equal(annualSavingsMoneyMicros('pro'), 132_000_000)
   assert.equal(annualSavingsMoneyMicros('studio'), 360_000_000)
+
+  // annualSavingsMoneyMicros clamps at zero so the screen cannot advertise a
+  // negative discount. That clamp also hid a real pricing inversion: Creator
+  // annual was $300 against $288 of monthly charges, so prepaying a year cost
+  // MORE, and the only symptom was a missing "save $X" badge. Assert the
+  // discount at the source instead, so inverting a plan fails loudly here
+  // rather than degrading quietly on the purchase screen.
+  for (const planId of SUBSCRIPTION_PLAN_IDS) {
+    const plan = SUBSCRIPTION_PLANS[planId]
+    assert.ok(
+      plan.annualChargeMoneyMicros < plan.monthlyChargeMoneyMicros * 12,
+      `${plan.name} annual must cost less than twelve monthly charges`,
+    )
+  }
 })
 
 test('top-up quotes use integer micros and enforce the ten-dollar minimum', () => {
