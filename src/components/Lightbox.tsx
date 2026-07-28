@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Full-panel viewer for enlarging a result. Click the backdrop, the ✕, or press
 // Escape to close.
@@ -6,6 +6,15 @@ export function Lightbox({ url, kind = 'image', onClose }: { url: string; kind?:
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
+  const [retryKey, setRetryKey] = useState(0)
+  const [loadResult, setLoadResult] = useState<{ key: string; status: 'ready' | 'error' } | null>(null)
+  const mediaKey = `${kind}:${url}:${retryKey}`
+  const loadStatus = loadResult?.key === mediaKey ? loadResult.status : 'loading'
+
+  const retry = () => {
+    setRetryKey((key) => key + 1)
+    requestAnimationFrame(() => closeRef.current?.focus())
+  }
 
   useEffect(() => {
     onCloseRef.current = onClose
@@ -58,16 +67,43 @@ export function Lightbox({ url, kind = 'image', onClose }: { url: string; kind?:
       role="dialog"
       aria-modal="true"
       aria-label={`${kind === 'video' ? 'Video' : 'Image'} preview`}
+      aria-busy={loadStatus === 'loading'}
       tabIndex={-1}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
       <button ref={closeRef} type="button" className="ef-lightbox-close" onClick={onClose} aria-label="Close preview">✕</button>
+      {loadStatus === 'loading' && <div className="ef-lightbox-status" role="status">Loading preview…</div>}
+      {loadStatus === 'error' && (
+        <div className="ef-lightbox-status is-error" role="alert">
+          <strong>Preview unavailable</strong>
+          <span>This media could not be loaded.</span>
+          <button type="button" onClick={retry}>Retry</button>
+        </div>
+      )}
       {kind === 'video' ? (
-        <video className="ef-lightbox-media" src={url} controls autoPlay playsInline aria-label="Video preview" />
+        <video
+          key={mediaKey}
+          className={'ef-lightbox-media' + (loadStatus === 'ready' ? '' : ' is-pending')}
+          src={url}
+          controls={loadStatus === 'ready'}
+          autoPlay
+          playsInline
+          preload="metadata"
+          aria-label="Video preview"
+          onLoadedData={() => setLoadResult({ key: mediaKey, status: 'ready' })}
+          onError={() => setLoadResult({ key: mediaKey, status: 'error' })}
+        />
       ) : (
-        <img className="ef-lightbox-media" src={url} alt="Image preview" />
+        <img
+          key={mediaKey}
+          className={'ef-lightbox-media' + (loadStatus === 'ready' ? '' : ' is-pending')}
+          src={url}
+          alt="Image preview"
+          onLoad={() => setLoadResult({ key: mediaKey, status: 'ready' })}
+          onError={() => setLoadResult({ key: mediaKey, status: 'error' })}
+        />
       )}
     </div>
   )

@@ -108,6 +108,24 @@ export function VoicePicker({ voices, value, onChange, label = 'Voice', onAuditi
     if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus())
   }, [])
 
+  const moveFocusPastPicker = (backward: boolean) => {
+    const sheet = sheetRef.current
+    const focusable = Array.from(document.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), audio[controls], video[controls], [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => !sheet?.contains(element) && element.offsetParent !== null)
+    if (!focusable.length) {
+      close()
+      return
+    }
+    const triggerIndex = triggerRef.current ? focusable.indexOf(triggerRef.current) : -1
+    const targetIndex = triggerIndex >= 0
+      ? (triggerIndex + (backward ? -1 : 1) + focusable.length) % focusable.length
+      : backward ? focusable.length - 1 : 0
+    const target = focusable[targetIndex]
+    close(false)
+    requestAnimationFrame(() => (target ?? triggerRef.current)?.focus())
+  }
+
   const updateMenuPosition = useCallback(() => {
     const trigger = triggerRef.current
     if (!trigger) return
@@ -157,7 +175,10 @@ export function VoicePicker({ voices, value, onChange, label = 'Voice', onAuditi
         close()
         return
       }
-      if (event.key === 'Tab') setOpen(false)
+      if (event.key === 'Tab') {
+        event.preventDefault()
+        moveFocusPastPicker(event.shiftKey)
+      }
     }
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node

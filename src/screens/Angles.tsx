@@ -339,8 +339,6 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
               ? `${randomCount} distinct camera positions · identity preservation requested`
               : 'One precise custom viewpoint · identity preservation requested'
 
-  const registerUnusedClear = useCallback((_clear: () => void) => {}, [])
-
   return (
     <div className="ef-screen ef-legacy-workspace ef-angles-screen">
       <div className="ef-sub-header">
@@ -372,13 +370,10 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
               <MaskCanvas
                 source={source}
                 maskable={false}
-                brushSize={24}
-                color="#E26BD2"
                 onPick={(file) => { void pickSource(file) }}
                 onGrab={() => { void grabPrimarySource() }}
                 grabPending={sourceGrabPending}
                 disabled={phase === 'generating'}
-                onClearRef={registerUnusedClear}
                 emptyTitle="Choose the view to orbit"
                 emptyDescription="Upload a still, or grab a still or the displayed video frame under the Resolve playhead."
                 sourceLabel="Choose the primary source for camera angles"

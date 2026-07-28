@@ -152,6 +152,24 @@ export function Dropdown({
     if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus())
   }
 
+  const moveFocusPastMenu = (backward: boolean) => {
+    const menu = menuRef.current
+    const focusable = Array.from(document.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), audio[controls], video[controls], [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => !menu?.contains(element) && element.offsetParent !== null)
+    if (!focusable.length) {
+      closeMenu()
+      return
+    }
+    const triggerIndex = triggerRef.current ? focusable.indexOf(triggerRef.current) : -1
+    const targetIndex = triggerIndex >= 0
+      ? (triggerIndex + (backward ? -1 : 1) + focusable.length) % focusable.length
+      : backward ? focusable.length - 1 : 0
+    const target = focusable[targetIndex]
+    closeMenu(false)
+    requestAnimationFrame(() => (target ?? triggerRef.current)?.focus())
+  }
+
   useEffect(() => {
     if (disabled) setOpen(false)
   }, [disabled])
@@ -168,7 +186,8 @@ export function Dropdown({
         event.preventDefault()
         closeMenu()
       } else if (event.key === 'Tab') {
-        setOpen(false)
+        event.preventDefault()
+        moveFocusPastMenu(event.shiftKey)
       }
     }
     const onDocumentPointerDown = (event: PointerEvent) => {

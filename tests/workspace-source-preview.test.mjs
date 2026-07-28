@@ -6,7 +6,8 @@ const component = readFileSync(new URL('../src/components/WorkspaceSourcePreview
 const workspace = readFileSync(new URL('../src/screens/ToolWorkspace.tsx', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('../src/redesign.css', import.meta.url), 'utf8')
 
-test('generic tool sources render accessible in-plugin video and audio players', () => {
+test('generic tool sources render accessible in-plugin image, video and audio previews', () => {
+  assert.match(component, /<img src=\{previewUrl\} alt=\{label\} \/>/)
   assert.match(component, /<video src=\{previewUrl\} controls playsInline preload="metadata" aria-label=\{label\} \/>/)
   assert.match(component, /<audio src=\{previewUrl\} controls preload="metadata" aria-label=\{label\} \/>/)
   assert.doesNotMatch(component, /autoPlay/)
@@ -23,6 +24,7 @@ test('uploaded media preview URLs are owned and revoked by the preview component
 test('generic workspace media stays contained in compact and expanded layouts', () => {
   assert.match(styles, /\.ef-workspace-source-list\s*\{[^}]*max-height:\s*min\(310px, 46vh\);[^}]*overflow-y:\s*auto;/s)
   assert.match(styles, /\.ef-workspace-source-card\s*\{[^}]*min-width:\s*0;[^}]*width:\s*100%;[^}]*overflow:\s*hidden;/s)
+  assert.match(styles, /\.ef-workspace-source-preview img\s*\{[^}]*width:\s*100%;[^}]*max-height:\s*240px;[^}]*object-fit:\s*contain;/s)
   assert.match(styles, /\.ef-workspace-source-preview video\s*\{[^}]*width:\s*100%;[^}]*max-height:\s*240px;[^}]*object-fit:\s*contain;/s)
   assert.match(styles, /\.ef-workspace-source-preview audio\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s)
 })

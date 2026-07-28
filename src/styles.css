@@ -1887,6 +1887,39 @@ textarea {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
   cursor: default;
 }
+.ef-lightbox-media.is-pending {
+  visibility: hidden;
+}
+.ef-lightbox-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(320px, calc(100% - 72px));
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: #b8b8c2;
+  font-size: 12px;
+  text-align: center;
+  cursor: default;
+}
+.ef-lightbox-status strong {
+  color: #f0f0f5;
+  font-size: 15px;
+}
+.ef-lightbox-status button {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f0f0f5;
+  cursor: pointer;
+}
+.ef-lightbox-status button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
 .ef-lightbox-close {
   position: absolute;
   top: 12px;
