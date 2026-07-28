@@ -87,11 +87,145 @@ const removedCreationIds = new Set<string>()
 const removedFolderIds = new Set<string>()
 
 interface StoredCreation extends Omit<Creation, 'url'> {
+  schemaVersion?: 1
   url: string
   blob?: Blob
 }
 
 let dbPromise: Promise<IDBDatabase | null> | null = null
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasStrings(value: Record<string, unknown>, keys: string[]): boolean {
+  return keys.every((key) => typeof value[key] === 'string')
+}
+
+function hasFiniteNumbers(value: Record<string, unknown>, keys: string[]): boolean {
+  return keys.every((key) => typeof value[key] === 'number' && Number.isFinite(value[key]))
+}
+
+function sanitizeCreationCompanion(value: unknown): CreationCompanion | null {
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== 1
+    || !hasStrings(value, ['id', 'fileName', 'mimeType', 'data'])
+    || typeof value.createdAt !== 'number'
+    || !Number.isFinite(value.createdAt)
+    || !isRecord(value.summary)
+  ) return null
+
+  const summary = value.summary
+  if (
+    value.kind === 'beat-analysis'
+    && value.mimeType === 'application/vnd.easyfield.beats+json'
+    && hasFiniteNumbers(summary, ['bpm', 'detectedBeats', 'markerCount', 'confidence', 'durationSeconds'])
+    && summary.engine === 'librosa'
+    && hasStrings(summary, ['engineVersion', 'markerColor'])
+  ) {
+    return {
+      id: value.id as string,
+      kind: value.kind,
+      schemaVersion: 1,
+      fileName: value.fileName as string,
+      mimeType: value.mimeType,
+      data: value.data as string,
+      createdAt: value.createdAt,
+      summary: {
+        bpm: summary.bpm as number,
+        detectedBeats: summary.detectedBeats as number,
+        markerCount: summary.markerCount as number,
+        confidence: summary.confidence as number,
+        durationSeconds: summary.durationSeconds as number,
+        engine: summary.engine,
+        engineVersion: summary.engineVersion as string,
+        markerColor: summary.markerColor as string,
+      },
+    }
+  }
+
+  if (
+    value.kind === 'transcript'
+    && value.mimeType === 'application/vnd.easyfield.transcript+json'
+    && hasStrings(summary, ['language', 'model', 'sourceKind'])
+    && hasFiniteNumbers(summary, ['durationSeconds', 'segmentCount', 'wordCount'])
+    && typeof summary.wordTimestamps === 'boolean'
+    && (summary.sourceKind === 'audio' || summary.sourceKind === 'video')
+  ) {
+    return {
+      id: value.id as string,
+      kind: value.kind,
+      schemaVersion: 1,
+      fileName: value.fileName as string,
+      mimeType: value.mimeType,
+      data: value.data as string,
+      createdAt: value.createdAt,
+      summary: {
+        language: summary.language as string,
+        model: summary.model as string,
+        durationSeconds: summary.durationSeconds as number,
+        segmentCount: summary.segmentCount as number,
+        wordCount: summary.wordCount as number,
+        wordTimestamps: summary.wordTimestamps,
+        sourceKind: summary.sourceKind,
+      },
+    }
+  }
+
+  return null
+}
+
+function sanitizeStoredCreation(value: unknown): StoredCreation | null {
+  if (
+    !isRecord(value)
+    || (value.schemaVersion !== undefined && value.schemaVersion !== 1)
+    || typeof value.id !== 'string'
+    || !value.id
+    || (value.kind !== 'image' && value.kind !== 'video' && value.kind !== 'audio')
+    || typeof value.createdAt !== 'number'
+    || !Number.isFinite(value.createdAt)
+  ) return null
+
+  const blob = typeof Blob !== 'undefined' && value.blob instanceof Blob ? value.blob : undefined
+  const url = typeof value.url === 'string' && value.url.trim() ? value.url : ''
+  if (!blob && !url) return null
+
+  const companions = Array.isArray(value.companions)
+    ? value.companions.map(sanitizeCreationCompanion).filter((item): item is CreationCompanion => item !== null).slice(0, 8)
+    : []
+  const durability: CreationDurability = value.durability === 'local' || value.durability === 'link-only'
+    ? value.durability
+    : blob || !/^https?:\/\//i.test(url) ? 'local' : 'link-only'
+
+  return {
+    schemaVersion: 1,
+    id: value.id,
+    kind: value.kind,
+    url,
+    ...(typeof value.model === 'string' ? { model: value.model } : {}),
+    ...(typeof value.prompt === 'string' ? { prompt: value.prompt } : {}),
+    ...(typeof value.meta === 'string' ? { meta: value.meta } : {}),
+    createdAt: value.createdAt,
+    ...(typeof value.fromTimeline === 'boolean' ? { fromTimeline: value.fromTimeline } : {}),
+    folderId: typeof value.folderId === 'string' || value.folderId === null ? value.folderId : null,
+    durability,
+    ...(companions.length ? { companions } : {}),
+    ...(blob ? { blob } : {}),
+  }
+}
+
+function sanitizeFolder(value: unknown): Folder | null {
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || !value.id
+    || typeof value.name !== 'string'
+    || typeof value.createdAt !== 'number'
+    || !Number.isFinite(value.createdAt)
+  ) return null
+  return { id: value.id, name: value.name, createdAt: value.createdAt }
+}
 
 function setPersistenceState(next: PersistenceState) {
   if (persistenceState === next) return
@@ -138,7 +272,7 @@ function openDatabase(): Promise<IDBDatabase | null> {
   return dbPromise
 }
 
-async function readStore<T>(name: string): Promise<T[]> {
+async function readStore(name: string): Promise<unknown[]> {
   const db = await openDatabase()
   if (!db) return []
   return new Promise((resolve) => {
@@ -152,7 +286,7 @@ async function readStore<T>(name: string): Promise<T[]> {
       return
     }
     const request = tx.objectStore(name).getAll()
-    request.onsuccess = () => resolve((request.result ?? []) as T[])
+    request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : [])
     request.onerror = () => {
       setPersistenceState('error')
       resolve([])
@@ -260,7 +394,9 @@ async function putCreationPreservingBlob(current: Creation, newBlob?: Blob, requ
     request.onsuccess = () => {
       const existing = request.result as StoredCreation | undefined
       const blob = newBlob ?? existing?.blob
-      const stored: StoredCreation = blob ? { ...current, blob } : { ...current }
+      const stored: StoredCreation = blob
+        ? { schemaVersion: 1, ...current, blob }
+        : { schemaVersion: 1, ...current }
       store.put(stored)
     }
     request.onerror = () => {
@@ -603,16 +739,28 @@ async function hydrateFromStorage(): Promise<void> {
       readStore<Folder>(FOLDER_STORE),
     ])
 
+    // Keep the pruning reader from the storage work AND the record validation
+    // from the resilience work: the reader decides what comes back, the
+    // sanitiser decides what is safe to hydrate, and anything it rejects is
+    // deleted so a corrupt record cannot crash Library on every reopen.
     const knownCreations = new Set(creations.map((creation) => creation.id))
-    const hydratedCreations: Creation[] = storedCreations
-      .filter((creation) => !knownCreations.has(creation.id) && !removedCreationIds.has(creation.id))
-      .map(({ blob, ...creation }) => ({
+    const creationRecords = storedCreations.map((value) => ({ value, creation: sanitizeStoredCreation(value) }))
+    const discardedCreationIds = creationRecords.flatMap(({ value, creation }) =>
+      !creation && isRecord(value) && typeof value.id === 'string' ? [value.id] : [])
+    if (discardedCreationIds.length) deleteStoredCreations(discardedCreationIds)
+    const hydratedCreations: Creation[] = creationRecords
+      .flatMap(({ creation }) => creation ? [creation] : [])
+      .filter((creation) => (creation.blob || creation.url) && !knownCreations.has(creation.id) && !removedCreationIds.has(creation.id))
+      .map(({ blob, schemaVersion: _schemaVersion, ...creation }) => ({
         ...creation,
         url: blob ? URL.createObjectURL(blob) : creation.url,
         durability: blob ? 'local' : creation.durability ?? (/^https?:\/\//i.test(creation.url) ? 'link-only' : 'local'),
       }))
     const knownFolders = new Set(folders.map((folder) => folder.id))
-    const hydratedFolders = storedFolders.filter((folder) => !knownFolders.has(folder.id) && !removedFolderIds.has(folder.id))
+    const hydratedFolders = storedFolders
+      .map(sanitizeFolder)
+      .filter((folder): folder is Folder => folder !== null)
+      .filter((folder) => !knownFolders.has(folder.id) && !removedFolderIds.has(folder.id))
 
     if (hydratedCreations.length || hydratedFolders.length) {
       creations = [...creations, ...hydratedCreations].sort((a, b) => b.createdAt - a.createdAt)

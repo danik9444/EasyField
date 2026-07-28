@@ -13,10 +13,30 @@ export interface GenPrefs<PM> {
   perModel?: Record<string, PM>
 }
 
-export function loadGenPrefs<PM>(key: string): GenPrefs<PM> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function loadGenPrefs<PM>(key: string, sanitizePerModel?: (value: unknown) => PM | null): GenPrefs<PM> {
   try {
     const raw = localStorage.getItem(PREFIX + key)
-    return raw ? (JSON.parse(raw) as GenPrefs<PM>) : {}
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed)) return {}
+    const prefs: GenPrefs<PM> = {}
+    if (typeof parsed.model === 'string') prefs.model = parsed.model
+    if (typeof parsed.style === 'string') prefs.style = parsed.style
+    if (typeof parsed.prompt === 'string') prefs.prompt = parsed.prompt
+    if (typeof parsed.count === 'string') prefs.count = parsed.count
+    if (isRecord(parsed.perModel)) {
+      const perModel: Record<string, PM> = {}
+      for (const [model, value] of Object.entries(parsed.perModel)) {
+        const sanitized = sanitizePerModel ? sanitizePerModel(value) : isRecord(value) ? value as PM : null
+        if (sanitized !== null) perModel[model] = sanitized
+      }
+      if (Object.keys(perModel).length) prefs.perModel = perModel
+    }
+    return prefs
   } catch {
     return {}
   }

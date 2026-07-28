@@ -72,9 +72,30 @@ interface VideoPerModel {
   voices: string[]
 }
 
+type StoredVideoPerModel = Partial<Omit<VideoPerModel, 'shots'>> & { shots?: unknown }
+
+function sanitizeVideoPerModel(value: unknown): StoredVideoPerModel | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const stored = value as Record<string, unknown>
+  const extraOptionValues = stored.extraOptionValues
+  return {
+    ...(typeof stored.aspect === 'string' ? { aspect: stored.aspect } : {}),
+    ...(typeof stored.resolution === 'string' ? { resolution: stored.resolution } : {}),
+    ...(typeof stored.duration === 'string' ? { duration: stored.duration } : {}),
+    ...(extraOptionValues && typeof extraOptionValues === 'object' && !Array.isArray(extraOptionValues)
+      ? { extraOptionValues: Object.fromEntries(Object.entries(extraOptionValues).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) }
+      : {}),
+    ...(typeof stored.negativePrompt === 'string' ? { negativePrompt: stored.negativePrompt } : {}),
+    ...(typeof stored.webSearch === 'string' ? { webSearch: stored.webSearch } : {}),
+    ...(typeof stored.multiShotOn === 'boolean' ? { multiShotOn: stored.multiShotOn } : {}),
+    ...(Array.isArray(stored.shots) ? { shots: stored.shots } : {}),
+    ...(Array.isArray(stored.voices) ? { voices: stored.voices.filter((voice): voice is string => typeof voice === 'string') } : {}),
+  }
+}
+
 // Resolve a model's settings from stored prefs, dropping values no longer valid
 // for the model's config and falling back to defaults.
-function resolveVideoSettings(model: string, stored?: VideoPerModel): VideoPerModel {
+function resolveVideoSettings(model: string, stored?: StoredVideoPerModel): VideoPerModel {
   const cfg = VIDEO_MODEL_CONFIG[model]
   const def = defaultVideoOptionsFor(model)
   const extraOptionValues: Record<string, string> = {}
@@ -88,9 +109,9 @@ function resolveVideoSettings(model: string, stored?: VideoPerModel): VideoPerMo
     ? normalizeMultiShotScenes(stored?.shots, cfg.multiShot, () => `shot-migrated-${migrationId++}`)
     : []
   return {
-    aspect: stored && cfg.aspectRatios.includes(stored.aspect) ? stored.aspect : def.aspect,
-    resolution: stored && cfg.resolutions.includes(stored.resolution) ? stored.resolution : def.resolution,
-    duration: stored && cfg.durations.includes(stored.duration) ? stored.duration : def.duration,
+    aspect: stored?.aspect && cfg.aspectRatios.includes(stored.aspect) ? stored.aspect : def.aspect,
+    resolution: stored?.resolution && cfg.resolutions.includes(stored.resolution) ? stored.resolution : def.resolution,
+    duration: stored?.duration && cfg.durations.includes(stored.duration) ? stored.duration : def.duration,
     extraOptionValues,
     negativePrompt: cfg.negativePrompt ? stored?.negativePrompt ?? '' : '',
     webSearch: cfg.webSearch ? (stored?.webSearch === 'On' ? 'On' : 'Off') : 'Off',
@@ -324,7 +345,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
   const retryLabel = isTransition ? 'Create another transition' : isExtend ? 'Extend another' : 'Create another'
   const [phase, setPhase] = useState<Phase>('form')
   const [charged, setCharged] = useState<number | null>(null)
-  const prefsRef = useRef(loadGenPrefs<VideoPerModel>(prefsKey))
+  const prefsRef = useRef(loadGenPrefs<StoredVideoPerModel>(prefsKey, sanitizeVideoPerModel))
   const initialModel = useMemo(() => {
     const saved = prefsRef.current.model
     const m = saved ? VIDEO_MODEL_ALIASES[saved] ?? saved : undefined
@@ -339,7 +360,7 @@ export function CreateVideo({ onBack, toast, onSpend, mode: workspaceMode = 'cre
     [initialModel],
   )
   const [model, setModel] = useState(initialModel)
-  const [count, setCount] = useState(prefsRef.current.count ?? DEFAULT_COUNT)
+  const [count, setCount] = useState(() => COUNTS.includes(prefsRef.current.count ?? '') ? prefsRef.current.count! : DEFAULT_COUNT)
   const [aspect, setAspect] = useState(init.aspect)
   const [resolution, setResolution] = useState(init.resolution)
   const [duration, setDuration] = useState(init.duration)

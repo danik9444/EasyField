@@ -591,7 +591,14 @@ export default function App() {
           securedKey = ''
         }
         const key = securedKey || legacyKey
-        if (legacyKey && !securedKey) await host.setCredential(CLOUD_API_CREDENTIAL, legacyKey)
+        if (legacyKey && !securedKey) {
+          try {
+            await host.setCredential(CLOUD_API_CREDENTIAL, legacyKey)
+          } catch {
+            // Continue into the normal connection check, which surfaces the
+            // unavailable secure credential without aborting account boot.
+          }
+        }
         if (!active) return
         if (key) {
           const runtimeKey = host.isPlugin() ? SECURE_API_KEY_TOKEN : key
