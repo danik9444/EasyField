@@ -9,8 +9,8 @@
   "minMacOSVersion": "15.0.0",
   "minResolveVersion": "21.0.2",
   "version": "1.3.0",
-  "createdAt": "2026-07-28T17:01:13.083Z",
-  "buildId": "d0f2ed01607e34fe89a9f28087a825356eec9d4e634c2d1965e19d2a6d3d5e1c",
+  "createdAt": "2026-07-28T17:53:52.914Z",
+  "buildId": "c5e23ac95f9df8054e459fdf8c021e947f8bd8bdff638ebd1f08633070e7f05a",
   "files": [
     {
       "path": "account-config.example.json",
@@ -133,14 +133,14 @@
       "sha256": "13a1fe5ee33e81aa9e42dc155532379e5d845245b79b79c85e4e6b1d51a99358"
     },
     {
-      "path": "ui/assets/AnimationRenderHost-CXmGUBOa.js",
+      "path": "ui/assets/AnimationRenderHost-Byfur6Le.js",
       "size": 247271,
-      "sha256": "774c7e4915a98373f027ae8973e974206a9cd52d03dd1e9b34c5d40827f2bf65"
+      "sha256": "2d5cb5cef661591f8d6300d0298a5d7f4f60d9f35e7e301ec98912e6b13aa80d"
     },
     {
-      "path": "ui/assets/App-BllDfEfs.js",
-      "size": 1124303,
-      "sha256": "f97171c2c6967da22e52a5f00794fd787f9a5b16c9ff86a53848e88e9307eb39"
+      "path": "ui/assets/App-CjCCnUL9.js",
+      "size": 1124451,
+      "sha256": "e7debaf4aff7f76200fb1c6848f70e308ae59c4122e03f827ae00d738a26ac90"
     },
     {
       "path": "ui/assets/App-RT9ypg0O.css",
@@ -188,19 +188,19 @@
       "sha256": "5b3391f991449172eb3d91264615b3f7020cb4edb2c565e4fb44010f5e1f4b39"
     },
     {
-      "path": "ui/assets/index-B5Z0a1Vp.js",
-      "size": 66,
-      "sha256": "cbc94bb3c6db2f5dadc700f5c7c045bf8196adc1547c08342c882f9f9fa6ed30"
-    },
-    {
-      "path": "ui/assets/index-Drjcp15d.css",
-      "size": 544328,
-      "sha256": "9468a3e721e2cb96c498b2d731fffcc57f4a1d186f1bf3b11c9269f699848d3d"
-    },
-    {
-      "path": "ui/assets/index-DZZSs9NT.js",
+      "path": "ui/assets/index-Bh5Ptn8z.js",
       "size": 196600,
-      "sha256": "f934762ca12dc6362a32c63a97b1704f9efa3dce84214498d4a5af1cd71c1e83"
+      "sha256": "38d339ce6c8e993b9330c9bc390b6db35e05c9cebbb374c7a0314ed6792f5b0a"
+    },
+    {
+      "path": "ui/assets/index-D_xYsAqu.js",
+      "size": 66,
+      "sha256": "57eb3779051b71e569394aa6c7e77368ec762edc386395ec6d64afa323d1eae9"
+    },
+    {
+      "path": "ui/assets/index-UhxmBH_Q.css",
+      "size": 544328,
+      "sha256": "071d6567404181706d06570eb2aae5c72ed8192018029e65581b755d35402fca"
     },
     {
       "path": "ui/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
@@ -253,9 +253,9 @@
       "sha256": "952dddb45d2f96f71cbf3b7f510b24379afc3c89ea02fcf89d377b45d62c0166"
     },
     {
-      "path": "ui/assets/space-grotesk-latin-wght-normal-BmihWDuX.woff2",
-      "size": 22376,
-      "sha256": "22f9fe0df47741897991d459bcd18c03edefacafd00ad20f2d25e1d75d3be77e"
+      "path": "ui/assets/space-grotesk-latin-wght-normal-BhU9QXUp.woff2",
+      "size": 22288,
+      "sha256": "0640890476fc1198ab4de571fb658de443c4d85b66466ec09534a8737ab1ce9d"
     },
     {
       "path": "ui/assets/space-grotesk-vietnamese-wght-normal-D0rl6rjA.woff2",
@@ -270,7 +270,7 @@
     {
       "path": "ui/index.html",
       "size": 867,
-      "sha256": "664dee42e313ad980ef52f9a8ea2d1ddf8e2020fd6dc14cfb0be1e296a711cb4"
+      "sha256": "e37a7c8d6a3cdf1039f7a0f81a6b5f3029a3ea5db1b77b2ce6db0a8d1206def7"
     },
     {
       "path": "url-context.cjs",
