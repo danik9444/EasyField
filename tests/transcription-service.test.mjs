@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
-import { once } from 'node:events'
+import crypto from 'node:crypto'
+import { EventEmitter, once } from 'node:events'
 import fs from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 
@@ -20,6 +22,40 @@ const {
   readWhisperResultJson,
   runProcess,
 } = require('../plugin/whisper-transcription.cjs')
+
+function writeRuntimeCandidate(root, componentId, executableName, contents) {
+  const architecture = process.arch
+  const relativeRoot = `runtime-packs/${componentId}/${architecture}`
+  const relativePath = `bin/${executableName}`
+  const candidate = path.join(root, relativeRoot, relativePath)
+  const bytes = Buffer.from(contents)
+  fs.mkdirSync(path.dirname(candidate), { recursive: true })
+  fs.writeFileSync(candidate, bytes, { mode: 0o700 })
+  fs.chmodSync(candidate, 0o700)
+  fs.writeFileSync(path.join(root, 'runtime-packs.json'), JSON.stringify({
+    schemaVersion: 1,
+    platform: 'darwin',
+    architectures: ['arm64', 'x64'],
+    releaseReady: true,
+    components: [{
+      id: componentId,
+      targets: {
+        [architecture]: {
+          root: relativeRoot,
+          executables: { [executableName]: relativePath },
+          files: [{
+            path: relativePath,
+            size: bytes.length,
+            sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+            kind: 'mach-o',
+            executable: true,
+          }],
+        },
+      },
+    }],
+  }))
+  return candidate
+}
 
 async function startService(service) {
   const server = http.createServer((request, response) => {
@@ -224,14 +260,46 @@ test('model download endpoint is explicit and reports only verified public state
   assert.equal(JSON.stringify(status).includes(root), false)
 })
 
+test('same-size model bytes are hashed before transcription instead of trusting the marker', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'easyfield-whisper-tampered-model-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const modelRoot = path.join(root, 'models')
+  markModelReady(modelRoot, 'tiny')
+  const service = createTranscriptionService({
+    runtimeRoot: path.join(root, 'runtime'),
+    modelRoot,
+  })
+  assert.equal((await service.status()).models.tiny.state, 'ready')
+  const request = Readable.from([Buffer.from('media')])
+  request.method = 'POST'
+  request.headers = { 'x-ef-whisper-model': 'tiny' }
+  const response = new EventEmitter()
+  response.headersSent = false
+  response.writableEnded = false
+  const completed = new Promise((resolve) => {
+    response.writeHead = (status) => {
+      response.status = status
+      response.headersSent = true
+    }
+    response.end = (body) => {
+      response.body = body
+      response.writableEnded = true
+      resolve()
+    }
+  })
+  assert.equal(service.handleRequest(request, response, '/api/transcribe'), true)
+  await completed
+  assert.equal(response.status, 409)
+  assert.equal(JSON.parse(response.body).code, 'MODEL_NOT_READY')
+})
+
 test('raw media endpoint decodes locally and invokes the fixed whisper.cpp contract', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'easyfield-whisper-run-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const modelRoot = path.join(root, 'models')
   markModelReady(modelRoot, 'tiny')
-  const cli = path.join(root, 'fake-whisper-cli')
   const ffmpeg = path.join(root, 'fake-ffmpeg')
-  await writeFile(cli, `#!/usr/bin/env node
+  const cli = writeRuntimeCandidate(root, 'whispercpp', 'whisper-cli', `#!/usr/bin/env node
 const fs = require('fs')
 const args = process.argv.slice(2)
 if (args.includes('--help')) { console.log('usage: whisper-cli [options] whisper.cpp version test'); process.exit(0) }
@@ -245,16 +313,17 @@ const fs = require('fs')
 const output = process.argv.at(-1)
 fs.writeFileSync(output, Buffer.alloc(128, 1))
 `)
-  fs.chmodSync(cli, 0o700)
   fs.chmodSync(ffmpeg, 0o700)
 
   const service = createTranscriptionService({
     runtimeRoot: path.join(root, 'runtime'),
     modelRoot,
     cliCandidates: [cli],
+    runtimePackRoot: root,
     ffmpegPath: ffmpeg,
     maxBytes: 1024,
     timeoutMs: 10000,
+    allowUnmarkedModels: true,
   })
   const server = await startService(service)
   t.after(server.close)
@@ -304,11 +373,30 @@ test('process cancellation kills a running whisper.cpp child promptly', async ()
   assert.ok(Date.now() - started < 2000)
 })
 
-test('packaged transcription ignores environment CLI overrides', async (t) => {
+test('transcription probes a checksum-pinned runtime candidate', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'easyfield-whisper-authenticated-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const cli = writeRuntimeCandidate(
+    root,
+    'whispercpp',
+    'whisper-cli',
+    '#!/bin/sh\nprintf "whisper.cpp version : 1.2.3-test\\n"\n',
+  )
+  const status = await probeRuntime({
+    runtimeRoot: path.join(root, 'managed'),
+    cliCandidates: [cli],
+    runtimePackRoot: root,
+  })
+  assert.equal(status.available, true)
+  assert.equal(status.engineVersion, '1.2.3-test')
+})
+
+test('transcription refuses unauthenticated environment CLI overrides', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'easyfield-whisper-env-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const cli = path.join(root, 'untrusted-whisper-cli')
-  await writeFile(cli, '#!/usr/bin/env node\nconsole.log("whisper.cpp version : env-test")\n')
+  const executed = path.join(root, 'executed')
+  await writeFile(cli, `#!/bin/sh\ntouch ${JSON.stringify(executed)}\nprintf "whisper.cpp version : env-test\\n"\n`)
   fs.chmodSync(cli, 0o700)
   const previous = process.env.EF_WHISPER_CLI
   process.env.EF_WHISPER_CLI = cli
@@ -316,8 +404,8 @@ test('packaged transcription ignores environment CLI overrides', async (t) => {
     const packaged = await probeRuntime({ runtimeRoot: path.join(root, 'managed'), allowEnvironmentOverrides: false })
     const development = await probeRuntime({ runtimeRoot: path.join(root, 'managed'), allowEnvironmentOverrides: true })
     assert.equal(packaged.available, false)
-    assert.equal(development.available, true)
-    assert.equal(development.command, cli)
+    assert.equal(development.available, false)
+    assert.equal(fs.existsSync(executed), false)
   } finally {
     if (previous === undefined) delete process.env.EF_WHISPER_CLI
     else process.env.EF_WHISPER_CLI = previous
