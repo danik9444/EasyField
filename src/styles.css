@@ -112,6 +112,109 @@ textarea {
   max-width: 960px;
 }
 
+/* ---------------- Crash recovery ---------------- */
+
+.ef-screen.ef-error-screen {
+  padding: 24px;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--ef-danger) 13%, transparent), transparent 44%),
+    var(--ef-bg);
+}
+
+.ef-error-card {
+  width: min(100%, 420px);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid var(--ef-border);
+  border-radius: var(--ef-radius-lg);
+  background: var(--ef-surface-1);
+  box-shadow: 0 24px 60px rgba(0,0,0,.32);
+}
+
+.ef-error-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--ef-danger) 48%, transparent);
+  border-radius: 10px;
+  color: var(--ef-danger);
+  background: color-mix(in srgb, var(--ef-danger) 12%, transparent);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ef-error-kicker {
+  margin-top: 4px;
+  color: var(--ef-danger);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  letter-spacing: .13em;
+}
+
+.ef-error-card h1 {
+  margin: 0;
+  color: var(--ef-text);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 20px;
+}
+
+.ef-error-card > p {
+  margin: 0;
+  color: var(--ef-text-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.ef-error-detail {
+  width: 100%;
+  max-height: 90px;
+  padding: 9px 10px;
+  display: block;
+  overflow: auto;
+  border: 1px solid var(--ef-border);
+  border-radius: var(--ef-radius-sm);
+  color: var(--ef-text-2);
+  background: rgba(0,0,0,.22);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ef-error-card > .ef-error-recovery-detail {
+  color: var(--ef-danger);
+}
+
+.ef-error-actions {
+  width: 100%;
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ef-error-actions > button {
+  min-width: 140px;
+}
+
+.ef-error-actions .ef-ghost-btn.danger {
+  color: var(--ef-danger);
+}
+
+.ef-error-actions .ef-ghost-btn:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+
 .ef-density-toggle {
   width: 28px;
   height: 28px;
