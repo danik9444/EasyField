@@ -45,7 +45,7 @@ const SECTIONS: Array<{
   { id: 'ai', label: 'AI & Models', icon: '✦', eyebrow: 'PROVIDERS', title: 'Models and intelligence', description: 'Connect cloud generation and manage local model packs without exposing credentials to the interface.', navDetail: 'Cloud & local' },
   { id: 'resolve', label: 'Resolve', icon: '◉', eyebrow: 'TIMELINE', title: 'Resolve connection', description: 'Control how reviewed results move into DaVinci Resolve while keeping timeline operations predictable.', navDetail: 'Bridge & placement' },
   { id: 'storage', label: 'Storage', icon: '▤', eyebrow: 'ARTIFACTS', title: 'Project storage', description: 'Choose where durable originals, working copies and project manifests live on this Mac.', navDetail: 'Files & retention' },
-  { id: 'privacy', label: 'Privacy', icon: '◌', eyebrow: 'CONTROL', title: 'Privacy and budgets', description: 'Set the boundaries EasyField must respect before media leaves this Mac or paid work begins.', navDetail: 'Consent & spend' },
+  { id: 'privacy', label: 'Privacy', icon: '◌', eyebrow: 'CONTROL', title: 'Privacy and pricing', description: 'Review cloud consent and how EasyField presents pricing before paid work begins.', navDetail: 'Consent & pricing' },
   { id: 'shortcuts', label: 'Shortcuts', icon: '⌘', eyebrow: 'KEYBOARD', title: 'Move without the mouse', description: 'Keep the most common navigation and planning actions available from every workspace.', navDetail: 'Global commands' },
   { id: 'diagnostics', label: 'Diagnostics', icon: '···', eyebrow: 'SYSTEM', title: 'System health', description: 'Review the local runtime, provider and Resolve bridge without exposing project content.', navDetail: 'Runtime checks' },
 ]

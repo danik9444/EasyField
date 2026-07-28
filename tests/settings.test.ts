@@ -41,6 +41,7 @@ test('persisted settings are validated before reaching the UI', () => {
     apiKey: 12,
     windowMode: 'gigantic',
     placementMode: 'ripple',
+    // Retired persisted fields are ignored.
     spendLimit: Number.POSITIVE_INFINITY,
     telemetry: 'yes',
     artifactRoot: '   ',
@@ -57,25 +58,45 @@ test('valid persisted values round-trip while the credential never reaches local
     windowMode: 'expanded',
     windowHeightMode: 'full',
     placementMode: 'media-pool',
-    spendLimit: 481.6,
     telemetry: true,
-    artifactRoot: '  /Volumes/Edit Cache/EasyField  ',
   })
 
   const raw = storage.getItem('ef-settings')
   assert.ok(raw)
   assert.equal(raw.includes('must-not-be-persisted'), false)
   assert.equal(Object.hasOwn(JSON.parse(raw), 'apiKey'), false)
+  assert.equal(Object.hasOwn(JSON.parse(raw), 'spendLimit'), false)
+  assert.equal(Object.hasOwn(JSON.parse(raw), 'artifactRoot'), false)
   assert.deepEqual(loadSettings(), {
     ...DEFAULT_SETTINGS,
     accent: '#5B8CFF',
     windowMode: 'expanded',
     windowHeightMode: 'full',
     placementMode: 'media-pool',
-    spendLimit: 482,
     telemetry: true,
-    artifactRoot: '/Volumes/Edit Cache/EasyField',
   })
+})
+
+test('older persisted settings load supported values and shed retired fields', () => {
+  storage.setItem('ef-settings', JSON.stringify({
+    ...DEFAULT_SETTINGS,
+    accent: '#3ED598',
+    windowMode: 'expanded',
+    spendLimit: 99,
+    artifactRoot: '/Volumes/Legacy EasyField',
+  }))
+
+  const settings = loadSettings()
+  assert.deepEqual(settings, {
+    ...DEFAULT_SETTINGS,
+    accent: '#3ED598',
+    windowMode: 'expanded',
+  })
+
+  saveSettings(settings)
+  const rewritten = JSON.parse(storage.getItem('ef-settings') ?? '{}')
+  assert.equal(Object.hasOwn(rewritten, 'spendLimit'), false)
+  assert.equal(Object.hasOwn(rewritten, 'artifactRoot'), false)
 })
 
 test('the connected credential lives only in session memory', () => {

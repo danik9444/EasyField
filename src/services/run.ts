@@ -7,20 +7,7 @@
 // uploaded. Legacy `playhead` items have no pixels and are skipped; new capture
 // failures never create them. A run with no usable required source throws a
 // NeedsSourceError for the screen to show.
-import { currentApiKey, loadSettings } from '../settings'
-import {
-  imageEditRunEstimate,
-  imageRunEstimate,
-  musicRunEstimate,
-  soundEffectsRunEstimate,
-  ttsRunEstimate,
-  upscaleBatchEstimate,
-  upscaleRunEstimate,
-  videoEditRunEstimate,
-  videoRunEstimate,
-  avatarRunEstimate,
-} from '../data/pricing'
-import { assertSpendApproved } from './spendGuard'
+import { currentApiKey } from '../settings'
 import { isRecoverableProviderTrackingError, runProviderModel, uploadUrl, type PollOptions } from './providerGateway'
 import { generationStartLimit, jobLimit, uploadLimit, mapLimit } from './taskQueue'
 import { createUploadReuseCache } from './uploadReuse'
@@ -608,7 +595,6 @@ export function preflightImagePrompt(r: Pick<ImageRun, 'model' | 'prompt'>): voi
 
 export async function runImage(r: ImageRun, opts: PollOptions = {}): Promise<RunResult> {
   preflightImagePrompt(r)
-  assertSpendApproved(imageRunEstimate(r.model, r.resolution, r.extras, r.count, { referenceCount: r.refs.length }), 'Image generation', loadSettings().spendLimit)
   return withTrackedJob({
     title: r.jobTitle ?? 'Create image',
     subtitle: r.model,
@@ -699,7 +685,7 @@ export function preflightVideoPrompt(r: Pick<VideoRun, 'model' | 'prompt' | 'neg
 
 export async function runVideo(r: VideoRun, opts: PollOptions = {}): Promise<RunResult> {
   const groupedKlingElements = r.klingElements ?? []
-  // Fail before uploads or spend preflight if stale UI state tries to route a
+  // Fail before uploads or provider work if stale UI state tries to route a
   // shot plan through an adapter that has no multi-shot contract. Extend
   // sequences are frame-led: the rendered end of the Resolve shot is the
   // single provider start frame, and Kling does not accept a last frame in
@@ -753,18 +739,6 @@ export async function runVideo(r: VideoRun, opts: PollOptions = {}): Promise<Run
     }
   }
   preflightVideoPrompt(r)
-  assertSpendApproved(
-    videoRunEstimate(r.model, r.resolution, r.duration, r.extras, r.count, {
-      hasVideoInput: r.refVideos.length > 0 || groupedKlingElements.some((element) => element.media?.kind === 'video'),
-      hasImageInput: !!r.firstFrame || !!r.lastFrame || r.refImages.length > 0 || groupedKlingElements.some((element) => element.media?.kind === 'images'),
-      referenceMode: (r.refImages.length > 0 || groupedKlingElements.length > 0) && !r.firstFrame && !r.lastFrame,
-      inputDurationSeconds: r.model === 'Kling 3 Motion Control' && r.refVideos[0]?.kind === 'upload'
-        ? r.refVideos[0].durationSeconds
-        : undefined,
-    }),
-    'Video generation',
-    loadSettings().spendLimit,
-  )
   return withTrackedJob({ title: r.jobTitle ?? 'Create video', subtitle: r.model, kind: 'video' }, opts, async (trackedOpts) => {
     // Omni video accepts IDs produced by separate cloud character/audio creation
     // endpoints. Treating uploaded images or preset labels as those IDs would make
@@ -899,17 +873,6 @@ export function preflightAvatar(r: AvatarRun): void {
 
 export async function runAvatar(r: AvatarRun, opts: PollOptions = {}): Promise<RunResult> {
   preflightAvatar(r)
-  const durationSeconds = r.audio?.kind === 'upload' ? r.audio.durationSeconds : undefined
-  assertSpendApproved(
-    avatarRunEstimate(r.model, r.count, {
-      audioDurationSeconds: durationSeconds,
-      numFrames: r.options.numFrames,
-      framesPerSecond: r.options.framesPerSecond,
-      resolution: r.options.resolution ?? r.options.outputResolution,
-    }),
-    'Avatar generation',
-    loadSettings().spendLimit,
-  )
 
   return withTrackedJob(
     { title: r.workflow === 'portrait' ? 'Create avatar' : 'Video lip sync', subtitle: r.model, kind: 'video' },
@@ -991,11 +954,6 @@ export async function runImageEdit(r: ImageEditRun, opts: PollOptions = {}): Pro
     : r.operation === 'upscale'
       ? r.upscaleModel || 'Upscale'
       : 'Remove background'
-  assertSpendApproved(
-    imageEditRunEstimate(r.operation, r.model || 'Nano Banana 2', r.resolution || '', r.extras || {}, r.upscaleModel, r.operation === 'custom' ? 1 + (r.refs?.length ?? 0) : 0),
-    'Image edit',
-    loadSettings().spendLimit,
-  )
   return withTrackedJob({ title: 'Edit image', subtitle, kind: 'image' }, opts, async (trackedOpts) => {
     const key = requireKey()
     const sourceUrl = await hostOne(key, r.source, trackedOpts.signal)
@@ -1076,12 +1034,6 @@ export async function runAnglesBatch(r: AnglesBatchRun, opts: PollOptions = {}):
   // Validate all of them before opening the batch job or uploading its shared
   // source, just like the single-image generation path.
   entries.forEach((entry) => preflightImagePrompt({ model: r.model, prompt: entry.prompt }))
-
-  assertSpendApproved(
-    imageRunEstimate(r.model, r.resolution, r.extras, entries.length, { referenceCount: 1 }),
-    'Camera-angle generation',
-    loadSettings().spendLimit,
-  )
 
   return withTrackedJob<AnglesBatchResult>({
     title: 'Generate camera angles',
@@ -1202,7 +1154,6 @@ function validateVideoEditAudio(model: string, refs: MediaFile[]): void {
 
 export async function runVideoEdit(r: VideoEditRun, opts: PollOptions = {}): Promise<RunResult> {
   preflightVideoEditPrompt(r)
-  assertSpendApproved(videoEditRunEstimate(r.operation, r.model, r.params, r.factor), 'Video edit', loadSettings().spendLimit)
   validateVideoEditAudio(r.model, r.refAudios)
   return withTrackedJob({ title: 'Edit video', subtitle: r.model, kind: 'video' }, opts, async (trackedOpts) => {
     const key = requireKey()
@@ -1266,11 +1217,6 @@ export async function runUpscale(r: UpscaleRun, opts: PollOptions = {}): Promise
   const model = r.kind === 'image' ? TOPAZ_IMAGE_MODEL : TOPAZ_VIDEO_MODEL
   const source = validateUpscaleRun(r)
 
-  assertSpendApproved(
-    upscaleRunEstimate(r.kind, r.factor, { width: r.width, height: r.height, durationSeconds: r.durationSeconds }),
-    'Upscale',
-    loadSettings().spendLimit,
-  )
   return withTrackedJob({ title: `Upscale ${r.kind}`, subtitle: `${source.name} · ${model}`, kind: r.kind }, opts, async (trackedOpts) => {
     const key = requireKey()
     const sourceUrl = await hostOne(key, source, trackedOpts.signal)
@@ -1329,17 +1275,6 @@ export async function runUpscaleBatch(
 
   // Freeze and validate the entire reviewed batch before the first paid task.
   entries.forEach(validateUpscaleRun)
-  assertSpendApproved(
-    upscaleBatchEstimate(entries.map((entry) => ({
-      kind: entry.kind,
-      factor: entry.factor,
-      width: entry.width,
-      height: entry.height,
-      durationSeconds: entry.durationSeconds,
-    }))),
-    'Upscale batch',
-    loadSettings().spendLimit,
-  )
 
   const { onItemCompleted, onItemJobCreated, ...pollOpts } = opts
   const settled = await Promise.allSettled(entries.map(async (entry): Promise<UpscaleBatchItemResult> => {
@@ -1408,7 +1343,6 @@ export async function runTts(
   settings: TtsSettings,
   opts: PollOptions & { autoOpenJob?: boolean } = {},
 ): Promise<RunResult> {
-  assertSpendApproved(ttsRunEstimate(modelId, text.length), 'Voice generation', loadSettings().spendLimit)
   return withTrackedJob({ title: 'Create voice-over', subtitle: voice, kind: 'audio', autoOpen: opts.autoOpenJob !== false }, opts, async (trackedOpts) => {
     const key = requireKey()
     const res = await runOne(key, buildTtsRequest(modelId, voice, text, settings), trackedOpts)
@@ -1421,11 +1355,6 @@ export async function runDialogue(
   settings: DialogueSettings,
   opts: PollOptions = {},
 ): Promise<RunResult> {
-  assertSpendApproved(
-    ttsRunEstimate('text-to-dialogue-v3', lines.reduce((sum, line) => sum + line.text.length, 0)),
-    'Dialogue generation',
-    loadSettings().spendLimit,
-  )
   return withTrackedJob({ title: 'Create dialogue', subtitle: `${lines.length} lines`, kind: 'audio' }, opts, async (trackedOpts) => {
     const key = requireKey()
     const res = await runOne(key, buildDialogueRequest(lines, settings), trackedOpts)
@@ -1435,7 +1364,6 @@ export async function runDialogue(
 
 // ---- Create Music ----------------------------------------------------------
 export async function runMusic(m: MusicCtx, opts: PollOptions = {}): Promise<RunResult> {
-  assertSpendApproved(musicRunEstimate(m.version || ''), 'Music generation', loadSettings().spendLimit)
   return withTrackedJob({ title: 'Create music', subtitle: m.mode || 'Music', kind: 'audio' }, opts, async (trackedOpts) => {
     const key = requireKey()
     const res = await runOne(key, buildMusicRequest(m), trackedOpts)
@@ -1445,7 +1373,6 @@ export async function runMusic(m: MusicCtx, opts: PollOptions = {}): Promise<Run
 
 // ---- Sound Effects --------------------------------------------------------
 export async function runSoundEffect(sound: SoundEffectCtx, opts: PollOptions = {}): Promise<RunResult> {
-  assertSpendApproved(soundEffectsRunEstimate(), 'Sound-effect generation', loadSettings().spendLimit)
   return withTrackedJob({ title: 'Create sound effect', subtitle: `Suno ${sound.model === 'V5_5' ? 'v5.5' : 'v5'}`, kind: 'audio' }, opts, async (trackedOpts) => {
     const key = requireKey()
     const res = await runOne(key, buildSoundEffectRequest(sound), trackedOpts)
@@ -1479,7 +1406,6 @@ export interface SoundEffectBatchResult extends RunResult {
  */
 export async function runSoundEffectBatch(entries: SoundEffectBatchEntry[], opts: PollOptions = {}): Promise<SoundEffectBatchResult> {
   if (!entries.length) throw new Error('Approve at least one Foley event before generating.')
-  assertSpendApproved(soundEffectsRunEstimate(entries.length), 'Auto Foley generation', loadSettings().spendLimit)
   return withTrackedJob<SoundEffectBatchResult>({
     title: 'Generate Auto Foley',
     subtitle: `${entries.length} approved event${entries.length === 1 ? '' : 's'}`,

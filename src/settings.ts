@@ -5,10 +5,7 @@ export interface Settings {
   windowMode: 'compact' | 'expanded'
   windowHeightMode: 'standard' | 'full'
   placementMode: 'playhead' | 'replace' | 'append' | 'media-pool'
-  /** Legacy persisted field. Pricing is informational and this no longer gates a run. */
-  spendLimit: number
   telemetry: boolean
-  artifactRoot: string
 }
 
 export const ACCENT_OPTIONS = ['#E26BD2', '#5B8CFF', '#3ED598', '#FFB454']
@@ -24,9 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   windowMode: 'compact',
   windowHeightMode: 'standard',
   placementMode: 'playhead',
-  spendLimit: 250,
   telemetry: false,
-  artifactRoot: '~/Movies/EasyField',
 }
 
 const STORAGE_KEY = 'ef-settings'
@@ -44,12 +39,6 @@ const PLACEMENT_MODES = new Set<Settings['placementMode']>(['playhead', 'replace
 export function sanitizeSettings(input: unknown, base: Settings = DEFAULT_SETTINGS): Settings {
   if (!input || typeof input !== 'object') return { ...base }
   const value = input as Partial<Record<keyof Settings, unknown>>
-  const spendLimit = typeof value.spendLimit === 'number' && Number.isFinite(value.spendLimit)
-    ? Math.max(0, Math.round(value.spendLimit))
-    : base.spendLimit
-  const artifactRoot = typeof value.artifactRoot === 'string' && value.artifactRoot.trim()
-    ? value.artifactRoot.trim().slice(0, 4096)
-    : base.artifactRoot
 
   const requestedPlacement = typeof value.placementMode === 'string' && PLACEMENT_MODES.has(value.placementMode as Settings['placementMode'])
     ? value.placementMode as Settings['placementMode']
@@ -69,9 +58,7 @@ export function sanitizeSettings(input: unknown, base: Settings = DEFAULT_SETTIN
     // preview + confirmation flow exists. Migrate old persisted selections to
     // the non-destructive playhead behavior instead of silently replacing media.
     placementMode: requestedPlacement === 'replace' ? 'playhead' : requestedPlacement,
-    spendLimit,
     telemetry: typeof value.telemetry === 'boolean' ? value.telemetry : base.telemetry,
-    artifactRoot,
   }
 }
 

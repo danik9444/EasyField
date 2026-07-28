@@ -19,8 +19,6 @@ import { IMAGE_MODELS, DEFAULT_IMAGE_MODEL, IMAGE_MODEL_ALIASES } from '../data/
 import { IDEOGRAM_V3_EDIT_PROMPT_MAX, IMAGE_MODEL_CONFIG, resolveImageOptions, type ImageOptions } from '../data/imageModelConfig'
 import { IMAGE_EDIT_SPECIALIST_META, IMAGE_MODEL_META } from '../data/modelPresentation'
 import { loadValue, saveValue } from '../data/prefs'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import type { ReferenceImage } from '../data/referenceImage'
 import type { EnhanceReference } from '../services/chat'
 import { promptCharacterCount } from '../data/promptLimits'
@@ -418,8 +416,6 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
   const connected = isConnected()
   const priceModel = mode === 'inpaint' && !utilityAction ? inpaintModel : customModel
   const editEstimate = imageEditRunEstimate(operation, priceModel, customResolution, customExtras, upscaleModel, operation === 'custom' ? (source ? 1 : 0) + refImages.length : 0)
-  const spendApproval = getSpendApproval(editEstimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const sourceReady = source?.kind === 'upload' && !!source.url
   const promptMissing = !utilityAction && !prompt.trim()
   const activeEditModel = mode === 'inpaint' ? inpaintModel : customModel
@@ -432,7 +428,7 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
   const activePromptMax = Math.max(1, activePromptProviderMax - promptScaffoldLength)
   const promptOverLimit = !utilityAction && promptCharacterCount(prompt) > activePromptMax
   const maskMissing = !utilityAction && mode === 'inpaint' && !hasMask
-  const footerHasError = !!error || spendBlocked || promptMissing || promptOverLimit || maskMissing
+  const footerHasError = !!error || promptMissing || promptOverLimit || maskMissing
   const footerMessage = error
     ? `✕ ${error}`
     : !sourceReady
@@ -445,13 +441,11 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
           ? 'Paint the area you want Inpaint to replace.'
           : !connected
             ? 'Connect EasyField Cloud to run this edit'
-            : spendBlocked
-              ? spendApproval.reason
-              : utilityAction === 'upscale'
-                ? 'Upscale is ready · the primary image stays unchanged'
+            : utilityAction === 'upscale'
+              ? 'Upscale is ready · the primary image stays unchanged'
               : utilityAction === 'removebg'
-                  ? 'Transparent PNG will be saved as a new Library result'
-                  : 'Primary image stays the edit target · references are guidance only'
+                ? 'Transparent PNG will be saved as a new Library result'
+                : 'Primary image stays the edit target · references are guidance only'
 
   const activeModelOptions = mode === 'inpaint' ? INPAINT_MODELS : CUSTOM_MODELS
   const selectActiveModel = mode === 'inpaint' ? setInpaintModel : changeCustomModel
@@ -661,7 +655,7 @@ export function EditImage({ onBack, toast, onSpend, incomingSource }: EditImageP
             {footerHasError && !error && <span aria-hidden="true">✕ </span>}
             {footerMessage}
           </div>
-          <button type="button" className="ef-generate ef-create-footer-action" onClick={apply} disabled={!sourceReady || promptMissing || promptOverLimit || maskMissing || !connected || !spendApproval.approved}>
+          <button type="button" className="ef-generate ef-create-footer-action" onClick={apply} disabled={!sourceReady || promptMissing || promptOverLimit || maskMissing || !connected}>
             <Icon glyph="spark" color="#0E0E13" size={13} /> {utilityAction === 'upscale' ? 'Upscale image' : utilityAction === 'removebg' ? 'Remove background' : mode === 'inpaint' ? 'Apply inpaint' : 'Apply edit'}
           </button>
         </footer>
