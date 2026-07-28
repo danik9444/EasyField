@@ -47,11 +47,26 @@ function sha256File(filePath) {
 }
 
 function readCatalog(catalogPath) {
-    const stat = fs.lstatSync(catalogPath);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > MAX_CATALOG_BYTES) {
-        throw new Error('The packaged runtime catalog is invalid.');
+    let handle;
+    try {
+        handle = fs.openSync(catalogPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    } catch (error) {
+        if (error?.code === 'ELOOP') throw new Error('The packaged runtime catalog is invalid.');
+        throw error;
     }
-    const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+    // Inspect and read the one descriptor we opened, so the path cannot be
+    // swapped for another file between the checks and the read.
+    let contents;
+    try {
+        const stat = fs.fstatSync(handle);
+        if (!stat.isFile() || stat.size < 2 || stat.size > MAX_CATALOG_BYTES) {
+            throw new Error('The packaged runtime catalog is invalid.');
+        }
+        contents = fs.readFileSync(handle, 'utf8');
+    } finally {
+        fs.closeSync(handle);
+    }
+    const catalog = JSON.parse(contents);
     if (!catalog || catalog.schemaVersion !== 1 || catalog.platform !== 'darwin'
         || !Array.isArray(catalog.architectures) || !Array.isArray(catalog.components)
         || typeof catalog.releaseReady !== 'boolean') {

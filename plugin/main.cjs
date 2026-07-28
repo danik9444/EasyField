@@ -1917,10 +1917,17 @@ function loadAccountPublicConfig() {
     let fileConfig = {};
     const configPath = path.join(__dirname, 'account-config.json');
     try {
-        const stat = fs.statSync(configPath);
-        if (stat.isFile() && stat.size > 0 && stat.size <= 64 * 1024) {
-            const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) fileConfig = parsed;
+        // Inspect and read the one descriptor we opened, so the path cannot be
+        // swapped for another file between the checks and the read.
+        const handle = fs.openSync(configPath, 'r');
+        try {
+            const stat = fs.fstatSync(handle);
+            if (stat.isFile() && stat.size > 0 && stat.size <= 64 * 1024) {
+                const parsed = JSON.parse(fs.readFileSync(handle, 'utf8'));
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) fileConfig = parsed;
+            }
+        } finally {
+            fs.closeSync(handle);
         }
     } catch { /* an unconfigured build remains safely signed out */ }
     const environmentConfig = environmentOverridesAllowed() ? {

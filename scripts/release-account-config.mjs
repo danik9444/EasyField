@@ -226,21 +226,34 @@ export function validateReleaseAccountConfig(value) {
 }
 
 export function validateReleaseAccountConfigFile(filePath) {
-  let stat
+  let handle
   try {
-    stat = fs.lstatSync(filePath)
+    handle = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
   } catch (error) {
     if (error?.code === 'ENOENT') {
       fail(`Missing release account config: ${filePath}`)
     }
+    if (error?.code === 'ELOOP') {
+      fail('Release account config must be a regular file, not a link')
+    }
     throw error
   }
-  if (!stat.isFile() || stat.isSymbolicLink()) fail('Release account config must be a regular file, not a link')
-  if (stat.size < 2 || stat.size > MAX_CONFIG_BYTES) fail('Release account config has an invalid size')
+
+  // Inspect and read the one descriptor we opened, so the path cannot be
+  // swapped for another file between the checks and the read.
+  let contents
+  try {
+    const stat = fs.fstatSync(handle)
+    if (!stat.isFile()) fail('Release account config must be a regular file, not a link')
+    if (stat.size < 2 || stat.size > MAX_CONFIG_BYTES) fail('Release account config has an invalid size')
+    contents = fs.readFileSync(handle, 'utf8')
+  } finally {
+    fs.closeSync(handle)
+  }
 
   let parsed
   try {
-    parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    parsed = JSON.parse(contents)
   } catch {
     fail('Release account config must contain valid JSON')
   }
