@@ -7,7 +7,7 @@ on your Mac, never on the internet.
 npm run admin:dev
 ```
 
-Then open http://127.0.0.1:5174.
+Then open http://127.0.0.1:5199.
 
 With no deployment configured it starts in **sample-data mode** and says so on
 screen, so the whole console can be used and reviewed before a backend exists.
