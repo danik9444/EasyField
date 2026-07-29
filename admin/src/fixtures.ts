@@ -275,6 +275,11 @@ const credits: Record<string, CreditDetail> = {
 }
 
 const incidents: Incidents = {
+  maintenance: [
+    { job: 'expire_credit_lots', everRan: true, lastRunAt: isoAgo(2 * 60_000), lastSuccessAt: isoAgo(2 * 60_000), lastError: null, processedLastRun: 0, stale: false },
+    { job: 'expire_credit_reservations', everRan: true, lastRunAt: isoAgo(40_000), lastSuccessAt: isoAgo(40_000), lastError: null, processedLastRun: 3, stale: false },
+    { job: 'grant_due_annual_plan_credits', everRan: true, lastRunAt: isoAgo(40_000), lastSuccessAt: isoAgo(40_000), lastError: null, processedLastRun: 1, stale: false },
+  ],
   ambiguousCheckouts: [
     {
       id: '6d3a9f21-4c85-4e70-b219-8f04c7d5a3e6',

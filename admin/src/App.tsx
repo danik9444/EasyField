@@ -25,8 +25,10 @@ export function App() {
   // Memoised because a fresh client on every render would hand each panel a new
   // object identity, and in fixture mode would also discard the in-memory
   // mutations that let the write paths be exercised without a backend.
+  // Signing out on a 401/403 is the whole point: the alternative is a full,
+  // plausible screen that quietly stopped updating while an incident is live.
   const api = useMemo(
-    () => (session === null ? null : createApi(config, session)),
+    () => (session === null ? null : createApi(config, session, () => setSession(null))),
     [config, session],
   )
 

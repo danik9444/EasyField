@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { AdminApi, AdminUser } from './api'
+import type { AdminApi, AdminUser, MaintenanceJob } from './api'
 import { AdminApiError } from './api'
 import { formatAge, formatCount, formatCredits, formatDateTime, formatMoney, shortId } from './format'
 import { POLL, useLiveData, type LiveState } from './useLiveData'
@@ -309,7 +309,13 @@ export function UserDetailPanel({
             The ledger is append-only and protected by a database trigger. This console reads it as
             evidence and has no path to change it.
           </p>
-          {credits.state.data === null ? (
+          {/* This is the table an operator quotes back during a billing dispute.
+              A silent "Loading…" that never resolves is worse here than
+              anywhere else on the screen, so its failure state is explicit. */}
+          <StaleBanner state={credits.state} />
+          {credits.state.status === 'stale' && credits.state.data === null ? (
+            <p className="muted">The ledger could not be loaded.</p>
+          ) : credits.state.data === null ? (
             <p className="muted">Loading…</p>
           ) : credits.state.data.ledger.length === 0 ? (
             <p className="muted">No ledger entries.</p>
@@ -455,6 +461,8 @@ export function IncidentsPanel({ api }: { api: AdminApi }) {
         may have taken money is resolved with provider evidence, never by marking it paid.
       </p>
 
+      {state.data?.maintenance && <MaintenanceHealth jobs={state.data.maintenance} />}
+
       {state.data === null ? (
         <p className="muted">Loading…</p>
       ) : (
@@ -503,6 +511,68 @@ export function IncidentsPanel({ api }: { api: AdminApi }) {
       )}
     </section>
   )
+}
+
+/**
+ * Scheduler health.
+ *
+ * Placed first, and loud when stale, because a stopped scheduler makes every
+ * other panel lie: with nothing expiring credit lots or releasing reservations,
+ * the queues below stay empty and the system looks calm while annual customers
+ * quietly stop receiving the instalments they paid for.
+ */
+function MaintenanceHealth({ jobs }: { jobs: MaintenanceJob[] }) {
+  const stale = jobs.filter((job) => job.stale)
+  const failing = jobs.filter((job) => job.lastError !== null)
+
+  return (
+    <div className={`incident-card${stale.length > 0 ? ' has-items' : ''}`} style={{ marginTop: 14 }}>
+      <h3>
+        Scheduled maintenance
+        <span className="count">{stale.length > 0 ? `${stale.length} stale` : 'healthy'}</span>
+      </h3>
+
+      {stale.length > 0 && (
+        <div className="banner is-error" role="alert">
+          <strong>
+            {stale.length === jobs.length
+              ? 'No maintenance job has run recently.'
+              : `${stale.length} of ${jobs.length} maintenance jobs are overdue.`}
+          </strong>{' '}
+          Annual credit instalments, credit expiry and reservation release all depend on these. While
+          they are stopped, balances drift and paid-for credit does not arrive.
+        </div>
+      )}
+      {failing.length > 0 && (
+        <div className="banner is-error" role="alert">
+          <strong>Last run failed:</strong> {failing[0].lastError}
+        </div>
+      )}
+
+      <ul className="incident-list">
+        {jobs.map((job) => (
+          <li key={job.job}>
+            <span className={`pill ${job.stale ? 'is-bad' : 'is-good'}`}>
+              {job.stale ? 'stale' : 'ok'}
+            </span>
+            <span className="mono small">{job.job}</span>
+            <span className="muted small">
+              {job.everRan ? `last ok ${formatAge(toEpoch(job.lastSuccessAt))}` : 'never ran'}
+            </span>
+            {job.processedLastRun !== null && (
+              <span className="muted small">· {formatCount(job.processedLastRun)} processed</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function toEpoch(value: string | null): number | null {
+  if (!value) return null
+  const parsed = new Date(value).getTime()
+  return Number.isNaN(parsed) ? null : parsed
 }
 
 function IncidentList({
