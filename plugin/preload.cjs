@@ -62,6 +62,12 @@ contextBridge.exposeInMainWorld('easyfield', Object.freeze({
             ipcRenderer.on('ef:account:password-recovery-completed', handler);
             return () => ipcRenderer.removeListener('ef:account:password-recovery-completed', handler);
         },
+        onEmailConfirmed: (listener) => {
+            if (typeof listener !== 'function') throw new TypeError('Email confirmation listener must be a function');
+            const handler = (_event, completion) => listener(completion);
+            ipcRenderer.on('ef:account:email-confirmed', handler);
+            return () => ipcRenderer.removeListener('ef:account:email-confirmed', handler);
+        },
     }),
     updates: Object.freeze({
         check: () => ipcRenderer.invoke('ef:updates:check'),

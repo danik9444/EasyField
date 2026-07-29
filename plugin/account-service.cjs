@@ -13,6 +13,11 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_JSON_BYTES = 2 * 1024 * 1024;
 const OAUTH_TTL_MS = 5 * 60 * 1000;
 const PASSWORD_RECOVERY_TTL_MS = 5 * 60 * 1000;
+// Email confirmation is asynchronous by nature: the customer leaves for an
+// inbox that may be on another device. Five minutes — right for OAuth and
+// recovery, where the user never leaves the flow — would expire before a
+// realistic round trip. Thirty still bounds how long the PKCE verifier lives.
+const EMAIL_CONFIRMATION_TTL_MS = 30 * 60 * 1000;
 const REFRESH_SKEW_SECONDS = 90;
 const CHECKOUT_STATE_TTL_MS = 30 * 60 * 1000;
 const CHECKOUT_STATE_MAX_BYTES = 16 * 1024;
@@ -314,6 +319,7 @@ function createAccountService(options) {
     );
     const callbackUrl = typeof options.callbackUrl === 'string' ? options.callbackUrl : '';
     const recoveryCallbackUrl = typeof options.recoveryCallbackUrl === 'string' ? options.recoveryCallbackUrl : '';
+    const confirmCallbackUrl = typeof options.confirmCallbackUrl === 'string' ? options.confirmCallbackUrl : '';
     const accountConfigured = Boolean(fetchImpl && supabaseUrl && anonKey);
     const allowLegacyDirectProvider = options.allowLegacyDirectProvider === true;
     const hasDurableCheckoutState = typeof options.readCheckoutState === 'function'
@@ -334,6 +340,8 @@ function createAccountService(options) {
     let oauthExpiryTimer = null;
     let pendingPasswordRecovery = null;
     let passwordRecoveryExpiryTimer = null;
+    let pendingEmailConfirmation = null;
+    let emailConfirmationExpiryTimer = null;
     let lastCheckoutStatus = null;
     let authQueue = Promise.resolve();
 
@@ -398,6 +406,69 @@ function createAccountService(options) {
             finishPasswordRecoveryAttempt(attempt, 'expired', 'Password recovery expired. Request a new email.');
         }, delay);
         passwordRecoveryExpiryTimer.unref?.();
+    }
+
+    function clearEmailConfirmationExpiryTimer() {
+        if (emailConfirmationExpiryTimer) clearTimeout(emailConfirmationExpiryTimer);
+        emailConfirmationExpiryTimer = null;
+    }
+
+    function emitEmailConfirmationCompletion(attempt, state, message) {
+        if (!attempt?.attemptId) return;
+        try {
+            options.onEmailConfirmed?.({ attemptId: attempt.attemptId, state, message });
+        } catch { /* renderer notification is best effort */ }
+    }
+
+    function finishEmailConfirmationAttempt(attempt, state, message) {
+        if (pendingEmailConfirmation === attempt) pendingEmailConfirmation = null;
+        clearEmailConfirmationExpiryTimer();
+        emitEmailConfirmationCompletion(attempt, state, message);
+    }
+
+    function scheduleEmailConfirmationExpiry(attempt) {
+        clearEmailConfirmationExpiryTimer();
+        const delay = Math.max(0, attempt.expiresAtMs - Date.now());
+        emailConfirmationExpiryTimer = setTimeout(() => {
+            if (pendingEmailConfirmation !== attempt || attempt.used) return;
+            // Deliberately quiet: the confirmation link itself is still valid for
+            // much longer on the server. Only the automatic sign-in has lapsed.
+            finishEmailConfirmationAttempt(attempt, 'expired', 'Confirm from the email, then sign in.');
+        }, delay);
+        emailConfirmationExpiryTimer.unref?.();
+    }
+
+    /**
+     * Opens a confirmation attempt and returns what the Auth request needs to
+     * bind the emailed link back to this process. Returns null when the build
+     * has no loopback callback configured, in which case the caller sends no
+     * redirect_to and Supabase falls back to the Site URL exactly as before.
+     */
+    function beginEmailConfirmation(email) {
+        if (!confirmCallbackUrl) return null;
+        if (pendingEmailConfirmation) {
+            finishEmailConfirmationAttempt(
+                pendingEmailConfirmation,
+                'cancelled',
+                'The previous verification request was replaced.',
+            );
+        }
+        const verifier = crypto.randomBytes(48).toString('base64url');
+        const state = crypto.randomBytes(32).toString('base64url');
+        const redirect = new URL(confirmCallbackUrl);
+        redirect.searchParams.set('attempt', state);
+        const attempt = {
+            attemptId: requestId(),
+            email,
+            verifier,
+            state,
+            redirectUrl: redirect.toString(),
+            expiresAtMs: Date.now() + EMAIL_CONFIRMATION_TTL_MS,
+            used: false,
+        };
+        pendingEmailConfirmation = attempt;
+        scheduleEmailConfirmationExpiry(attempt);
+        return attempt;
     }
 
     function passwordRecoveryReady() {
@@ -1042,10 +1113,28 @@ function createAccountService(options) {
                 return resultError('recovery-in-progress', 'Finish or cancel the open password recovery before creating an account.');
             }
             try {
-                const { response, payload } = await requestJson(`${supabaseUrl}/auth/v1/signup`, {
-                    method: 'POST', headers: baseHeaders(), body: { email, password },
+                // The confirmation link is bound to this process so clicking it
+                // returns the customer to EasyField signed in, rather than to a web
+                // page that leaves them to sign in again by hand.
+                const confirmation = beginEmailConfirmation(email);
+                const signupUrl = new URL(`${supabaseUrl}/auth/v1/signup`);
+                if (confirmation) signupUrl.searchParams.set('redirect_to', confirmation.redirectUrl);
+                const { response, payload } = await requestJson(signupUrl.toString(), {
+                    method: 'POST',
+                    headers: baseHeaders(),
+                    body: confirmation
+                        ? {
+                            email,
+                            password,
+                            code_challenge: oauthChallenge(confirmation.verifier),
+                            code_challenge_method: 's256',
+                        }
+                        : { email, password },
                 });
                 if (!response.ok) {
+                    if (confirmation) {
+                        finishEmailConfirmationAttempt(confirmation, 'cancelled', 'The account was not created.');
+                    }
                     return resultError(
                         errorCodeForStatus(response.status),
                         sanitizeMessage(response.status, payload, 'EasyField could not create the account.'),
@@ -1053,9 +1142,19 @@ function createAccountService(options) {
                     );
                 }
                 if (await acceptSession(payload)) {
+                    // Confirmation is disabled on this project, so the attempt has
+                    // nothing left to wait for.
+                    if (confirmation) {
+                        finishEmailConfirmationAttempt(confirmation, 'not-required', 'Your account is ready.');
+                    }
                     return resultOk({ state: 'authenticated', snapshot: await getSnapshot(true) });
                 }
-                return resultOk({ state: 'verification-required', email });
+                return resultOk({
+                    state: 'verification-required',
+                    email,
+                    attemptId: confirmation?.attemptId ?? null,
+                    expiresAtMs: confirmation?.expiresAtMs ?? null,
+                });
             } catch {
                 return resultError('network', 'EasyField could not reach the account service.', true);
             }
@@ -1212,6 +1311,98 @@ function createAccountService(options) {
         return true;
     }
 
+    /**
+     * Consumes the loopback redirect from a confirmation email.
+     *
+     * Supabase verifies the token and marks the address confirmed BEFORE it
+     * redirects here. So arriving without a matching pending attempt is not a
+     * failure — the account is confirmed either way, and the only thing lost is
+     * the automatic sign-in. That case is reported as success with an
+     * instruction, because telling someone their confirmation was invalid when
+     * it actually worked is the worse error.
+     */
+    async function handleEmailConfirmationCallback(req, res) {
+        if (!confirmCallbackUrl) return false;
+        let parsed;
+        try { parsed = new URL(req.url, confirmCallbackUrl); } catch { return false; }
+        if (parsed.pathname !== new URL(confirmCallbackUrl).pathname) return false;
+
+        const writePage = (title, message) => {
+            const body = Buffer.from(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body style="font:16px system-ui;background:#101015;color:#f7f4fb;padding:48px"><h1>${title}</h1><p>${message}</p><p>You can close this window and return to EasyField.</p></body></html>`);
+            res.writeHead(200, {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Content-Length': body.length,
+                'Cache-Control': 'no-store',
+                'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+            });
+            res.end(body);
+        };
+
+        const state = parsed.searchParams.get('attempt') || '';
+        const code = parsed.searchParams.get('code') || '';
+        const confirmError = parsed.searchParams.get('error');
+        const attempt = pendingEmailConfirmation;
+
+        if (confirmError) {
+            if (attempt && state && state === attempt.state) {
+                finishEmailConfirmationAttempt(attempt, 'failed', 'The link could not be used. Request a new email.');
+            }
+            writePage('Email was not confirmed', 'That link could not be used. Request a new verification email from EasyField.');
+            return true;
+        }
+
+        // No usable attempt: the app restarted, the window lapsed, or the link
+        // was opened twice. The address is confirmed regardless.
+        if (!attempt || attempt.used || !state || state !== attempt.state || attempt.expiresAtMs <= Date.now() || !code) {
+            if (attempt && state && state === attempt.state) {
+                finishEmailConfirmationAttempt(attempt, 'confirmed', 'Your email is confirmed. Sign in to continue.');
+            }
+            writePage('Your email is confirmed', 'Sign in from EasyField to continue.');
+            return true;
+        }
+
+        attempt.used = true;
+        clearEmailConfirmationExpiryTimer();
+        const signedIn = await enqueue(async () => {
+            if (pendingEmailConfirmation !== attempt) return false;
+            try {
+                const { response, payload } = await requestJson(`${supabaseUrl}/auth/v1/token?grant_type=pkce`, {
+                    method: 'POST',
+                    headers: baseHeaders(),
+                    body: { auth_code: code, code_verifier: attempt.verifier },
+                });
+                if (!response.ok) return false;
+                const candidate = internalSessionFromResponse(payload);
+                if (!candidate?.accessToken) return false;
+                // The session must belong to the address this attempt was opened
+                // for. Without this a link for one account could establish a
+                // session for another.
+                const user = await fetchAuthUser(candidate.accessToken);
+                if (
+                    !user
+                    || typeof user.email !== 'string'
+                    || user.email.trim().toLowerCase() !== attempt.email
+                ) return false;
+                if (!await acceptSession(payload)) return false;
+                // Without this the session is real but every screen still shows
+                // signed-out until something else happens to refresh.
+                await getSnapshot(true);
+                return true;
+            } catch {
+                return false;
+            }
+        });
+
+        if (!signedIn) {
+            finishEmailConfirmationAttempt(attempt, 'confirmed', 'Your email is confirmed. Sign in to continue.');
+            writePage('Your email is confirmed', 'Sign in from EasyField to continue.');
+            return true;
+        }
+        finishEmailConfirmationAttempt(attempt, 'signed-in', 'Your email is confirmed and you are signed in.');
+        writePage('Return to EasyField', 'Your email is confirmed and you are signed in.');
+        return true;
+    }
+
     function completePasswordRecovery(input) {
         const attemptId = typeof input?.attemptId === 'string' ? input.attemptId : '';
         const password = validatePassword(input?.password);
@@ -1309,12 +1500,35 @@ function createAccountService(options) {
         if (!email) return resultError('invalid-input', 'Enter a valid email address.');
         if (!accountConfigured) return resultError('service-unavailable', 'EasyField account service is not configured in this build.');
         try {
-            const { response } = await requestJson(`${supabaseUrl}/auth/v1/resend`, {
-                method: 'POST', headers: baseHeaders(), body: { type: 'signup', email },
+            // A resent link supersedes the first, so it opens a fresh attempt.
+            const confirmation = beginEmailConfirmation(email);
+            const resendUrl = new URL(`${supabaseUrl}/auth/v1/resend`);
+            if (confirmation) resendUrl.searchParams.set('redirect_to', confirmation.redirectUrl);
+            const { response } = await requestJson(resendUrl.toString(), {
+                method: 'POST',
+                headers: baseHeaders(),
+                body: confirmation
+                    ? {
+                        type: 'signup',
+                        email,
+                        code_challenge: oauthChallenge(confirmation.verifier),
+                        code_challenge_method: 's256',
+                    }
+                    : { type: 'signup', email },
             });
-            if (response.status === 429) return resultError('rate-limited', 'Too many attempts. Wait a moment and try again.', true);
-            if (response.status >= 500) return resultError('service-unavailable', 'EasyField could not send verification instructions.', true);
-            return resultOk({ accepted: true });
+            if (response.status === 429) {
+                if (confirmation) finishEmailConfirmationAttempt(confirmation, 'cancelled', 'The email was not sent.');
+                return resultError('rate-limited', 'Too many attempts. Wait a moment and try again.', true);
+            }
+            if (response.status >= 500) {
+                if (confirmation) finishEmailConfirmationAttempt(confirmation, 'cancelled', 'The email was not sent.');
+                return resultError('service-unavailable', 'EasyField could not send verification instructions.', true);
+            }
+            return resultOk({
+                accepted: true,
+                attemptId: confirmation?.attemptId ?? null,
+                expiresAtMs: confirmation?.expiresAtMs ?? null,
+            });
         } catch {
             return resultError('network', 'EasyField could not reach the account service.', true);
         }
@@ -1795,6 +2009,7 @@ function createAccountService(options) {
         startOAuth,
         handleOAuthCallback,
         handlePasswordRecoveryCallback,
+        handleEmailConfirmationCallback,
         checkout,
         resumeCheckout,
         saveAutoReload,

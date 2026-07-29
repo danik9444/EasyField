@@ -1769,6 +1769,20 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (pathname === '/auth/confirm') {
+        if (!accountService) {
+            sendJSON(res, 503, { ok: false, error: 'account service unavailable', code: 'SERVICE_UNAVAILABLE' });
+            return;
+        }
+        void accountService.handleEmailConfirmationCallback(req, res).then((handled) => {
+            if (!handled && !res.headersSent) sendJSON(res, 400, { ok: false, error: 'invalid confirmation callback', code: 'BAD_REQUEST' });
+        }).catch(() => {
+            if (!res.headersSent) sendJSON(res, 400, { ok: false, error: 'confirmation callback failed', code: 'BAD_REQUEST' });
+            else res.destroy();
+        });
+        return;
+    }
+
     if (pathname === '/auth/recovery') {
         if (!accountService) {
             sendJSON(res, 503, { ok: false, error: 'account service unavailable', code: 'SERVICE_UNAVAILABLE' });
@@ -2657,6 +2671,7 @@ function registerHostIpc() {
             && process.env.EF_ALLOW_LEGACY_DIRECT_PROVIDER === '1',
         callbackUrl: `http://127.0.0.1:${PORT}/auth/callback`,
         recoveryCallbackUrl: `http://127.0.0.1:${PORT}/auth/recovery`,
+        confirmCallbackUrl: `http://127.0.0.1:${PORT}/auth/confirm`,
         readSession: () => readStoredCredential(ACCOUNT_SESSION_CREDENTIAL),
         writeSession: (value) => writeStoredCredential(ACCOUNT_SESSION_CREDENTIAL, value),
         clearSession: () => deleteStoredCredential(ACCOUNT_SESSION_CREDENTIAL),
@@ -2685,6 +2700,11 @@ function registerHostIpc() {
         onPasswordRecoveryCompleted: (completion) => {
             if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.webContents.send === 'function') {
                 mainWindow.webContents.send('ef:account:password-recovery-completed', completion);
+            }
+        },
+        onEmailConfirmed: (completion) => {
+            if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.webContents.send === 'function') {
+                mainWindow.webContents.send('ef:account:email-confirmed', completion);
             }
         },
     });

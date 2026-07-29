@@ -23,6 +23,7 @@ function configuredService(fetchImpl, overrides = {}) {
   const opened = []
   const oauthCompletions = []
   const passwordRecoveryCompletions = []
+  const emailConfirmations = []
   const service = createAccountService({
     supabaseUrl: 'https://project.example.test',
     anonKey: 'public-anon-key',
@@ -31,6 +32,7 @@ function configuredService(fetchImpl, overrides = {}) {
     oauthProviders: overrides.oauthProviders ?? ['google', 'apple'],
     callbackUrl: 'http://127.0.0.1:18832/auth/callback',
     recoveryCallbackUrl: overrides.recoveryCallbackUrl ?? 'http://127.0.0.1:18832/auth/recovery',
+    confirmCallbackUrl: overrides.confirmCallbackUrl ?? 'http://127.0.0.1:18832/auth/confirm',
     fetchImpl,
     readSession: () => persistence.session,
     writeSession: (value) => { persistence.session = value },
@@ -43,8 +45,9 @@ function configuredService(fetchImpl, overrides = {}) {
     openDirectCreditPurchase: async () => {},
     onOAuthCompleted: (completion) => { oauthCompletions.push(completion) },
     onPasswordRecoveryCompleted: (completion) => { passwordRecoveryCompletions.push(completion) },
+    onEmailConfirmed: (completion) => { emailConfirmations.push(completion) },
   })
-  return { service, opened, oauthCompletions, passwordRecoveryCompletions, stored: () => persistence.session, persistence }
+  return { service, opened, oauthCompletions, passwordRecoveryCompletions, emailConfirmations, stored: () => persistence.session, persistence }
 }
 
 const verifiedUser = {
@@ -1164,4 +1167,212 @@ test('an expired entitlement cannot authorize customer generation even with cred
   assert.equal(result.value.snapshot.balances.subscriptionCreditMicros, 700_000_000)
   assert.equal(result.value.snapshot.subscription.status, 'active')
   assert.equal(result.value.snapshot.capabilities.generationAccess, false)
+})
+
+
+// ---------------------------------------------------------------------------
+// Email confirmation
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a service whose sign-up requires confirmation, and captures what the
+ * plugin sent to Auth so the emailed link can be replayed against the loopback
+ * handler exactly as a browser would deliver it.
+ */
+function confirmationHarness(exchange) {
+  const seen = { signupRedirect: null, signupBody: null, exchangeBody: null, exchanges: 0 }
+  const fetchImpl = async (target, options = {}) => {
+    if (target.includes('/auth/v1/signup')) {
+      seen.signupRedirect = new URL(target).searchParams.get('redirect_to')
+      seen.signupBody = JSON.parse(options.body)
+      // No session in the response is how Supabase signals that the address
+      // must be confirmed first.
+      return jsonResponse({ id: verifiedUser.id, email: verifiedUser.email })
+    }
+    if (target.includes('/auth/v1/token?grant_type=pkce')) {
+      seen.exchanges += 1
+      seen.exchangeBody = JSON.parse(options.body)
+      return exchange()
+    }
+    if (target.includes('/auth/v1/token?grant_type=refresh_token')) {
+      // Accepting a session refreshes the snapshot, which refreshes the token.
+      return jsonResponse({
+        access_token: 'refreshed-access-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_in: 3600,
+        user: verifiedUser,
+      })
+    }
+    if (target.endsWith('/auth/v1/user')) return jsonResponse(verifiedUser)
+    if (target.includes('rpc/my_billing_snapshot')) return jsonResponse(billingSnapshot)
+    if (target.includes('partner_entitlements')) return jsonResponse([])
+    throw new Error(`Unexpected request: ${target}`)
+  }
+  return { fetchImpl, seen }
+}
+
+const confirmedSession = () => jsonResponse({
+  access_token: 'confirmed-access-token',
+  refresh_token: 'confirmed-refresh-token',
+  expires_in: 3600,
+  user: verifiedUser,
+})
+
+const silentResponse = () => ({ writeHead() {}, end() {} })
+
+test('sign-up binds the confirmation email back to this process', async () => {
+  const { fetchImpl, seen } = confirmationHarness(confirmedSession)
+  const { service } = configuredService(fetchImpl)
+
+  const result = await service.signUp({ email: verifiedUser.email, password: 'a-long-enough-password' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.state, 'verification-required')
+
+  // Without redirect_to the emailed link lands on the Supabase Site URL and the
+  // customer has to come back and sign in by hand.
+  const redirect = new URL(seen.signupRedirect)
+  assert.equal(redirect.origin + redirect.pathname, 'http://127.0.0.1:18832/auth/confirm')
+  assert.match(redirect.searchParams.get('attempt'), /^[A-Za-z0-9_-]{20,}$/)
+
+  // PKCE, because the loopback server can only read query parameters — an
+  // implicit-flow token arrives in the fragment and never reaches it.
+  assert.match(seen.signupBody.code_challenge, /^[A-Za-z0-9_-]{20,}$/)
+  assert.equal(seen.signupBody.code_challenge_method, 's256')
+
+  // The verifier must never leave the process.
+  assert.equal(JSON.stringify(result).includes('code_verifier'), false)
+})
+
+test('clicking the confirmation link signs the customer in', async () => {
+  const { fetchImpl, seen } = confirmationHarness(confirmedSession)
+  const { service, emailConfirmations, stored } = configuredService(fetchImpl)
+
+  await service.signUp({ email: verifiedUser.email, password: 'a-long-enough-password' })
+  const nonce = new URL(seen.signupRedirect).searchParams.get('attempt')
+
+  assert.equal(await service.handleEmailConfirmationCallback(
+    { url: `/auth/confirm?attempt=${encodeURIComponent(nonce)}&code=emailed-code` },
+    silentResponse(),
+  ), true)
+
+  assert.equal(seen.exchangeBody.auth_code, 'emailed-code')
+  assert.match(seen.exchangeBody.code_verifier, /^[A-Za-z0-9_-]{20,}$/)
+  assert.equal(emailConfirmations.length, 1)
+  assert.equal(emailConfirmations[0].state, 'signed-in')
+  assert.notEqual(stored(), '', 'the session must be persisted')
+  assert.equal(service.getCachedSnapshot().session.status, 'signed-in')
+})
+
+test('a link that does not match the open attempt cannot establish a session', async () => {
+  const { fetchImpl, seen } = confirmationHarness(confirmedSession)
+  const { service, emailConfirmations, stored } = configuredService(fetchImpl)
+
+  await service.signUp({ email: verifiedUser.email, password: 'a-long-enough-password' })
+
+  assert.equal(await service.handleEmailConfirmationCallback(
+    { url: '/auth/confirm?attempt=not-the-nonce&code=attacker-code' },
+    silentResponse(),
+  ), true)
+
+  assert.equal(seen.exchanges, 0, 'a mismatched nonce must not reach the exchange')
+  assert.equal(stored(), '')
+  assert.equal(service.getCachedSnapshot().session.status, 'signed-out')
+  assert.deepEqual(emailConfirmations, [], 'another attempt must not be resolved by this one')
+})
+
+test('a session for a different address is refused', async () => {
+  // The exchange succeeds but returns someone else. Accepting it would let a
+  // link issued for one account establish a session for another.
+  const otherUser = { ...verifiedUser, id: '00000000-0000-4000-8000-0000000000ff', email: 'someone.else@example.com' }
+  const seen = { signupRedirect: null }
+  const fetchImpl = async (target, options = {}) => {
+    if (target.includes('/auth/v1/signup')) {
+      seen.signupRedirect = new URL(target).searchParams.get('redirect_to')
+      return jsonResponse({ id: verifiedUser.id, email: verifiedUser.email })
+    }
+    if (target.includes('/auth/v1/token?grant_type=pkce')) {
+      return jsonResponse({
+        access_token: 'other-access-token',
+        refresh_token: 'other-refresh-token',
+        expires_in: 3600,
+        user: otherUser,
+      })
+    }
+    if (target.endsWith('/auth/v1/user')) return jsonResponse(otherUser)
+    throw new Error(`Unexpected request: ${target}`)
+  }
+  const { service, emailConfirmations, stored } = configuredService(fetchImpl)
+
+  await service.signUp({ email: verifiedUser.email, password: 'a-long-enough-password' })
+  const nonce = new URL(seen.signupRedirect).searchParams.get('attempt')
+
+  assert.equal(await service.handleEmailConfirmationCallback(
+    { url: `/auth/confirm?attempt=${encodeURIComponent(nonce)}&code=emailed-code` },
+    silentResponse(),
+  ), true)
+
+  assert.equal(stored(), '', 'no session may be persisted for a mismatched address')
+  assert.equal(service.getCachedSnapshot().session.status, 'signed-out')
+  assert.equal(emailConfirmations.at(-1).state, 'confirmed')
+})
+
+test('the link is single use', async () => {
+  const { fetchImpl, seen } = confirmationHarness(confirmedSession)
+  const { service } = configuredService(fetchImpl)
+
+  await service.signUp({ email: verifiedUser.email, password: 'a-long-enough-password' })
+  const nonce = new URL(seen.signupRedirect).searchParams.get('attempt')
+  const url = `/auth/confirm?attempt=${encodeURIComponent(nonce)}&code=emailed-code`
+
+  await service.handleEmailConfirmationCallback({ url }, silentResponse())
+  await service.handleEmailConfirmationCallback({ url }, silentResponse())
+
+  assert.equal(seen.exchanges, 1, 'replaying the link must not exchange the code twice')
+})
+
+test('a confirmation with nothing pending reports success rather than an error', async () => {
+  // Supabase verifies the token and marks the address confirmed BEFORE it
+  // redirects. Arriving with no attempt — app restarted, window lapsed, link
+  // opened twice — means the account IS confirmed and only the automatic
+  // sign-in was lost. Reporting failure would be actively wrong.
+  const { fetchImpl, seen } = confirmationHarness(confirmedSession)
+  const { service, emailConfirmations } = configuredService(fetchImpl)
+
+  const captured = { status: 0, body: '' }
+  const response = {
+    writeHead(status) { captured.status = status },
+    end(body) { captured.body = String(body) },
+  }
+
+  assert.equal(await service.handleEmailConfirmationCallback(
+    { url: '/auth/confirm?attempt=orphaned&code=emailed-code' },
+    response,
+  ), true)
+
+  assert.equal(seen.exchanges, 0)
+  assert.equal(captured.status, 200)
+  assert.match(captured.body, /confirmed/i)
+  assert.doesNotMatch(captured.body, /invalid|failed/i)
+  assert.deepEqual(emailConfirmations, [])
+})
+
+test('a build with no loopback callback still signs up, without a redirect', async () => {
+  // The confirmation flow is additive: an unconfigured build must behave
+  // exactly as it did before rather than refusing to create accounts.
+  const { fetchImpl, seen } = confirmationHarness(confirmedSession)
+  const { service } = configuredService(fetchImpl, { confirmCallbackUrl: '' })
+
+  const result = await service.signUp({ email: verifiedUser.email, password: 'a-long-enough-password' })
+  assert.equal(result.ok, true)
+  assert.equal(seen.signupRedirect, null)
+  assert.equal(seen.signupBody.code_challenge, undefined)
+})
+
+test('the confirmation handler ignores a path that is not its own', async () => {
+  const { fetchImpl } = confirmationHarness(confirmedSession)
+  const { service } = configuredService(fetchImpl)
+  assert.equal(
+    await service.handleEmailConfirmationCallback({ url: '/auth/recovery?attempt=x&code=y' }, silentResponse()),
+    false,
+  )
 })
