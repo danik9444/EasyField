@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { AdminApi, AdminUser, MaintenanceJob, OperationalAlert } from './api'
+import type { AdminApi, AdminUser, AuditPage, MaintenanceJob, OperationalAlert } from './api'
 import { AdminApiError } from './api'
 import { formatAge, formatCount, formatCredits, formatDateTime, formatMoney, shortId } from './format'
 import { POLL, useLiveData, type LiveState } from './useLiveData'
@@ -242,6 +242,7 @@ export function UserDetailPanel({
 }) {
   const { state, refresh, paused } = useLiveData(() => api.userDetail(userId), POLL.medium, [userId])
   const credits = useLiveData(() => api.credits(userId), POLL.slow, [userId])
+  const creditLots = credits.state.data?.lots ?? []
 
   return (
     <section className="panel">
@@ -293,6 +294,84 @@ export function UserDetailPanel({
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* These four were fetched and discarded. Each answers a question
+              an operator actually asks: why does this account have access
+              with no subscription (partner), will they be charged again
+              (auto-reload), when does their credit lapse (lots), and who
+              last changed their role and why (history). */}
+          {(state.data.partnerEntitlement || state.data.autoReload) && (
+            <>
+              <h3>Entitlements</h3>
+              <ul className="tally">
+                {state.data.partnerEntitlement && (
+                  <li>
+                    <span className="pill role-admin">partner</span>
+                    <span className="muted small">
+                      {state.data.partnerEntitlement.offerKey}
+                      {state.data.partnerEntitlement.lifetimeAccess ? ' · lifetime' : ''}
+                    </span>
+                    <span className={`pill status-${state.data.partnerEntitlement.status}`}>
+                      {state.data.partnerEntitlement.status}
+                    </span>
+                  </li>
+                )}
+                {state.data.autoReload && (
+                  <li>
+                    <span className="pill">auto-reload</span>
+                    <span className="muted small">{state.data.autoReload.planKey ?? "—"}</span>
+                    <span className={`pill ${state.data.autoReload.enabled ? "is-warn" : ""}`}>
+                      {state.data.autoReload.enabled ? "enabled" : "off"}
+                    </span>
+                  </li>
+                )}
+              </ul>
+            </>
+          )}
+
+          {creditLots.length > 0 && (
+            <>
+              <h3>Credit grant lots</h3>
+              <p className="muted small">
+                Where a balance came from, and when it lapses. Credit expires per lot, so a
+                customer with a healthy total can still be about to lose most of it.
+              </p>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr><th>Source</th><th className="numeric">Granted</th><th className="numeric">Remaining</th><th>Expires</th></tr>
+                  </thead>
+                  <tbody>
+                    {creditLots.map((lot) => (
+                      <tr key={lot.id}>
+                        <td><span className="pill">{lot.sourceType}</span></td>
+                        <td className="numeric">{formatCredits(lot.totalMicrocredits)}</td>
+                        <td className="numeric">{formatCredits(lot.availableMicrocredits)}</td>
+                        <td className="muted">{formatDateTime(lot.expiresAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {state.data.roleHistory.length > 0 && (
+            <>
+              <h3>Role history for this account</h3>
+              <ul className="incident-list">
+                {state.data.roleHistory.map((entry) => (
+                  <li key={entry.id}>
+                    <span className="muted small">{formatDateTime(entry.createdAt)}</span>
+                    <span className="pill">{entry.previousRole ?? "none"}</span>
+                    <span>→</span>
+                    <span className={`pill role-${entry.newRole}`}>{entry.newRole}</span>
+                    <span className="muted small">{entry.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           <RoleControl
@@ -697,6 +776,33 @@ function IncidentList({
 
 export function AuditPanel({ api }: { api: AdminApi }) {
   const { state, refresh, paused } = useLiveData(() => api.audit(), POLL.slow)
+  // Older pages are held separately from the polled first page, so a refresh
+  // cannot discard history the operator deliberately loaded.
+  const [older, setOlder] = useState<AuditPage['entries']>([])
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [exhausted, setExhausted] = useState(false)
+
+  const entries = state.data ? [...state.data.entries, ...older] : []
+  // A page that came back exactly full is the only evidence the server has
+  // more. Without this the table just stops, and a complete-looking audit
+  // trail that is silently truncated is worse than an empty one.
+  const pageSize = state.data?.limit ?? 25
+  const mayHaveMore = !exhausted && entries.length > 0 && entries.length % pageSize === 0
+
+  const loadMore = async () => {
+    const oldest = entries[entries.length - 1]
+    if (!oldest || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const next = await api.audit(oldest.id)
+      if (next.entries.length === 0) setExhausted(true)
+      else setOlder((current) => [...current, ...next.entries])
+    } catch {
+      setExhausted(true)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   return (
     <section className="panel">
@@ -708,7 +814,7 @@ export function AuditPanel({ api }: { api: AdminApi }) {
 
       {state.data === null ? (
         <p className="muted">Loading…</p>
-      ) : state.data.entries.length === 0 ? (
+      ) : entries.length === 0 ? (
         <p className="muted">No role changes recorded.</p>
       ) : (
         <div className="table-scroll">
@@ -717,7 +823,7 @@ export function AuditPanel({ api }: { api: AdminApi }) {
               <tr><th>When</th><th>Target</th><th>Change</th><th>Actor</th><th>Reason</th></tr>
             </thead>
             <tbody>
-              {state.data.entries.map((entry) => (
+              {entries.map((entry) => (
                 <tr key={entry.id}>
                   <td className="muted">{formatDateTime(entry.createdAt)}</td>
                   <td className="mono small">{entry.targetEmail ?? shortId(entry.targetUserId)}</td>
@@ -733,6 +839,20 @@ export function AuditPanel({ api }: { api: AdminApi }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {mayHaveMore && (
+        <p className="muted small" style={{ marginTop: 12 }}>
+          Showing the {entries.length} most recent changes.{' '}
+          <button type="button" className="ghost" onClick={loadMore} disabled={loadingMore}>
+            {loadingMore ? 'Loading…' : 'Load older'}
+          </button>
+        </p>
+      )}
+      {exhausted && (
+        <p className="muted small" style={{ marginTop: 12 }}>
+          All {entries.length} recorded changes are shown.
+        </p>
       )}
     </section>
   )

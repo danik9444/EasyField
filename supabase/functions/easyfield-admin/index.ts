@@ -242,7 +242,7 @@ async function handle(request: Request): Promise<Response> {
         p_actor_user_id: user.id,
         p_user_id: route.userId,
         p_limit: query.limit,
-        p_cursor_id: null,
+        p_cursor_id: query.cursor,
       }));
     }
 
@@ -259,7 +259,7 @@ async function handle(request: Request): Promise<Response> {
       return json(await adminRpc("easyfield_admin_audit", {
         p_actor_user_id: user.id,
         p_limit: query.limit,
-        p_cursor_id: null,
+        p_cursor_id: query.cursor,
       }));
     }
 
