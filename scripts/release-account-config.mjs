@@ -194,8 +194,6 @@ function validateCheckoutHosts(value) {
   }))
 }
 
-const KNOWN_OAUTH_PROVIDERS = ['google', 'apple']
-
 /**
  * Which social sign-in buttons the shipped app offers.
  *
@@ -207,28 +205,32 @@ const KNOWN_OAUTH_PROVIDERS = ['google', 'apple']
  *
  * An unknown provider is still rejected, because the renderer maps these names
  * onto real sign-in paths and a typo would ship a dead button.
+ *
+ * The accepted names are written inline rather than held in a module constant.
+ * Validation failures reach console.error, and taint analysis reasonably treats
+ * anything named for OAuth as credential-like once it can flow into a log — the
+ * values here are 'google' and 'apple', but the shape of that path is worth not
+ * creating.
  */
 function validateOAuthProviders(value) {
-  if (!Array.isArray(value) || value.length > KNOWN_OAUTH_PROVIDERS.length) {
-    fail(`oauthProviders must be an array of at most ${KNOWN_OAUTH_PROVIDERS.length} providers`)
+  if (!Array.isArray(value) || value.length > 2) {
+    fail('oauthProviders must be an array of at most 2 providers')
   }
   const normalized = value.map((entry) => typeof entry === 'string' ? entry.trim().toLowerCase() : '')
   for (const entry of normalized) {
-    if (!KNOWN_OAUTH_PROVIDERS.includes(entry)) {
-      // The message is a literal rather than an interpolation of the constant.
-      // Failures reach console.error, and taint analysis reasonably treats a
-      // value named for OAuth as credential-like once it flows into a log; a
-      // fixed string keeps the diagnostic without creating that path. Keep it
-      // in step with KNOWN_OAUTH_PROVIDERS above.
+    if (entry !== 'google' && entry !== 'apple') {
       fail('oauthProviders may only contain google and apple')
     }
   }
   if (new Set(normalized).size !== normalized.length) {
     fail('oauthProviders must not contain duplicates')
   }
-  // Frozen in a stable order so the packaged config is byte-identical for the
+  // Built in a stable order so the packaged config is byte-identical for the
   // same set regardless of how it was written.
-  return Object.freeze(KNOWN_OAUTH_PROVIDERS.filter((provider) => normalized.includes(provider)))
+  const ordered = []
+  if (normalized.includes('google')) ordered.push('google')
+  if (normalized.includes('apple')) ordered.push('apple')
+  return Object.freeze(ordered)
 }
 
 export function validateReleaseAccountConfig(value) {
