@@ -157,9 +157,22 @@ function validatePublicSupabaseKey(value, projectRef) {
   return value
 }
 
+/**
+ * The checkout host allowlist.
+ *
+ * An empty list is permitted and means "no checkout redirect is allowed" — the
+ * fail-closed state, and the correct one while no payment provider has been
+ * chosen. Requiring a nonempty list forced the operator to grant a permission
+ * before they had anything to grant it to, so the only way to produce a
+ * signable build was to name a host the product does not use. A wrong host is
+ * strictly worse than none: it passes the gate and sends customers somewhere
+ * real that is not the merchant.
+ *
+ * Every entry that IS present is still validated exactly as strictly as before.
+ */
 function validateCheckoutHosts(value) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 20) {
-    fail('checkoutHosts must be a nonempty array of checkout hostnames')
+  if (!Array.isArray(value) || value.length > 20) {
+    fail('checkoutHosts must be an array of at most 20 checkout hostnames')
   }
 
   const seen = new Set()
@@ -181,15 +194,43 @@ function validateCheckoutHosts(value) {
   }))
 }
 
+/**
+ * Which social sign-in buttons the shipped app offers.
+ *
+ * This validates the value; it does not mandate a product decision. Demanding
+ * both providers made an email-only build unreleasable, which is a legitimate
+ * configuration — and worse, it invited someone to list a provider that is not
+ * actually configured in Supabase Auth, producing a button that fails after
+ * the customer has already left for their browser.
+ *
+ * An unknown provider is still rejected, because the renderer maps these names
+ * onto real sign-in paths and a typo would ship a dead button.
+ *
+ * The accepted names are written inline rather than held in a module constant.
+ * Validation failures reach console.error, and taint analysis reasonably treats
+ * anything named for OAuth as credential-like once it can flow into a log — the
+ * values here are 'google' and 'apple', but the shape of that path is worth not
+ * creating.
+ */
 function validateOAuthProviders(value) {
-  if (!Array.isArray(value) || value.length !== 2) {
-    fail('oauthProviders must enable both google and apple')
+  if (!Array.isArray(value) || value.length > 2) {
+    fail('oauthProviders must be an array of at most 2 providers')
   }
   const normalized = value.map((entry) => typeof entry === 'string' ? entry.trim().toLowerCase() : '')
-  if (new Set(normalized).size !== 2 || !normalized.includes('google') || !normalized.includes('apple')) {
-    fail('oauthProviders must enable both google and apple without duplicates')
+  for (const entry of normalized) {
+    if (entry !== 'google' && entry !== 'apple') {
+      fail('oauthProviders may only contain google and apple')
+    }
   }
-  return Object.freeze(['google', 'apple'])
+  if (new Set(normalized).size !== normalized.length) {
+    fail('oauthProviders must not contain duplicates')
+  }
+  // Built in a stable order so the packaged config is byte-identical for the
+  // same set regardless of how it was written.
+  const ordered = []
+  if (normalized.includes('google')) ordered.push('google')
+  if (normalized.includes('apple')) ordered.push('apple')
+  return Object.freeze(ordered)
 }
 
 export function validateReleaseAccountConfig(value) {

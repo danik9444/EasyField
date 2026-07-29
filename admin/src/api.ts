@@ -248,12 +248,41 @@ export interface MaintenanceJob {
   stale: boolean
 }
 
+export interface OperationalAlert {
+  severity: 'critical' | 'warning'
+  code: string
+  count: number
+  message: string
+}
+
+export interface BlockedRenewal {
+  subscriptionId: string
+  planKey: string
+  billingInterval: string
+  periodEndsAt: string
+  reason: string
+}
+
+export interface AutoReloadDue {
+  accountId: string
+  planKey: string | null
+  availableMicrocredits: string
+  triggerBelowMicrocredits: string
+  reloadMicrocredits: string
+  hasSavedMethod: boolean
+}
+
 export interface Incidents {
   /**
-   * Scheduler health. Absent from older deployments, so it is optional rather
-   * than assumed — a console that crashes against a backend one migration
-   * behind is worse than one that shows a little less.
+   * Everything currently wrong, in one list. Optional along with the other
+   * additions below because a console that crashes against a backend one
+   * migration behind is worse than one that shows a little less.
    */
+  alerts?: OperationalAlert[]
+  /** Subscriptions that will lapse because nothing can charge them. */
+  blockedRenewals?: BlockedRenewal[]
+  /** Accounts past their auto-reload threshold with no worker to act. */
+  autoReloadDue?: AutoReloadDue[]
   maintenance?: MaintenanceJob[]
   ambiguousCheckouts: Array<{ id: string; intentType: string; status: string; updatedAt: string }>
   openCheckouts: Array<{ id: string; intentType: string; status: string; createdAt: string }>

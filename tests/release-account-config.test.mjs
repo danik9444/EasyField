@@ -86,17 +86,46 @@ test('release account config requires matching function origin and safe checkout
     })),
     /must match supabaseUrl/,
   )
-  assert.throws(
-    () => validateReleaseAccountConfig(validConfig({ checkoutHosts: [] })),
-    /nonempty array/,
+  // An empty allowlist is the fail-closed state: no checkout redirect is
+  // permitted at all. Demanding a nonempty list meant the only way to produce a
+  // signable build before a payment provider existed was to name a host the
+  // product does not use, which passes the gate and sends customers somewhere
+  // real that is not the merchant.
+  assert.deepEqual(
+    validateReleaseAccountConfig(validConfig({ checkoutHosts: [] })).checkoutHosts,
+    [],
   )
+
+  // Social sign-in is a product decision, not a validity rule. An email-only
+  // build is legitimate and must be releasable.
+  assert.deepEqual(
+    validateReleaseAccountConfig(validConfig({ oauthProviders: [] })).oauthProviders,
+    [],
+  )
+  assert.deepEqual(
+    validateReleaseAccountConfig(validConfig({ oauthProviders: ['google'] })).oauthProviders,
+    ['google'],
+  )
+  // Normalised to a stable order so the packaged config is byte-identical.
+  assert.deepEqual(
+    validateReleaseAccountConfig(validConfig({ oauthProviders: ['apple', 'google'] })).oauthProviders,
+    ['google', 'apple'],
+  )
+
+  // What must still be refused: a name the renderer cannot map to a real
+  // sign-in path would ship a button that dies after the customer has already
+  // left for their browser.
   assert.throws(
-    () => validateReleaseAccountConfig(validConfig({ oauthProviders: ['google'] })),
-    /both google and apple/,
+    () => validateReleaseAccountConfig(validConfig({ oauthProviders: ['github'] })),
+    /may only contain/,
   )
   assert.throws(
     () => validateReleaseAccountConfig(validConfig({ oauthProviders: ['google', 'google'] })),
-    /without duplicates/,
+    /must not contain duplicates/,
+  )
+  assert.throws(
+    () => validateReleaseAccountConfig(validConfig({ oauthProviders: ['google', 'apple', 'apple'] })),
+    /at most 2 providers/,
   )
   assert.throws(
     () => validateReleaseAccountConfig(validConfig({ checkoutHosts: ['https://app.lemonsqueezy.com/checkout'] })),

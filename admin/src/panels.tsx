@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { AdminApi, AdminUser, MaintenanceJob } from './api'
+import type { AdminApi, AdminUser, MaintenanceJob, OperationalAlert } from './api'
 import { AdminApiError } from './api'
 import { formatAge, formatCount, formatCredits, formatDateTime, formatMoney, shortId } from './format'
 import { POLL, useLiveData, type LiveState } from './useLiveData'
@@ -461,7 +461,34 @@ export function IncidentsPanel({ api }: { api: AdminApi }) {
         may have taken money is resolved with provider evidence, never by marking it paid.
       </p>
 
+      {state.data?.alerts && state.data.alerts.length > 0 && (
+        <AlertList alerts={state.data.alerts} />
+      )}
       {state.data?.maintenance && <MaintenanceHealth jobs={state.data.maintenance} />}
+      {state.data?.blockedRenewals && state.data.blockedRenewals.length > 0 && (
+        <WaitingOnProvider
+          title="Renewals that cannot be charged"
+          hint="These subscriptions end soon with no usable payment method. Nothing can renew them, so they will lapse."
+          rows={state.data.blockedRenewals.map((row) => ({
+            key: row.subscriptionId,
+            primary: `${row.planKey} · ${row.billingInterval}`,
+            secondary: row.reason,
+            when: row.periodEndsAt,
+          }))}
+        />
+      )}
+      {state.data?.autoReloadDue && state.data.autoReloadDue.length > 0 && (
+        <WaitingOnProvider
+          title="Auto-reload triggered"
+          hint="These accounts are below their reload threshold. The setting is saved; no worker charges it yet."
+          rows={state.data.autoReloadDue.map((row) => ({
+            key: row.accountId,
+            primary: `${formatCredits(row.availableMicrocredits)} left, reload ${formatCredits(row.reloadMicrocredits)}`,
+            secondary: row.hasSavedMethod ? 'has saved method' : 'no saved method',
+            when: null,
+          }))}
+        />
+      )}
 
       {state.data === null ? (
         <p className="muted">Loading…</p>
@@ -510,6 +537,66 @@ export function IncidentsPanel({ api }: { api: AdminApi }) {
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * Everything currently wrong, above everything else.
+ *
+ * The queues below answer "what is in this state"; this answers "what should I
+ * be doing right now", which is the only question an operator has when they
+ * open this screen at speed.
+ */
+function AlertList({ alerts }: { alerts: OperationalAlert[] }) {
+  const ordered = [...alerts].sort((a, b) =>
+    a.severity === b.severity ? 0 : a.severity === 'critical' ? -1 : 1,
+  )
+  return (
+    <div style={{ marginTop: 14 }}>
+      {ordered.map((alert) => (
+        <div
+          key={alert.code}
+          className={`banner ${alert.severity === 'critical' ? 'is-error' : 'is-warn'}`}
+          role={alert.severity === 'critical' ? 'alert' : 'status'}
+        >
+          <strong>{alert.count}</strong> · {alert.message}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Work that is understood, enqueued, and cannot proceed without a payment
+ * provider. Kept visually distinct from failures: nothing here is broken, and
+ * presenting it as an error would train the operator to ignore real ones.
+ */
+function WaitingOnProvider({
+  title,
+  hint,
+  rows,
+}: {
+  title: string
+  hint: string
+  rows: Array<{ key: string; primary: string; secondary: string; when: string | null }>
+}) {
+  return (
+    <div className="incident-card has-items" style={{ marginTop: 12 }}>
+      <h3>
+        {title} <span className="count">{rows.length}</span>
+      </h3>
+      <p className="muted small">{hint}</p>
+      <ul className="incident-list">
+        {rows.map((row) => (
+          <li key={row.key}>
+            <span className="mono small">{shortId(row.key)}</span>
+            <span>{row.primary}</span>
+            <span className="pill is-warn">{row.secondary}</span>
+            {row.when && <span className="muted small">{formatDateTime(row.when)}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
