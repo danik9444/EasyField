@@ -116,12 +116,23 @@ Also closed, found by the same audit:
 
 ## Suggested order
 
-1. Turn on leaked-password protection (one toggle).
-2. Deploy `website/` and point `site_url` at it. It builds and has never been
-   deployed, so every refused or redirect-less auth link currently lands on
-   `http://localhost:3000`, where nothing listens.
-3. Fill `checkoutHosts` in the release config once the merchant is known. The
+1. Decide whether to move the Supabase project to Pro. Leaked-password
+   protection is **not a toggle we declined to flip** — it is gated to Pro and
+   above, and this project is on Free. Until then the compensating control is a
+   12-character minimum, enforced by the project and mirrored by the plugin
+   (`MIN_PASSWORD_LENGTH`). That is the weaker control: length alone does not
+   catch a long password that is already in a breach corpus.
+2. Fill `checkoutHosts` in the release config once the merchant is known. The
    plugin becomes shippable.
-4. Choose the provider. Deploy `easyfield-billing-webhook` with its secrets.
-5. Build the checkout-expiry reconciliation on top of the provider's evidence.
-6. Only then flip the two READY flags.
+3. Choose the provider. Deploy `easyfield-billing-webhook` with its secrets.
+4. Build the checkout-expiry reconciliation on top of the provider's evidence.
+5. Only then flip the two READY flags.
+
+## Done since this list was written
+
+- **`website/` is deployed and the domain is live.** `https://easyfield.ai`
+  serves from Vercel on a Let's Encrypt certificate; `www` 308-redirects to the
+  apex so there is one canonical origin.
+- **`site_url` points at it.** Confirmed against GoTrue, not the Dashboard: a
+  foreign `redirect_to` now falls back to `https://easyfield.ai` and is still
+  refused. Auth links no longer land on a dead port.

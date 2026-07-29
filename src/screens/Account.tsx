@@ -14,6 +14,7 @@ import {
   type SubscriptionPlanId,
 } from '../data/subscriptions'
 import {
+  MIN_PASSWORD_LENGTH,
   formatAccountDate,
   formatCreditMicros,
   formatMoneyMicros,
@@ -279,11 +280,11 @@ function AuthView(props: AccountProps) {
             placeholder={signUp ? 'Create a secure password' : 'Enter your password'}
             onChange={(event) => props.onAuthPasswordChange(event.target.value)}
             disabled={props.authPending || serviceBlocked}
-            minLength={signUp ? 8 : undefined}
+            minLength={signUp ? MIN_PASSWORD_LENGTH : undefined}
             aria-describedby={signUp ? `${passwordId}-help` : undefined}
             required
           />
-          {signUp && <p id={`${passwordId}-help`} className="ef-account-password-help">Use at least 8 characters.</p>}
+          {signUp && <p id={`${passwordId}-help`} className="ef-account-password-help">Use at least {MIN_PASSWORD_LENGTH} characters.</p>}
           {!signUp && (
             <button
               type="button"
@@ -328,7 +329,7 @@ function PasswordRecoveryView(props: AccountProps & { recovery: AccountPasswordR
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const mismatch = confirmation.length > 0 && password !== confirmation
-  const valid = password.length >= 8 && password === confirmation
+  const valid = password.length >= MIN_PASSWORD_LENGTH && password === confirmation
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -347,10 +348,10 @@ function PasswordRecoveryView(props: AccountProps & { recovery: AccountPasswordR
         </div>
         <form className="ef-account-auth-form" onSubmit={submit}>
           <label htmlFor={passwordId}>New password</label>
-          <input id={passwordId} type="password" autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} disabled={props.passwordRecoveryPending} required />
+          <input id={passwordId} type="password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} value={password} onChange={(event) => setPassword(event.target.value)} disabled={props.passwordRecoveryPending} required />
           <label htmlFor={confirmId}>Confirm new password</label>
-          <input id={confirmId} type="password" autoComplete="new-password" minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={props.passwordRecoveryPending} aria-invalid={mismatch || undefined} required />
-          <p className={`ef-account-password-help${mismatch ? ' is-error' : ''}`}>{mismatch ? 'Passwords do not match.' : 'Use at least 8 characters.'}</p>
+          <input id={confirmId} type="password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={props.passwordRecoveryPending} aria-invalid={mismatch || undefined} required />
+          <p className={`ef-account-password-help${mismatch ? ' is-error' : ''}`}>{mismatch ? 'Passwords do not match.' : `Use at least ${MIN_PASSWORD_LENGTH} characters.`}</p>
           <div className="ef-account-recovery-actions">
             <button type="button" className="ef-account-secondary" disabled={props.passwordRecoveryPending} onClick={() => void props.onCancelPasswordRecovery(props.recovery.attemptId)}>Cancel</button>
             <button type="submit" className="ef-account-primary" disabled={!valid || props.passwordRecoveryPending} aria-busy={props.passwordRecoveryPending || undefined}>{props.passwordRecoveryPending ? 'Updating…' : 'Update password'}</button>

@@ -53,13 +53,21 @@ default, or the provider's capacity will not be used.
 
 ## Also worth setting while you are there
 
-- **Leaked-password protection** — Authentication → Policies. Checks new
-  passwords against HaveIBeenPwned. One toggle, same reason it cannot be
-  scripted here.
-- **Redirect URLs** — Authentication → URL Configuration. See
-  `docs/ACCOUNT_SERVICE_DEPLOYMENT.md`; the loopback callbacks carry a
-  per-attempt nonce and need the `**` wildcard form, or OAuth and password
-  recovery both fail silently.
+- **Leaked-password protection** — Authentication → Sign In / Providers →
+  Email. Checks new passwords against HaveIBeenPwned. It is **gated to the Pro
+  plan**; this project is on Free, so the toggle is present but inert. Turning
+  it on is a plan change, not a configuration change.
+
+  While it is unavailable the minimum password length carries the load: it was
+  raised from 6 to **12** and is enforced by the project. A signup below it is
+  rejected with `weak_password` before an account exists. The plugin mirrors the
+  number (`MIN_PASSWORD_LENGTH` in `src/core/account.ts`) only so it can say so
+  without a round trip — the server remains the authority. Note the honest
+  limit: length does not detect a long password that is already breached.
+
+  Sign-in deliberately does **not** apply the minimum. It is a policy for
+  passwords being set; enforcing it at sign-in would lock out every account
+  created before the policy was raised.
 
 ## Confirmation returns the customer to the app
 
@@ -98,8 +106,17 @@ A build with no loopback callback configured sends no `redirect_to` at all and
 behaves exactly as it did before, so this is additive rather than a new
 requirement.
 
-## site_url is a development default
+## site_url now points at the live site
 
-The deployed project's Site URL is `http://localhost:3000`. Every refused or
-fallback redirect lands there — including a confirmation click when the plugin
-is not running. Point it at the real site before customers arrive.
+The Site URL is `https://easyfield.ai` — set on 2026-07-29, once `website/` was
+deployed and the domain resolved. Every refused or fallback redirect lands
+there, including a confirmation click made while the plugin is not running.
+
+Verified against GoTrue rather than the Dashboard:
+
+```
+GET /auth/v1/verify?token=…&redirect_to=https://attacker.example.com/steal
+303  location: https://easyfield.ai#error=access_denied&…
+```
+
+The fallback moved, and the foreign target is still refused.
