@@ -224,9 +224,38 @@ contain no `account-config.json`, as described in `docs/RELEASING.md`.
 Password recovery is end-to-end inside the desktop boundary: Electron Main
 creates the PKCE request, owns the temporary recovery session, consumes the
 trusted `http://127.0.0.1:18832/auth/recovery` callback, and exposes only a
-one-time attempt ID plus terminal state to the renderer. Production Supabase
-Auth must allowlist that exact redirect and the packaged Resolve build must
-complete an email-link test; sending the email alone is not sufficient.
+one-time attempt ID plus terminal state to the renderer. The packaged Resolve
+build must complete an email-link test; sending the email alone is not
+sufficient.
+
+### Redirect allowlist — must be the wildcard form
+
+Both loopback callbacks carry a per-attempt nonce that binds the browser's
+return to the Main-process attempt that started it
+(`plugin/account-service.cjs:1112`, `:1351`), so the URL Supabase receives is:
+
+```
+http://127.0.0.1:18832/auth/recovery?attempt=<random per attempt>
+http://127.0.0.1:18832/auth/callback?attempt=<random per attempt>
+```
+
+An exact-match allowlist entry can therefore **never** match. GoTrue falls back
+to the Site URL instead: the customer authenticates with Google or Apple
+successfully, lands on the website, and the plugin sits on "Finish signing in
+with Google in your browser" until it times out. Password recovery fails the
+same way, and neither produces an error anyone can see.
+
+Add these to **Authentication → URL Configuration → Redirect URLs**, using the
+`**` wildcard so the nonce is covered:
+
+```
+http://127.0.0.1:18832/auth/callback**
+http://127.0.0.1:18832/auth/recovery**
+```
+
+Verify by completing one real Google sign-in and one real password reset end to
+end in the packaged build. A redirect that lands anywhere other than the plugin
+means the allowlist is still exact-match.
 
 ## Deliberate production blockers
 
