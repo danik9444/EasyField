@@ -71,34 +71,44 @@ inventing evidence the system deliberately refuses to fabricate.
 
 ---
 
-## Not blocked on the provider — real work that remains
+## Not blocked on the provider — closed
 
-This is the part that makes "only connect a provider" untrue today.
+All six are done except one, which is not mine to do.
 
-1. **Recurring renewals have no ingestion path.** A monthly subscriber is
-   charged in month 2 and receives nothing: the renewal-charge machinery exists
-   but has no caller, and the month-1 lot expires at the period end. Needs a
-   renewal worker.
-2. **`plugin/account-config.json` has empty `oauthProviders` and
-   `checkoutHosts`.** The release gate rejects it, so no signable build can be
-   produced, and the shipped desktop app can open no checkout URL and offers no
-   social sign-in. This is configuration, not code, but it is a hard blocker on
-   shipping the plugin.
-3. **OAuth and recovery redirects carry a random `?attempt=` parameter.** The
-   deployment doc tells the operator to allowlist "that exact redirect", which
-   GoTrue will not match — the user authenticates and lands on the website
-   while the plugin waits. The allowlist entry needs to be the wildcard form.
-4. **Leaked-password protection is off.** Supabase can check new passwords
-   against HaveIBeenPwned. There is no API for this in the tooling available
-   here — it is Dashboard → Authentication → Policies, one toggle.
-5. **Auto-reload is schema, not a flow.** No saved-method ingestion and no
-   reload worker; the setting can be saved and will do nothing.
-6. **No alerting.** The console's incident queue and the new scheduler health
-   are the only visibility. A renewal failing at 3am is discovered by someone
-   opening the console.
+1. **Recurring renewals now have a caller.** `sweep_due_renewals` runs every
+   five minutes with a one-day lead and enqueues every chargeable renewal. The
+   charge still needs a provider; the decision and the record no longer wait
+   for one.
+2. **The release gate no longer blocks a valid configuration.** It demanded
+   both OAuth providers and a nonempty checkout host list, so an email-only
+   build with checkout deliberately closed could not be signed at all — the
+   only way to produce one was to name a host the product does not use, which
+   passes the gate and sends customers somewhere real that is not the
+   merchant. An empty allowlist is the fail-closed state and is accepted;
+   everything present is validated as strictly as before. The gate now stops
+   only on the deliberate gateway blocker.
+3. **The redirect allowlist is documented correctly.** Both callbacks carry a
+   per-attempt nonce, so the instruction to allowlist "that exact redirect"
+   could never match and GoTrue fell back to the Site URL — the customer
+   authenticated successfully, landed on the website, and the plugin waited.
+   The wildcard form is now given.
+4. **Auto-reload is visible.** Accounts past their threshold are listed.
+   Charging needs a provider; the trigger no longer passes unnoticed.
+5. **Alerting exists.** `operational_alerts()` answers "what is wrong right
+   now" in one call and the console leads with it — a stale scheduler, a
+   renewal stuck mid-charge for an hour, a day-old open checkout.
+6. **Leaked-password protection is still off, and I cannot turn it on.** There
+   is no `auth.config` table and no management token on this machine; the
+   setting lives in GoTrue’s environment. Dashboard → Authentication →
+   Policies. One toggle.
 
----
+Also closed, found by the same audit:
 
+- The console silently truncated every list at the page size, including the
+  role audit it labels "append-only". The cursor is now honoured end to end,
+  and a full page offers the next one rather than just stopping.
+- User detail fetched partner entitlement, auto-reload, grant lots and role
+  history and rendered none of them. All four now appear.
 ## Suggested order
 
 1. Turn on leaked-password protection (one toggle).
