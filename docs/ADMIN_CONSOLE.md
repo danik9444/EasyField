@@ -196,14 +196,45 @@ Once Supabase is deployed:
   policy allowing only the configured origin.
 - The migration parses as real PostgreSQL.
 
-**Not proven, and cannot be until Supabase is deployed:**
+**Verified against the live deployment** — Supabase project `xtnaqwvayenfcqzqelmh`,
+region `eu-central-1`:
 
-- That the migration *applies* — parsing is not executing. There is no local
-  Postgres or Docker on this machine, so it has not been run against a database.
-- Real RLS enforcement, real token verification, real network behaviour.
-- Anything requiring a payment provider.
+- All 13 migrations applied; `supabase_migrations.schema_migrations` records 13.
+- The Creator annual correction ran its fail-closed preflight against real rows
+  and committed. The live catalog now reads $240 with a $48 saving, and all four
+  tiers save.
+- `easyfield-admin` is deployed. Unauthenticated requests get 401; an unknown
+  route gets 404; a CORS preflight from the console origin is answered, and the
+  same preflight from an unrelated origin receives **no** allow-origin header.
+- A real, email-confirmed, signed-in user who is **not** an admin receives
+  403 `Platform admin access is required` from the live API. Promoting that same
+  account through `easyfield_admin_set_role` opened every route; demoting closed
+  them again, and both changes are in the audit trail with their reasons.
+- Through the live API: a 2-character reason is refused, and a request carrying
+  an extra `actorUserId` field is refused rather than ignored.
+- In the database: an unknown actor id and a null actor are both refused with
+  `42501`; `billing_private` has zero grants to `anon`/`authenticated`; the
+  `public` schema has zero client INSERT/UPDATE/DELETE grants.
+- Deleting a user who has role history is refused by the audit foreign key, so
+  an account cannot be erased from the trail by deleting it.
+- The console itself was driven in a browser against this deployment: real
+  sign-in, live figures, no sample-data banner.
 
-I am not going to call this "100% working" while the backend it talks to does
-not exist yet. What is true is that every layer I control is tested, the
-remaining gap is the deployment you already know is pending, and connecting it
-is configuration rather than more code.
+The Supabase advisor reports thirteen `rls_enabled_no_policy` notices. Those are
+the design, not a gap: RLS on with no policy is deny-all, which is exactly what
+`billing_private` and the evidence tables want. `my_billing_snapshot()` is
+flagged as a SECURITY DEFINER function callable by signed-in users; it takes no
+arguments and scopes itself to `auth.uid()`, so a caller can only ever read
+their own row.
+
+**Still genuinely open:**
+
+- **Leaked-password protection is off.** Supabase can check new passwords
+  against HaveIBeenPwned. Worth enabling in Auth settings.
+- **`easyfield-billing-webhook` is not deployed.** It needs
+  `EASYFIELD_WEBHOOK_SECRET` and `EASYFIELD_BILLING_PROVIDER_ID`, and each
+  provider signs differently, so it should be deployed together with the
+  provider choice rather than as an endpoint that can only answer 503.
+- **Checkout is deliberately closed.** `CUSTOMER_GENERATION_GATEWAY_READY` and
+  `PARTNER_REVERSAL_HANDLING_READY` are both `false` in the account function, by
+  design, until a provider and refund reversal exist.
