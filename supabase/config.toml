@@ -29,6 +29,19 @@ verify_jwt = false
 # a development default. It is where every rejected or fallback redirect lands,
 # so it should become the real site before customers arrive.
 [auth]
+# site_url is deliberately NOT set here.
+#
+# The deployed project still has the development default http://localhost:3000,
+# and nothing listens there — verified. It is the fallback for a refused
+# redirect and for any auth link sent without a redirect_to, so today a
+# customer who clicks "Confirm your email" while the plugin is closed lands on
+# a dead address.
+#
+# It is left unset rather than guessed. Naming a domain that does not resolve
+# would move the failure rather than fix it, and pointing it at the Supabase
+# project URL would send customers somewhere that is not a product page. The
+# website/ app builds and has never been deployed; once it is, set site_url to
+# that origin here and push the config.
 additional_redirect_urls = [
   "http://127.0.0.1:18832/auth/callback",
   "http://127.0.0.1:18832/auth/recovery",
