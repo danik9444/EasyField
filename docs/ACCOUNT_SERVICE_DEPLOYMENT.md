@@ -254,11 +254,22 @@ without a Dashboard entry. `supabase/config.toml` declares the three URLs
 anyway, so the intent survives a project restore rather than living only as
 Dashboard state.
 
-### site_url is still a development default
+### site_url points at the live site
 
-The deployed project's Site URL is `http://localhost:3000`. That is where every
-refused or fallback redirect lands — including the confirmation link for anyone
-whose plugin is not running. Point it at the real site before customers arrive.
+The Site URL is `https://easyfield.ai`, set once `website/` was deployed. That
+is where every refused or fallback redirect lands — including the confirmation
+link for anyone whose plugin is not running.
+
+Re-running the probe above after the change shows both halves still hold:
+
+| `redirect_to` sent | Where Supabase redirected |
+|---|---|
+| `https://attacker.example.com/steal` | **refused** — fell back to `https://easyfield.ai` |
+| `http://127.0.0.1:18832/auth/confirm?attempt=…` | **honoured**, with the code appended |
+
+`supabase/config.toml` now declares `site_url` alongside the three callbacks, so
+none of it survives only as Dashboard state.
+
 ## Deliberate production blockers
 
 Customer generation remains explicitly unavailable rather than unsafe:

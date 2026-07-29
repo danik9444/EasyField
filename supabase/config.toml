@@ -25,23 +25,23 @@ verify_jwt = false
 # http://127.0.0.1:18832/auth/confirm is honoured. These entries make the
 # intent explicit and survive `supabase config push`.
 #
-# site_url is currently http://localhost:3000 on the deployed project, which is
-# a development default. It is where every rejected or fallback redirect lands,
-# so it should become the real site before customers arrive.
 [auth]
-# site_url is deliberately NOT set here.
+# Where every refused or redirect-less auth link lands — including a
+# confirmation click made while the plugin is closed.
 #
-# The deployed project still has the development default http://localhost:3000,
-# and nothing listens there — verified. It is the fallback for a refused
-# redirect and for any auth link sent without a redirect_to, so today a
-# customer who clicks "Confirm your email" while the plugin is closed lands on
-# a dead address.
+# This was http://localhost:3000, the development default, for as long as there
+# was no site to name. website/ is now deployed to Vercel and serves on this
+# origin, so the fallback reaches a real product page instead of a dead port.
 #
-# It is left unset rather than guessed. Naming a domain that does not resolve
-# would move the failure rather than fix it, and pointing it at the Supabase
-# project URL would send customers somewhere that is not a product page. The
-# website/ app builds and has never been deployed; once it is, set site_url to
-# that origin here and push the config.
+# Changed on the deployed project on 2026-07-29 and verified against GoTrue
+# rather than the Dashboard: /auth/v1/verify with a foreign redirect_to answers
+#
+#   303  location: https://easyfield.ai#error=access_denied&…
+#
+# which shows both that the fallback moved and that the allowlist still refuses
+# the foreign target. www.easyfield.ai 308-redirects here, so the apex is the
+# single canonical origin.
+site_url = "https://easyfield.ai"
 additional_redirect_urls = [
   "http://127.0.0.1:18832/auth/callback",
   "http://127.0.0.1:18832/auth/recovery",

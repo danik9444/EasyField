@@ -205,8 +205,26 @@ function validateEmail(value) {
     return email;
 }
 
-function validatePassword(value) {
-    return typeof value === 'string' && value.length >= 8 && value.length <= 1024 ? value : null;
+// Mirrors MIN_PASSWORD_LENGTH in src/core/account.ts, which explains the value.
+// GoTrue is the authority and rejects anything shorter regardless; this only
+// lets the plugin say so without the round trip.
+// tests/account-password-policy.test.mjs fails if the two copies drift.
+const MIN_PASSWORD_LENGTH = 12;
+
+const PASSWORD_LENGTH_CEILING = 1024;
+
+// Choosing a password and proving you already know one are different checks.
+//
+// The minimum is a policy for passwords being *set*. Applying it at sign-in
+// would lock out every account created before the policy was raised — the
+// server would still accept their password, but the plugin would refuse to ask.
+// It would also tell an unauthenticated caller what the policy is.
+function validateNewPassword(value) {
+    return typeof value === 'string' && value.length >= MIN_PASSWORD_LENGTH && value.length <= PASSWORD_LENGTH_CEILING ? value : null;
+}
+
+function validateExistingPassword(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= PASSWORD_LENGTH_CEILING ? value : null;
 }
 
 function requestId() {
@@ -1060,8 +1078,8 @@ function createAccountService(options) {
 
     async function signIn(input) {
         const email = validateEmail(input?.email);
-        const password = validatePassword(input?.password);
-        if (!email || !password) return resultError('invalid-input', 'Enter a valid email and a password of at least 8 characters.');
+        const password = validateExistingPassword(input?.password);
+        if (!email || !password) return resultError('invalid-input', 'Enter a valid email and your password.');
         if (!accountConfigured) return resultError('service-unavailable', 'EasyField account service is not configured in this build.');
         if (oauthAttemptInProgress()) {
             return resultError('oauth-in-progress', 'Finish or cancel the open social sign-in before using email and password.');
@@ -1096,8 +1114,8 @@ function createAccountService(options) {
 
     async function signUp(input) {
         const email = validateEmail(input?.email);
-        const password = validatePassword(input?.password);
-        if (!email || !password) return resultError('invalid-input', 'Enter a valid email and a password of at least 8 characters.');
+        const password = validateNewPassword(input?.password);
+        if (!email || !password) return resultError('invalid-input', `Enter a valid email and a password of at least ${MIN_PASSWORD_LENGTH} characters.`);
         if (!accountConfigured) return resultError('service-unavailable', 'EasyField account service is not configured in this build.');
         if (oauthAttemptInProgress()) {
             return resultError('oauth-in-progress', 'Finish or cancel the open social sign-in before creating an account.');
@@ -1405,9 +1423,9 @@ function createAccountService(options) {
 
     function completePasswordRecovery(input) {
         const attemptId = typeof input?.attemptId === 'string' ? input.attemptId : '';
-        const password = validatePassword(input?.password);
+        const password = validateNewPassword(input?.password);
         if (!password || !/^[0-9a-f-]{36}$/i.test(attemptId)) {
-            return Promise.resolve(resultError('invalid-input', 'Use a password of at least 8 characters.'));
+            return Promise.resolve(resultError('invalid-input', `Use a password of at least ${MIN_PASSWORD_LENGTH} characters.`));
         }
         return enqueue(async () => {
             const attempt = pendingPasswordRecovery;

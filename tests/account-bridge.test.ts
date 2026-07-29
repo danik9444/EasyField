@@ -155,8 +155,15 @@ test('Account keeps privileged admin billing separate from customer purchases', 
 })
 
 test('Account checkout recovery is explicit and sign-up requires a useful password length', () => {
-  assert.match(accountSource, /minLength=\{signUp \? 8 : undefined\}/)
-  assert.match(accountSource, /Use at least 8 characters\./)
+  // Pinned to the shared constant rather than a literal: the minimum tracks the
+  // deployed Supabase policy, and a number written here would silently disagree
+  // with it the next time that policy moves.
+  assert.match(accountSource, /import \{\n\s*MIN_PASSWORD_LENGTH,/)
+  assert.match(accountSource, /minLength=\{signUp \? MIN_PASSWORD_LENGTH : undefined\}/)
+  assert.match(accountSource, /Use at least \{MIN_PASSWORD_LENGTH\} characters\./)
+  // Scoped to password inputs — other fields legitimately carry a literal
+  // minLength, and sweeping them in would make this assertion mean nothing.
+  assert.doesNotMatch(accountSource, /type="password"[^>]*minLength=\{\s*\d/, 'password inputs must size from the shared constant')
   assert.match(accountSource, /Forgot password\?/)
   assert.match(accountSource, /SECURE PASSWORD RECOVERY/)
   assert.match(accountSource, /onCompletePasswordRecovery/)

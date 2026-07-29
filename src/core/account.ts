@@ -73,6 +73,21 @@ export interface AccountPrivilegedBillingSnapshot {
 /** @deprecated Prefer AccountPrivilegedBillingSnapshot for admin + Partner UI. */
 export type AccountAdminBillingSnapshot = AccountPrivilegedBillingSnapshot
 
+/**
+ * Shortest password the deployed Supabase project will accept.
+ *
+ * The server is the authority — GoTrue rejects anything shorter with
+ * `weak_password`, whatever this file says. It is mirrored here so the plugin
+ * can say so before the round trip instead of surfacing a raw server error, and
+ * `tests/account-password-policy.test.mjs` fails if the two copies drift.
+ *
+ * Twelve rather than the more usual eight because leaked-password checking
+ * (HaveIBeenPwned) is gated to Supabase's Pro plan and this project is on Free.
+ * Length is the compensating control while that is true; if the plan changes and
+ * the breach check is turned on, this can come back down.
+ */
+export const MIN_PASSWORD_LENGTH = 12
+
 export interface EmailPasswordAuthRequest {
   mode: AccountAuthMode
   email: string
