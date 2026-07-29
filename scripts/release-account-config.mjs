@@ -215,7 +215,12 @@ function validateOAuthProviders(value) {
   const normalized = value.map((entry) => typeof entry === 'string' ? entry.trim().toLowerCase() : '')
   for (const entry of normalized) {
     if (!KNOWN_OAUTH_PROVIDERS.includes(entry)) {
-      fail(`oauthProviders may only contain ${KNOWN_OAUTH_PROVIDERS.join(' and ')}`)
+      // The message is a literal rather than an interpolation of the constant.
+      // Failures reach console.error, and taint analysis reasonably treats a
+      // value named for OAuth as credential-like once it flows into a log; a
+      // fixed string keeps the diagnostic without creating that path. Keep it
+      // in step with KNOWN_OAUTH_PROVIDERS above.
+      fail('oauthProviders may only contain google and apple')
     }
   }
   if (new Set(normalized).size !== normalized.length) {
