@@ -237,6 +237,7 @@ return to the Main-process attempt that started it
 ```
 http://127.0.0.1:18832/auth/recovery?attempt=<random per attempt>
 http://127.0.0.1:18832/auth/callback?attempt=<random per attempt>
+http://127.0.0.1:18832/auth/confirm?attempt=<random per attempt>
 ```
 
 An exact-match allowlist entry can therefore **never** match. GoTrue falls back
@@ -251,6 +252,7 @@ Add these to **Authentication → URL Configuration → Redirect URLs**, using t
 ```
 http://127.0.0.1:18832/auth/callback**
 http://127.0.0.1:18832/auth/recovery**
+http://127.0.0.1:18832/auth/confirm**
 ```
 
 Verify by completing one real Google sign-in and one real password reset end to

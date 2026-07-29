@@ -61,23 +61,36 @@ default, or the provider's capacity will not be used.
   per-attempt nonce and need the `**` wildcard form, or OAuth and password
   recovery both fail silently.
 
-## A known gap, and why it is not a one-line fix
+## Confirmation returns the customer to the app
 
-The plugin sends no `redirect_to` on sign-up or resend
-(`plugin/account-service.cjs:1046`, `:1313`), unlike password recovery
-(`:1115`) and OAuth (`:1352`). So a customer who clicks "Confirm your email"
-lands on the Supabase Site URL rather than back in the app, and has to return to
-EasyField and sign in by hand.
+Sign-up and resend now bind the emailed link back to the running plugin
+(`plugin/account-service.cjs`), the same way password recovery and OAuth
+already did. Clicking "Confirm your email" lands on the loopback callback,
+the PKCE code is exchanged, and the customer is **signed in** rather than
+left on a web page to come back and sign in by hand.
 
-Adding `redirect_to` alone would make this **worse**. The loopback server has
-handlers for `/auth/callback` (OAuth) and `/auth/recovery` only, and the OAuth
-handler requires a pending attempt bound by nonce — a confirmation link carries
-no such attempt, so it would be rejected with `invalid account callback`. Today
-the customer at least lands somewhere that works.
+Three things are worth knowing about how it behaves:
 
-Closing it properly means a confirmation flow of its own: a pending sign-up
-attempt with its own nonce, a `/auth/confirm` route, the PKCE exchange, and a
-renderer notification — the same shape as recovery. That is a real piece of
-work on the most security-sensitive boundary in the plugin, and it should be
-built against a real email round-trip, which means doing it after SMTP is
-connected rather than before.
+- **The window is thirty minutes**, not the five that OAuth and recovery use.
+  Those never leave the flow; email does — the inbox may be on another device.
+- **Arriving with no open attempt is reported as success.** Supabase verifies
+  the token and marks the address confirmed *before* it redirects, so if the
+  app restarted or the link was opened twice, the account is confirmed and
+  only the automatic sign-in was lost. The page says so. Reporting failure
+  there would be telling someone their confirmation did not work when it did.
+- **The session must belong to the address the attempt was opened for.**
+  Verified against `/auth/v1/user` before it is accepted, so a link issued for
+  one account cannot establish a session for another.
+
+Add the callback to the redirect allowlist alongside the other two:
+
+```
+http://127.0.0.1:18832/auth/confirm**
+```
+
+Without it GoTrue falls back to the Site URL and the flow degrades to what it
+was before — the customer is confirmed but has to sign in manually.
+
+A build with no loopback callback configured sends no `redirect_to` at all and
+behaves exactly as it did before, so this is additive rather than a new
+requirement.
