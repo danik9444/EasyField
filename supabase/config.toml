@@ -8,3 +8,29 @@ verify_jwt = true
 # itself because payment providers cannot supply a Supabase user JWT.
 [functions.easyfield-billing-webhook]
 verify_jwt = false
+
+# Deployed with verify_jwt disabled because the function performs its own
+# authentication — it verifies the caller's session against /auth/v1/user and
+# then re-checks billing_private.is_active_admin inside the database. The
+# gateway check would also reject the CORS preflight, which carries no
+# credential.
+[functions.easyfield-admin]
+verify_jwt = false
+
+# Auth redirect targets, declared rather than left as Dashboard state that a
+# future project restore would silently lose.
+#
+# Loopback is already permitted by Supabase's own defaults — verified against
+# the live project: a foreign redirect_to falls back to site_url while
+# http://127.0.0.1:18832/auth/confirm is honoured. These entries make the
+# intent explicit and survive `supabase config push`.
+#
+# site_url is currently http://localhost:3000 on the deployed project, which is
+# a development default. It is where every rejected or fallback redirect lands,
+# so it should become the real site before customers arrive.
+[auth]
+additional_redirect_urls = [
+  "http://127.0.0.1:18832/auth/callback",
+  "http://127.0.0.1:18832/auth/recovery",
+  "http://127.0.0.1:18832/auth/confirm",
+]

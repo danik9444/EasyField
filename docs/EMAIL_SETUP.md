@@ -82,15 +82,24 @@ Three things are worth knowing about how it behaves:
   Verified against `/auth/v1/user` before it is accepted, so a link issued for
   one account cannot establish a session for another.
 
-Add the callback to the redirect allowlist alongside the other two:
+No Dashboard change is needed for this. Supabase already permits loopback
+redirects — verified against the live project: a foreign `redirect_to` is
+refused and falls back to `site_url`, while
+`http://127.0.0.1:18832/auth/confirm` is honoured with the code appended.
+`supabase/config.toml` declares all three callbacks so the intent is not
+Dashboard-only state.
 
-```
-http://127.0.0.1:18832/auth/confirm**
-```
-
-Without it GoTrue falls back to the Site URL and the flow degrades to what it
-was before — the customer is confirmed but has to sign in manually.
+The whole chain was exercised end to end against the deployed project:
+sign-up with PKCE returned a `pkce_`-prefixed confirmation token, `/auth/v1/verify`
+redirected to the loopback URL with a `code`, and exchanging that code with the
+verifier returned a session with `email_confirmed_at` set.
 
 A build with no loopback callback configured sends no `redirect_to` at all and
 behaves exactly as it did before, so this is additive rather than a new
 requirement.
+
+## site_url is a development default
+
+The deployed project's Site URL is `http://localhost:3000`. Every refused or
+fallback redirect lands there — including a confirmation click when the plugin
+is not running. Point it at the real site before customers arrive.

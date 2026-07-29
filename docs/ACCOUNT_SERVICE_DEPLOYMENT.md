@@ -228,37 +228,37 @@ one-time attempt ID plus terminal state to the renderer. The packaged Resolve
 build must complete an email-link test; sending the email alone is not
 sufficient.
 
-### Redirect allowlist — must be the wildcard form
+### Redirect allowlist — verified, no change needed for loopback
 
-Both loopback callbacks carry a per-attempt nonce that binds the browser's
-return to the Main-process attempt that started it
-(`plugin/account-service.cjs:1112`, `:1351`), so the URL Supabase receives is:
+All three callbacks carry a per-attempt nonce that binds the browser's return
+to the Main-process attempt that started it, so the URL Supabase receives is:
 
 ```
-http://127.0.0.1:18832/auth/recovery?attempt=<random per attempt>
 http://127.0.0.1:18832/auth/callback?attempt=<random per attempt>
+http://127.0.0.1:18832/auth/recovery?attempt=<random per attempt>
 http://127.0.0.1:18832/auth/confirm?attempt=<random per attempt>
 ```
 
-An exact-match allowlist entry can therefore **never** match. GoTrue falls back
-to the Site URL instead: the customer authenticates with Google or Apple
-successfully, lands on the website, and the plugin sits on "Finish signing in
-with Google in your browser" until it times out. Password recovery fails the
-same way, and neither produces an error anyone can see.
+An exact-match allowlist entry could never match a value that changes every
+attempt. **Supabase does not require one for loopback.** Verified against the
+deployed project on 2026-07-29 by calling `/auth/v1/verify` directly and
+reading the `Location` header without following it:
 
-Add these to **Authentication → URL Configuration → Redirect URLs**, using the
-`**` wildcard so the nonce is covered:
+| `redirect_to` sent | Where Supabase redirected |
+|---|---|
+| `https://attacker.example.com/steal` | **refused** — fell back to `site_url` |
+| `http://127.0.0.1:18832/auth/confirm?attempt=…` | **honoured**, with the code appended |
 
-```
-http://127.0.0.1:18832/auth/callback**
-http://127.0.0.1:18832/auth/recovery**
-http://127.0.0.1:18832/auth/confirm**
-```
+So the allowlist is enforced, there is no open redirect, and loopback works
+without a Dashboard entry. `supabase/config.toml` declares the three URLs
+anyway, so the intent survives a project restore rather than living only as
+Dashboard state.
 
-Verify by completing one real Google sign-in and one real password reset end to
-end in the packaged build. A redirect that lands anywhere other than the plugin
-means the allowlist is still exact-match.
+### site_url is still a development default
 
+The deployed project's Site URL is `http://localhost:3000`. That is where every
+refused or fallback redirect lands — including the confirmation link for anyone
+whose plugin is not running. Point it at the real site before customers arrive.
 ## Deliberate production blockers
 
 Customer generation remains explicitly unavailable rather than unsafe:
