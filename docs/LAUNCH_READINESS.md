@@ -16,12 +16,12 @@ one. They are listed here without softening.
 | | |
 |---|---|
 | Supabase project | `xtnaqwvayenfcqzqelmh`, eu-central-1, ACTIVE |
-| Migrations | 15 applied and recorded |
+| Migrations | 16 applied and recorded |
 | Edge functions | `easyfield-account`, `easyfield-admin` deployed |
-| Scheduler | `pg_cron` installed; 3 jobs firing, run history recorded |
+| Scheduler | `pg_cron` installed; 4 jobs firing, run history recorded |
 | Admin | dannykhanin@gmail.com |
 | Catalog | starter $15/$144 · creator $24/$240 · pro $60/$588 · studio $129/$1188 |
-| Test gate | `npm run verify` — 757 tests, 0 failures |
+| Test gate | `npm run verify` — 765 tests, 0 failures |
 
 **Security came back clean.** Two independent attack-surface audits found no
 path to another customer's rows, no privilege escalation, no client mutation,
@@ -87,11 +87,13 @@ All six are done except one, which is not mine to do.
    merchant. An empty allowlist is the fail-closed state and is accepted;
    everything present is validated as strictly as before. The gate now stops
    only on the deliberate gateway blocker.
-3. **The redirect allowlist is documented correctly.** Both callbacks carry a
-   per-attempt nonce, so the instruction to allowlist "that exact redirect"
-   could never match and GoTrue fell back to the Site URL — the customer
-   authenticated successfully, landed on the website, and the plugin waited.
-   The wildcard form is now given.
+3. **The redirect guidance is corrected, and email confirmation now returns
+   the customer to the app.** The docs had said the loopback callbacks needed
+   wildcard allowlist entries. Tested against the deployed project, they do
+   not: a foreign `redirect_to` is refused and falls back to `site_url`, while
+   `http://127.0.0.1:18832/auth/confirm` is honoured. Separately, sign-up and
+   resend now send a `redirect_to` at all — they did not before, so confirming
+   an email left the customer on a web page to sign in again by hand.
 4. **Auto-reload is visible.** Accounts past their threshold are listed.
    Charging needs a provider; the trigger no longer passes unnoticed.
 5. **Alerting exists.** `operational_alerts()` answers "what is wrong right
@@ -109,12 +111,17 @@ Also closed, found by the same audit:
   and a full page offers the next one rather than just stopping.
 - User detail fetched partner entitlement, auto-reload, grant lots and role
   history and rendered none of them. All four now appear.
+
+---
+
 ## Suggested order
 
 1. Turn on leaked-password protection (one toggle).
-2. Fill `oauthProviders` and `checkoutHosts` in the release config, and fix the
-   redirect allowlist to the wildcard form. The plugin becomes shippable.
-3. Choose the provider. Deploy `easyfield-billing-webhook` with its secrets.
-4. Build the renewal worker and the checkout-expiry reconciliation on top of
-   the provider's evidence.
-5. Only then flip the two READY flags.
+2. Deploy `website/` and point `site_url` at it. It builds and has never been
+   deployed, so every refused or redirect-less auth link currently lands on
+   `http://localhost:3000`, where nothing listens.
+3. Fill `checkoutHosts` in the release config once the merchant is known. The
+   plugin becomes shippable.
+4. Choose the provider. Deploy `easyfield-billing-webhook` with its secrets.
+5. Build the checkout-expiry reconciliation on top of the provider's evidence.
+6. Only then flip the two READY flags.
