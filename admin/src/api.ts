@@ -291,6 +291,8 @@ export interface Incidents {
 }
 
 export interface AuditPage {
+  /** The server-applied page size. A full page means more may exist. */
+  limit?: number
   entries: Array<{
     id: string
     targetUserId: string
@@ -305,6 +307,7 @@ export interface AuditPage {
 }
 
 export interface CreditDetail {
+  limit?: number
   lots: Array<{
     id: string
     sourceType: string
@@ -327,9 +330,9 @@ export interface AdminApi {
   overview(): Promise<Overview>
   users(query: { search?: string; role?: string; limit?: number }): Promise<{ users: AdminUser[] }>
   userDetail(userId: string): Promise<UserDetail>
-  credits(userId: string): Promise<CreditDetail>
+  credits(userId: string, cursor?: string): Promise<CreditDetail>
   incidents(): Promise<Incidents>
-  audit(): Promise<AuditPage>
+  audit(cursor?: string): Promise<AuditPage>
   setRole(input: {
     requestId: string
     targetUserId: string
@@ -356,9 +359,9 @@ export function createApi(
       return request(config, session, `/users${suffix ? `?${suffix}` : ''}`)
     },
     userDetail: (userId) => request(config, session, `/users/${userId}`, undefined, onSessionEnded),
-    credits: (userId) => request(config, session, `/users/${userId}/credits`, undefined, onSessionEnded),
+    credits: (userId, cursor) => request(config, session, `/users/${userId}/credits` + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''), undefined, onSessionEnded),
     incidents: () => request(config, session, '/incidents', undefined, onSessionEnded),
-    audit: () => request(config, session, '/audit', undefined, onSessionEnded),
+    audit: (cursor) => request(config, session, '/audit' + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''), undefined, onSessionEnded),
     setRole: (input) =>
       request(config, session, '/roles', {
         method: 'POST',
@@ -422,10 +425,10 @@ function createFixtureApi(): AdminApi {
           })),
       })
     },
-    credits: (userId) =>
+    credits: (userId, _cursor?: string) =>
       settle(FIXTURES.credits[userId] ?? { lots: [], ledger: [] }),
     incidents: () => settle(FIXTURES.incidents),
-    audit: () => settle({ entries: [...audit].sort((a, b) => Number(b.id) - Number(a.id)) }),
+    audit: (_cursor?: string) => settle({ entries: [...audit].sort((a, b) => Number(b.id) - Number(a.id)) }),
     setRole: (input) => {
       const target = users.find((user) => user.userId === input.targetUserId)
       if (!target) return Promise.reject(new AdminApiError(404, 'Not found'))
