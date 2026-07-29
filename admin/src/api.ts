@@ -107,11 +107,24 @@ export async function signIn(
   }
 }
 
+/**
+ * Raised when the operator's session is no longer accepted — expired, revoked,
+ * or the account demoted. Distinguished from an ordinary failure because the
+ * remedy is different: retrying will never work, only signing in again will.
+ */
+export class SessionEndedError extends AdminApiError {
+  constructor(status: number, message: string) {
+    super(status, message)
+    this.name = 'SessionEndedError'
+  }
+}
+
 async function request<T>(
   config: AdminConfig,
   session: Session,
   path: string,
   init?: RequestInit,
+  onSessionEnded?: () => void,
 ): Promise<T> {
   const response = await fetch(`${config.apiBaseUrl}${path}`, {
     ...init,
@@ -134,6 +147,22 @@ async function request<T>(
       payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string'
         ? (payload as { error: string }).error
         : 'The admin service returned an error.'
+
+    // A 401 means the token is gone; a 403 means this account is no longer an
+    // admin, which is what an operator sees the instant someone demotes them.
+    // Both end the session. Polling through them would leave a full, plausible
+    // screen that quietly stopped updating — the worst outcome during an
+    // incident, because nothing looks wrong.
+    if (response.status === 401 || response.status === 403) {
+      onSessionEnded?.()
+      throw new SessionEndedError(
+        response.status,
+        response.status === 401
+          ? 'Your session has expired. Sign in again.'
+          : 'This account no longer has platform admin access.',
+      )
+    }
+
     throw new AdminApiError(response.status, message)
   }
 
@@ -208,7 +237,24 @@ export interface UserDetail {
   }>
 }
 
+export interface MaintenanceJob {
+  job: string
+  everRan: boolean
+  lastRunAt: string | null
+  lastSuccessAt: string | null
+  lastError: string | null
+  processedLastRun: number | null
+  /** The job has not succeeded within its own cadence. */
+  stale: boolean
+}
+
 export interface Incidents {
+  /**
+   * Scheduler health. Absent from older deployments, so it is optional rather
+   * than assumed — a console that crashes against a backend one migration
+   * behind is worse than one that shows a little less.
+   */
+  maintenance?: MaintenanceJob[]
   ambiguousCheckouts: Array<{ id: string; intentType: string; status: string; updatedAt: string }>
   openCheckouts: Array<{ id: string; intentType: string; status: string; createdAt: string }>
   unresolvedRenewals: Array<{ id: string; planKey: string; state: string; createdAt: string }>
@@ -263,11 +309,15 @@ export interface AdminApi {
   }): Promise<{ userId: string; platformRole: string }>
 }
 
-export function createApi(config: AdminConfig, session: Session): AdminApi {
+export function createApi(
+  config: AdminConfig,
+  session: Session,
+  onSessionEnded?: () => void,
+): AdminApi {
   if (isFixtureMode(config)) return createFixtureApi()
 
   return {
-    overview: () => request(config, session, '/overview'),
+    overview: () => request(config, session, '/overview', undefined, onSessionEnded),
     users: (query) => {
       const params = new URLSearchParams()
       if (query.search) params.set('search', query.search)
@@ -276,16 +326,16 @@ export function createApi(config: AdminConfig, session: Session): AdminApi {
       const suffix = params.toString()
       return request(config, session, `/users${suffix ? `?${suffix}` : ''}`)
     },
-    userDetail: (userId) => request(config, session, `/users/${userId}`),
-    credits: (userId) => request(config, session, `/users/${userId}/credits`),
-    incidents: () => request(config, session, '/incidents'),
-    audit: () => request(config, session, '/audit'),
+    userDetail: (userId) => request(config, session, `/users/${userId}`, undefined, onSessionEnded),
+    credits: (userId) => request(config, session, `/users/${userId}/credits`, undefined, onSessionEnded),
+    incidents: () => request(config, session, '/incidents', undefined, onSessionEnded),
+    audit: () => request(config, session, '/audit', undefined, onSessionEnded),
     setRole: (input) =>
       request(config, session, '/roles', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(input),
-      }),
+      }, onSessionEnded),
   }
 }
 

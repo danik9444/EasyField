@@ -209,6 +209,33 @@ test('the built console declares a policy that permits only the configured origi
   assert.doesNotMatch(html, /unsafe-eval/, 'the console must never permit eval')
 })
 
+test('the policy permits every origin the bundle was built to call', () => {
+  // The console once shipped knowing its Supabase URL while its own CSP refused
+  // to let it be called, because the policy was built from a different env
+  // directory than `import.meta.env`. The dev server hid it — the policy only
+  // applies to the build. This ties the two together: any origin compiled into
+  // the bundle must appear in connect-src.
+  const html = requireFile(path.join(adminDist, 'index.html'))
+  const policy = html.replace(/&#39;/g, "'")
+  const connectSrc = /connect-src ([^;"]*)/.exec(policy)?.[1] ?? ''
+
+  const bundle = readAll(adminDist, ['.js'])
+  const calledOrigins = new Set(
+    [...bundle.matchAll(/https:\/\/[a-z0-9-]+\.supabase\.co/g)].map((match) => match[0]),
+  )
+
+  for (const origin of calledOrigins) {
+    assert.ok(
+      connectSrc.includes(origin),
+      `the bundle calls ${origin} but connect-src is "${connectSrc.trim()}" — the shipped console would be dead`,
+    )
+  }
+
+  // A build with nothing configured must still be locked down rather than open.
+  assert.match(connectSrc, /'self'/)
+  assert.doesNotMatch(connectSrc, /\*/)
+})
+
 test('the console is bound to loopback and asks not to be indexed', () => {
   const config = requireFile(path.join(projectRoot, 'vite.admin.config.ts'))
   const hosts = [...config.matchAll(/host: '([^']+)'/g)].map((match) => match[1])

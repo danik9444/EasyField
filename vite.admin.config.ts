@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -66,8 +67,17 @@ function originOf(value: string | undefined): string | null {
   }
 }
 
+const ADMIN_ROOT = path.resolve(import.meta.dirname, 'admin')
+
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), 'VITE_')
+  // Loaded from the admin directory, NOT process.cwd(). Vite resolves
+  // `import.meta.env` relative to `root`, so reading the env from anywhere else
+  // builds a policy for a different configuration than the one compiled into
+  // the bundle: the app would know the Supabase URL while its own CSP refused
+  // to let it be called, and only the dev server — where this plugin does not
+  // apply — would work.
+  const env = loadEnv(mode, ADMIN_ROOT, 'VITE_')
+
   // Only the origins actually configured are allowed through, so an unset
   // deployment produces a console that can reach nothing rather than one that
   // can reach everything.
@@ -75,7 +85,7 @@ export default defineConfig(({ mode }) => {
     .filter((origin): origin is string => origin !== null)
 
   return {
-    root: 'admin',
+    root: ADMIN_ROOT,
     base: './',
     plugins: [react(), adminCsp([...new Set(connectOrigins)])],
     server: {
