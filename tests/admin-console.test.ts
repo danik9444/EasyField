@@ -134,7 +134,30 @@ test('no service-role credential can reach the admin bundle', () => {
   )
 })
 
-test('the built admin bundle carries no credential', () => {
+/**
+ * Supabase keys are JWTs, and one of them belongs in the browser: the anon key
+ * is publishable by design. So "contains a JWT" is the wrong question — the
+ * question is which role it carries. This decodes every JWT in the artifact and
+ * fails on any that is not the publishable one.
+ */
+function jwtRoles(source: string): string[] {
+  const roles: string[] = []
+  for (const match of source.matchAll(/eyJ[A-Za-z0-9_-]{10,}\.([A-Za-z0-9_-]{10,})\.[A-Za-z0-9_-]{10,}/g)) {
+    let claims: unknown
+    try {
+      claims = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8'))
+    } catch {
+      // Not a decodable JWT payload; treated as unknown so it cannot pass silently.
+      roles.push('undecodable')
+      continue
+    }
+    const role = (claims as { role?: unknown })?.role
+    roles.push(typeof role === 'string' ? role : 'unknown')
+  }
+  return roles
+}
+
+test('the built admin bundle carries no privileged credential', () => {
   let built: string
   try {
     built = readAll(adminDist, ['.js', '.html', '.css'])
@@ -142,10 +165,30 @@ test('the built admin bundle carries no credential', () => {
     assert.fail('admin/dist is missing — run `npm run admin:build` (verify does this before tests)')
   }
   assert.ok(built.length > 0, 'the built bundle must not be empty')
-  assert.doesNotMatch(built, /eyJ[A-Za-z0-9_-]{20,}/, 'no JWT may be embedded in the built bundle')
-  assert.doesNotMatch(built, /service_role/i, 'the built bundle must not reference service_role')
+
+  // A service-role key bypasses every policy in the schema. Any JWT that is not
+  // the publishable anon key is treated as a leak, including one whose payload
+  // cannot be read.
+  for (const role of jwtRoles(built)) {
+    assert.equal(role, 'anon', `a "${role}" token must never reach the browser bundle`)
+  }
+  assert.doesNotMatch(built, /sb_secret_/, 'no secret Supabase key may be embedded')
+  assert.doesNotMatch(built, /SERVICE_ROLE/i, 'the bundle must not name a service-role variable')
+
   // Source maps would ship the console's logic alongside it.
   assert.doesNotMatch(built, /sourceMappingURL/, 'the admin build must not emit source maps')
+})
+
+test('the credential check can actually fail', () => {
+  // A guard that cannot fail is decoration. This proves the decoder classifies a
+  // service-role token correctly, without one ever existing in the repository.
+  const header = Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url')
+  const payload = Buffer.from('{"iss":"supabase","role":"service_role"}').toString('base64url')
+  const forged = `${header}.${payload}.aaaaaaaaaaaaaaaaaaaa`
+  assert.deepEqual(jwtRoles(`const k = "${forged}"`), ['service_role'])
+
+  const anonPayload = Buffer.from('{"iss":"supabase","role":"anon"}').toString('base64url')
+  assert.deepEqual(jwtRoles(`const k = "${header}.${anonPayload}.aaaaaaaaaaaaaaaaaaaa"`), ['anon'])
 })
 
 test('the built console declares a policy that permits only the configured origin', () => {

@@ -46,6 +46,34 @@ class HttpError extends Error {
   }
 }
 
+/**
+ * The console is served from loopback and this function from the Supabase
+ * domain, so every call is cross-origin and needs CORS to be readable at all.
+ *
+ * Only a loopback origin is reflected. A wildcard would let any page a browser
+ * happens to be on read these responses if it ever obtained a token; echoing an
+ * arbitrary Origin would be the same thing wearing a disguise. Requests without
+ * an Origin — curl, server to server — are unaffected, since CORS only
+ * constrains browsers.
+ */
+const LOOPBACK_ORIGIN = /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d{1,5})?$/;
+
+/**
+ * Applied once to the outgoing response rather than at every call site, so a
+ * new route cannot forget it and a refused request carries the same headers as
+ * a successful one.
+ */
+function withCors(response: Response, origin: string | null): Response {
+  if (origin === null || !LOOPBACK_ORIGIN.test(origin)) return response;
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-allow-headers", "authorization, content-type");
+  headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
+  headers.set("access-control-max-age", "600");
+  headers.append("vary", "origin");
+  return new Response(response.body, { status: response.status, headers });
+}
+
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
@@ -254,15 +282,29 @@ async function handle(request: Request): Promise<Response> {
 }
 
 Deno.serve(async (request: Request): Promise<Response> => {
+  const origin = request.headers.get("origin");
+
+  // The browser sends a preflight before any request carrying an Authorization
+  // header. It is answered without authenticating, because a preflight proves
+  // nothing and carries no credential.
+  if (request.method === "OPTIONS") {
+    return withCors(new Response(null, { status: 204 }), origin);
+  }
+
   try {
-    return await handle(request);
+    return withCors(await handle(request), origin);
   } catch (error) {
-    if (error instanceof HttpError) return json({ error: error.message }, error.status);
-    if (error instanceof RouteNotFound) return json({ error: "Not found" }, 404);
-    if (error instanceof MethodNotAllowed) return json({ error: "Method not allowed" }, 405);
-    if (error instanceof TypeError) return json({ error: error.message }, 400);
-    // Anything unclassified is reported without detail. An admin console is a
-    // high-value target and stack shapes are a useful oracle.
-    return json({ error: "Unexpected admin service error" }, 500);
+    const failure = error instanceof HttpError
+      ? json({ error: error.message }, error.status)
+      : error instanceof RouteNotFound
+        ? json({ error: "Not found" }, 404)
+        : error instanceof MethodNotAllowed
+          ? json({ error: "Method not allowed" }, 405)
+          : error instanceof TypeError
+            ? json({ error: error.message }, 400)
+            // Anything unclassified is reported without detail. An admin console
+            // is a high-value target and stack shapes are a useful oracle.
+            : json({ error: "Unexpected admin service error" }, 500);
+    return withCors(failure, origin);
   }
 });
