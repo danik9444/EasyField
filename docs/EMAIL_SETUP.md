@@ -55,8 +55,12 @@ default, or the provider's capacity will not be used.
 
 - **Leaked-password protection** — Authentication → Sign In / Providers →
   Email. Checks new passwords against HaveIBeenPwned. It is **gated to the Pro
-  plan**; this project is on Free, so the toggle is present but inert. Turning
-  it on is a plan change, not a configuration change.
+  plan**; this project is on Free. The toggle is not disabled in the UI, which
+  makes it look available — but saving it returns `402 Payment Required` from
+  `PATCH /platform/auth/<ref>/config`, and the setting does not persist.
+  Turning it on is a plan change, not a configuration change. **Decided on
+  2026-07-29: stay on Free.** See `docs/LAUNCH_READINESS.md` for the approaches
+  that were investigated and rejected, so they are not re-proposed.
 
   While it is unavailable the minimum password length carries the load: it was
   raised from 6 to **12** and is enforced by the project. A signup below it is

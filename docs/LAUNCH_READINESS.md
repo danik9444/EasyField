@@ -99,10 +99,29 @@ All six are done except one, which is not mine to do.
 5. **Alerting exists.** `operational_alerts()` answers "what is wrong right
    now" in one call and the console leads with it — a stale scheduler, a
    renewal stuck mid-charge for an hour, a day-old open checkout.
-6. **Leaked-password protection is still off, and I cannot turn it on.** There
-   is no `auth.config` table and no management token on this machine; the
-   setting lives in GoTrue’s environment. Dashboard → Authentication →
-   Policies. One toggle.
+6. **Leaked-password protection is off, and the reason is not what this
+   document previously said.** It claimed the blocker was missing tooling — no
+   `auth.config` table, no management token — and pointed at Authentication →
+   Policies. Both were wrong. The setting lives under Authentication → Sign In
+   / Providers → Email, the toggle is not disabled in the UI, and pressing
+   Save produces:
+
+   ```
+   PATCH https://api.supabase.com/platform/auth/<ref>/config
+   → 402 Payment Required
+   ```
+
+   402 is the status code for *payment required*, and it is the whole answer.
+   The organisation reports `"plan": "free"`; the docs say "Leaked password
+   protection is available on the Pro Plan and above"; the pricing table marks
+   it **Not included** on Free. The security advisor's
+   `auth_leaked_password_protection` WARN therefore cannot be cleared on this
+   plan — it is not a finding to fix, it is an upsell.
+
+   **Decision (2026-07-29): stay on Free.** The compensating control is the
+   12-character minimum, enforced by the project and mirrored by the plugin
+   (`MIN_PASSWORD_LENGTH`). Its honest limit: length does not catch a long
+   password that is already in a breach corpus.
 
 Also closed, found by the same audit:
 
@@ -116,17 +135,11 @@ Also closed, found by the same audit:
 
 ## Suggested order
 
-1. Decide whether to move the Supabase project to Pro. Leaked-password
-   protection is **not a toggle we declined to flip** — it is gated to Pro and
-   above, and this project is on Free. Until then the compensating control is a
-   12-character minimum, enforced by the project and mirrored by the plugin
-   (`MIN_PASSWORD_LENGTH`). That is the weaker control: length alone does not
-   catch a long password that is already in a breach corpus.
-2. Fill `checkoutHosts` in the release config once the merchant is known. The
+1. Fill `checkoutHosts` in the release config once the merchant is known. The
    plugin becomes shippable.
-3. Choose the provider. Deploy `easyfield-billing-webhook` with its secrets.
-4. Build the checkout-expiry reconciliation on top of the provider's evidence.
-5. Only then flip the two READY flags.
+2. Choose the provider. Deploy `easyfield-billing-webhook` with its secrets.
+3. Build the checkout-expiry reconciliation on top of the provider's evidence.
+4. Only then flip the two READY flags.
 
 ## Done since this list was written
 
@@ -136,3 +149,41 @@ Also closed, found by the same audit:
 - **`site_url` points at it.** Confirmed against GoTrue, not the Dashboard: a
   foreign `redirect_to` now falls back to `https://easyfield.ai` and is still
   refused. Auth links no longer land on a dead port.
+
+---
+
+## Dead ends, recorded so they are not re-proposed
+
+Four ways to get breach-checking without Pro were investigated and adversarially
+reviewed. Two are impossible, one is real but not free of cost, one is honest
+but weak. Written down because each looks plausible until you check.
+
+- **A database trigger on `auth.users` cannot work — at any price tier.**
+  Not a Free-plan limitation. GoTrue bcrypt-hashes the password *before* the
+  `INSERT`, so a trigger sees only `encrypted_password` and has nothing to
+  compare. Bcrypt is deliberately slow and unreversible; that is the point of
+  it. The `http`/`pg_net` variants fail for separate reasons — `pg_net` is
+  asynchronous and cannot gate a synchronous write, and making `http`
+  permanent would give the database holding the credit ledger, payment
+  evidence and role audit a standing outbound-HTTP capability. This repo drops
+  that extension after use for exactly that reason.
+
+- **Auth Hooks cannot work either.** The only hook that receives a password at
+  a point where it could still reject — *Password Verification Attempt* — is
+  gated to **Teams and Enterprise**, i.e. higher than Pro. The hooks available
+  on Free and Pro (Before User Created, Custom Access Token, Send Email/SMS)
+  never see the plaintext at a rejectable moment.
+
+- **Enforcement on Free is technically possible, and is not free of risk.**
+  Proxying sign-up through the already-deployed `easyfield-account` edge
+  function — which runs on Free with `service_role` — and disabling public
+  sign-up in GoTrue would give a genuinely enforcing check on that path. It was
+  not done: it moves the authentication path of a live system, and it still
+  would not cover a signed-in user calling `PUT /auth/v1/user` directly. The
+  Pro control sits inside GoTrue and catches every path, which is what the
+  money buys.
+
+- **A client-side check in the plugin is advisory only.** `plugin/account-config.json`
+  ships the publishable anon key, so anyone can `POST /auth/v1/signup`
+  directly and skip it. It would raise the floor for honest customers; it must
+  never be written up as a control.
