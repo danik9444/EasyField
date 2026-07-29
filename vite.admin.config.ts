@@ -80,12 +80,12 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), adminCsp([...new Set(connectOrigins)])],
     server: {
       host: '127.0.0.1',
-      port: 5174,
+      port: 5199,
       strictPort: true,
     },
     preview: {
       host: '127.0.0.1',
-      port: 5174,
+      port: 5199,
       strictPort: true,
     },
     build: {

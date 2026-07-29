@@ -125,7 +125,8 @@ function SignIn({
 
         {fixtures ? (
           <p className="muted small">
-            No admin API is configured, so this console will run on sample data. Any email works.
+            No admin API is configured, so this console will run on sample data. Any name works and
+            the password is ignored — there is no account behind it yet.
           </p>
         ) : (
           <p className="muted small">
@@ -135,9 +136,13 @@ function SignIn({
         )}
 
         <label>
-          Email
+          {fixtures ? 'Name' : 'Email'}
+          {/* Sample-data mode accepts any identifier. Enforcing an email shape
+              here would reject a plain name for a sign-in that checks nothing,
+              while a real deployment authenticates against Supabase Auth, which
+              does require an email. */}
           <input
-            type="email"
+            type={fixtures ? 'text' : 'email'}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             autoComplete="username"
