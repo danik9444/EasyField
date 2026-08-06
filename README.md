@@ -11,10 +11,13 @@ place generated image, video, and audio results back on the current timeline.
 
 The catalog contains **20 tools across 5 categories**. Every card now opens a
 complete, auto-saved workspace with recipes, source selection, validated-model
-browsing, privacy/cost preflight and a review state. The established execution
-flows are wired in the direct-cloud development/operator path: **Create Image,
-Edit Image, Create Video, Edit Video, Animations, Create Music, Voice Over, and
-local librosa Beat Detection**.
+browsing, cost preflight and a review state. **17 of the 20 carry a live
+execution path** in the direct-cloud development/operator path; the remaining
+three (`culling`, `review`, `prompt` in `src/data/toolDefinitions.ts`) are
+`execution: 'review-only'` and end at a review screen with no implementation
+behind them. Counted from that file rather than maintained by hand — an earlier
+revision of this paragraph named eight tools and had been understating the
+catalog for some time.
 
 The established generation adapters are available to the verified direct-cloud
 development/operator path. Regular-customer paid forwarding remains

@@ -199,7 +199,9 @@ Once Supabase is deployed:
 **Verified against the live deployment** — Supabase project `xtnaqwvayenfcqzqelmh`,
 region `eu-central-1`:
 
-- All 13 migrations applied; `supabase_migrations.schema_migrations` records 13.
+- All migrations applied; `supabase_migrations.schema_migrations` records **22**
+  as of 2026-08-06. Check the table rather than trusting this line — an earlier
+  revision of it said 13 and went stale without anyone noticing.
 - The Creator annual correction ran its fail-closed preflight against real rows
   and committed. The live catalog now reads $240 with a $48 saving, and all four
   tiers save.

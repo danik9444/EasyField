@@ -1,5 +1,27 @@
 # EasyField 1.2.0 release readiness
 
+> ## SUPERSEDED — a version behind. See `LAUNCH_READINESS.md`.
+>
+> Assessed against 1.2.0; the current version is 1.3.0. Corrected 2026-08-06:
+>
+> - **"642 tests"** — the suite is now **851** (850 pass, 1 skip, 0 failures).
+> - **Notarization reads here as unwritten. It is fully implemented** in
+>   `release.yml`: `notarytool submit --wait`, `stapler staple`/`validate`,
+>   `pkgutil --check-signature`, `spctl --assess --type install`, with the `.p8`
+>   cleaned up on every exit path. Only the credentials are missing.
+> - **The Apple secret list is incomplete.** A Developer ID *Application*
+>   certificate is also required, to re-sign every embedded Mach-O binary in the
+>   runtime packs under a hardened runtime. Only the *Installer* certificate is
+>   listed.
+> - **The runtime-pack item understates the work.** Measured on a real librosa
+>   environment: 9,133 files and 373 MB per architecture, and of 40 sampled
+>   Mach-O binaries, zero carried an `Authority=` — all ad-hoc, which the
+>   validator rejects. FFmpeg must additionally be an LGPL build; the Homebrew
+>   build is GPL and cannot ship in a proprietary installer.
+>
+> Its branch-protection, release-environment and rights-clearance items were
+> re-checked against the GitHub API and remain accurate.
+
 **Assessment date:** 2026-07-15
 **Target:** macOS 15+, Intel and Apple silicon, DaVinci Resolve Studio 21.0.2+
 **Decision:** **NO-GO for a public final release. The source, protected GitHub pipeline and signed-update path are ready; Apple signing/notarization, rights clearance, portable runtimes and the real-device Resolve matrix remain release blockers.**
