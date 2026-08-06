@@ -39,6 +39,12 @@ jobs:
           fi
           test ! -e plugin/WorkflowIntegration.node
 
+      # Runs before any build so it compares what was committed, not what this
+      # machine happens to produce. plugin:assemble later overwrites the manifest,
+      # which is why a stale committed copy would otherwise never be noticed.
+      - name: Verify committed manifest describes committed sources
+        run: npm run verify:manifest-source
+
       - name: Install locked dependencies
         run: npm ci
 
