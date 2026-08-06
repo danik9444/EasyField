@@ -151,6 +151,9 @@ export const copy = {
       security: 'Security',
       license: 'License',
       notices: 'Third-party notices',
+      privacy: 'Privacy Policy',
+      terms: 'Terms of Service',
+      refunds: 'Refunds & cancellation',
       rights: 'EasyField. All rights reserved.',
       trademark: 'EasyField is an independent product and is not affiliated with, endorsed by, or sponsored by Blackmagic Design. DaVinci Resolve is a trademark of Blackmagic Design Pty Ltd.',
     },
@@ -302,6 +305,9 @@ export const copy = {
       security: 'אבטחה',
       license: 'רישיון',
       notices: 'הודעות צד שלישי',
+      privacy: 'מדיניות פרטיות',
+      terms: 'תנאי שימוש',
+      refunds: 'החזרים וביטולים',
       rights: 'EasyField. כל הזכויות שמורות.',
       trademark: 'EasyField הוא מוצר עצמאי ואינו קשור, מאושר או ממומן על ידי Blackmagic Design. ‏DaVinci Resolve הוא סימן מסחר של Blackmagic Design Pty Ltd.',
     },
@@ -348,7 +354,7 @@ export const toolCategories = [
 
 export const pricingPlans = [
   { id: 'starter', name: 'Starter', monthly: 15, annual: 144, credits: '800', recommended: false },
-  { id: 'creator', name: 'Creator', monthly: 24, annual: 300, credits: '2,000', recommended: true },
+  { id: 'creator', name: 'Creator', monthly: 24, annual: 240, credits: '2,000', recommended: true },
   { id: 'pro', name: 'Pro', monthly: 60, annual: 588, credits: '5,000', recommended: false },
   { id: 'studio', name: 'Studio', monthly: 129, annual: 1188, credits: '12,000', recommended: false },
 ] as const

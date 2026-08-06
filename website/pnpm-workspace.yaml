@@ -1,3 +1,13 @@
+# pnpm 11 stopped reading the `pnpm` field in package.json, so an override left
+# only there is silently dropped rather than reported. This one is a security
+# fix — it holds minimist at the patched 1.2.8 (#39) — and losing it quietly is
+# exactly the failure that would not be noticed. It is declared in both places
+# on purpose: here for pnpm 10+, and in package.json for anything older. The
+# lockfile records `overrides: minimist: ^1.2.8`, so a frozen install now fails
+# loudly if either copy is removed.
+overrides:
+  minimist: ^1.2.8
+
 allowBuilds:
   '@parcel/watcher': true
   '@swc/core': true

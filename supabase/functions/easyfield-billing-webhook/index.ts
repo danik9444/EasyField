@@ -1,7 +1,9 @@
 import {
   MAX_WEBHOOK_BYTES,
-  parsePaymentWebhook,
+  type ParsedBillingWebhook,
+  parseBillingWebhook,
   sha256Hex,
+  UnhandledWebhookTopicError,
   verifyWebhookHmac,
 } from "../_shared/account_api.ts";
 
@@ -51,11 +53,14 @@ function supabaseBaseUrl(): string {
   }
 }
 
-async function reconcileEvent(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function reconcileEvent(
+  rpc: "easyfield_account_reconcile_payment_event" | "easyfield_account_reconcile_payment_reversal",
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   const key = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   let response: Response;
   try {
-    response = await fetch(`${supabaseBaseUrl()}/rest/v1/rpc/easyfield_account_reconcile_payment_event`, {
+    response = await fetch(`${supabaseBaseUrl()}/rest/v1/rpc/${rpc}`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${key}`,
@@ -121,21 +126,55 @@ Deno.serve(async (request) => {
     } catch {
       throw new HttpError(400, "Webhook body is invalid");
     }
-    let normalized: ReturnType<typeof parsePaymentWebhook>;
+    let parsed: ParsedBillingWebhook;
     try {
-      normalized = parsePaymentWebhook(decoded, request.headers.get(deliveryHeader) ?? "");
-    } catch {
+      parsed = parseBillingWebhook(decoded, request.headers.get(deliveryHeader) ?? "");
+    } catch (error) {
+      // These two outcomes are opposite and must stay that way. A provider
+      // emits many topics on one endpoint; refusing an unrecognised one makes
+      // it retry forever. But a malformed body of a topic we DO handle has to
+      // be refused — acknowledging it tells the provider a real payment was
+      // received and stops the retry that is the customer's only recourse.
+      if (error instanceof UnhandledWebhookTopicError) {
+        return json({ accepted: true, processed: false, ignored: true }, 200);
+      }
       throw new HttpError(400, "Webhook body is invalid");
     }
     const provider = requiredEnv("EASYFIELD_BILLING_PROVIDER_ID").toLowerCase();
     if (!/^[a-z][a-z0-9_-]{1,39}$/.test(provider)) throw new HttpError(503, "Webhook is not configured");
-    const reconciliation = await reconcileEvent({
-      p_provider: provider,
-      p_provider_event_id: normalized.paymentReference,
-      p_provider_delivery_id: normalized.deliveryId,
-      p_raw_body_sha256: await sha256Hex(rawBody),
-      p_payload: normalized.reconciliationPayload,
-    });
+    const rawBodySha256 = await sha256Hex(rawBody);
+
+    if (parsed.kind === "reversal") {
+      const { reversal } = parsed;
+      const reconciliation = await reconcileEvent(
+        "easyfield_account_reconcile_payment_reversal",
+        {
+          p_provider: provider,
+          p_provider_event_id: reversal.reversalReference,
+          p_provider_delivery_id: reversal.deliveryId,
+          p_raw_body_sha256: rawBodySha256,
+          p_payload: reversal.reversalPayload,
+        },
+      );
+      return json({
+        accepted: true,
+        processed: true,
+        reversed: true,
+        replayed: reconciliation.replayed === true,
+      }, 200);
+    }
+
+    const { payment } = parsed;
+    const reconciliation = await reconcileEvent(
+      "easyfield_account_reconcile_payment_event",
+      {
+        p_provider: provider,
+        p_provider_event_id: payment.paymentReference,
+        p_provider_delivery_id: payment.deliveryId,
+        p_raw_body_sha256: rawBodySha256,
+        p_payload: payment.reconciliationPayload,
+      },
+    );
 
     return json({
       accepted: true,

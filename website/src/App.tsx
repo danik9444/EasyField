@@ -599,7 +599,7 @@ function App() {
         <div className="footer-links">
           <div><strong>{t.footer.product}</strong><a href="#product">{t.nav.product}</a><a href="#tools">{t.nav.tools}</a><a href="#pricing">{t.nav.pricing}</a></div>
           <div><strong>{t.footer.resources}</strong><a href={REPOSITORY_URL} target="_blank" rel="noreferrer">{t.footer.repository}</a><a href={RELEASES_URL} target="_blank" rel="noreferrer">{t.footer.releases}</a><a href={`${REPOSITORY_URL}/blob/main/SECURITY.md`} target="_blank" rel="noreferrer">{t.footer.security}</a></div>
-          <div><strong>{t.footer.legal}</strong><a href={`${REPOSITORY_URL}/blob/main/LICENSE`} target="_blank" rel="noreferrer">{t.footer.license}</a><a href={`${REPOSITORY_URL}/blob/main/THIRD_PARTY_NOTICES.md`} target="_blank" rel="noreferrer">{t.footer.notices}</a></div>
+          <div><strong>{t.footer.legal}</strong><a href="/privacy/">{t.footer.privacy}</a><a href="/terms/">{t.footer.terms}</a><a href="/refunds/">{t.footer.refunds}</a><a href={`${REPOSITORY_URL}/blob/main/LICENSE`} target="_blank" rel="noreferrer">{t.footer.license}</a><a href={`${REPOSITORY_URL}/blob/main/THIRD_PARTY_NOTICES.md`} target="_blank" rel="noreferrer">{t.footer.notices}</a></div>
         </div>
         <p className="footer-trademark">{t.footer.trademark}</p>
         <div className="footer-bottom">
