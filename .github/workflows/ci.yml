@@ -61,6 +61,42 @@ jobs:
       - name: Verify clean source checkout
         run: npm run verify
 
+      # `verify` regenerates plugin/update-manifest.json and then checks the
+      # tree against it, so a committed manifest that disagrees with a clean
+      # checkout is rewritten in place and the gate still passes. That is how a
+      # manifest listing the gitignored plugin/account-config.json reached main
+      # and made `release:verify-plugin` fail for everyone else.
+      #
+      # `createdAt` is exempt: this step deliberately does not set
+      # SOURCE_DATE_EPOCH, so the manifest is stamped from the wall clock and
+      # can never match a committed value. `buildId` is not exempt — it hashes
+      # the canonical file list, so it is the field that actually detects drift,
+      # and the reproducibility of the whole artifact is proven separately by
+      # the two deterministic builds compared further down.
+      - name: Verify the release tree is reproducible from the commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code --stat -- . ':(exclude)plugin/update-manifest.json'; then
+            echo "::error::A tracked file changed while verifying. The commit does not describe its own release tree; commit the regenerated artifact." >&2
+            exit 1
+          fi
+          git show HEAD:plugin/update-manifest.json > /tmp/committed-manifest.json
+          node -e '
+            const fs = require("fs");
+            const strip = (path) => {
+              const value = JSON.parse(fs.readFileSync(path, "utf8"));
+              delete value.createdAt;
+              return JSON.stringify(value, Object.keys(value).sort(), 2);
+            };
+            const committed = strip("/tmp/committed-manifest.json");
+            const rebuilt = strip("plugin/update-manifest.json");
+            if (committed !== rebuilt) {
+              console.error("::error::plugin/update-manifest.json does not match a clean rebuild. Its file list or buildId drifted from the commit — regenerate it and commit the result.");
+              process.exit(1);
+            }
+          '
+
       - name: Generate shipped-dependency SBOM
         run: |
           mkdir -p output
@@ -142,3 +178,59 @@ jobs:
             output/easyfield-ci.spdx.json
           if-no-files-found: warn
           retention-days: 7
+
+  # website/ is a separate pnpm project. Nothing in CI had ever built, typed or
+  # audited it, so `npm audit` at the root — which cannot see pnpm-lock.yaml —
+  # was reporting a clean tree while saying nothing at all about the only part
+  # of the product the public can actually reach.
+  website:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+
+      # Pinned exactly, like every action SHA above. pnpm 11 also stopped
+      # reading the `pnpm` field in package.json, so the minimist security
+      # override lives in pnpm-workspace.yaml as well; a frozen install fails
+      # loudly if either copy stops matching the lockfile.
+      - name: Install pnpm
+        run: npm install -g pnpm@11.20.0
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit shipped dependencies
+        run: pnpm audit --prod --audit-level=high
+
+      - name: Report build-tooling advisories (non-blocking)
+        continue-on-error: true
+        run: pnpm audit --audit-level=high
+
+      - name: Check types
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Build
+        run: pnpm run build
+
+      # The published site is what a prospect reads before paying. A build that
+      # silently rewrites the lockfile is a different dependency set than the
+      # one that was reviewed.
+      - name: Verify the lockfile was not rewritten
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code --stat -- pnpm-lock.yaml; then
+            echo "::error::Installing rewrote pnpm-lock.yaml. Commit the updated lockfile." >&2
+            exit 1
+          fi
