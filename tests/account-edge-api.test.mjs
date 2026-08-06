@@ -73,8 +73,17 @@ test("payment webhook invokes one atomic, replay-safe reconciliation RPC", async
   const reconcileFunction = reconciliationMigration.slice(
     reconciliationMigration.indexOf("create or replace function public.easyfield_account_reconcile_payment_event"),
   );
-  assert.match(webhook, /rpc\/easyfield_account_reconcile_payment_event/);
-  assert.doesNotMatch(webhook, /rpc\/easyfield_account_record_payment_event/);
+  // The RPC name became a parameter when reversal routing was added, so the
+  // path is built from a closed union rather than written inline. The
+  // invariant is unchanged: reconciliation goes through the atomic RPCs, and
+  // the raw record RPC is never reachable from the edge.
+  assert.match(webhook, /rpc\/\$\{rpc\}/);
+  assert.match(
+    webhook,
+    /rpc:\s*"easyfield_account_reconcile_payment_event"\s*\|\s*"easyfield_account_reconcile_payment_reversal"/,
+  );
+  assert.match(webhook, /reconcileEvent\(\s*"easyfield_account_reconcile_payment_event"/);
+  assert.doesNotMatch(webhook, /easyfield_account_record_payment_event/);
   assert.match(webhook, /EASYFIELD_WEBHOOK_TIMESTAMP_HEADER/);
   assert.match(webhook, /request\.headers\.get\(timestampHeader\),[\s\S]+rawBody/);
   assert.match(accountApi, /WEBHOOK_MAX_AGE_SECONDS = 5 \* 60/);

@@ -413,6 +413,135 @@ export function parsePaymentWebhook(value: unknown, deliveryId: string): Normali
   };
 }
 
+/**
+ * A topic this integration does not handle. Distinct from every other parse
+ * failure on purpose: providers emit dozens of event types on the same
+ * endpoint, and refusing an unknown one makes them retry it forever.
+ *
+ * The distinction has to be a type rather than a message, because the two
+ * outcomes are opposite. An unhandled topic is acknowledged and dropped. A
+ * malformed body of a topic we DO handle must be rejected — acknowledging it
+ * would tell the provider a real payment was received and stop the retry that
+ * is the only thing standing between a customer and losing their money.
+ */
+export class UnhandledWebhookTopicError extends Error {
+  // Declared and assigned rather than written as a constructor parameter
+  // property: this module is imported by the Node test runner, which strips
+  // types without generating code, and a parameter property needs codegen.
+  readonly topic: string;
+
+  constructor(topic: string) {
+    super("Unhandled webhook topic");
+    this.name = "UnhandledWebhookTopicError";
+    this.topic = topic;
+  }
+}
+
+export type ReversalType = "refund" | "chargeback" | "dispute_lost";
+
+const REVERSAL_TYPES: readonly ReversalType[] = ["refund", "chargeback", "dispute_lost"];
+
+export interface NormalizedReversalWebhook {
+  readonly deliveryId: string;
+  readonly reversalReference: string;
+  readonly reversedPaymentReference: string;
+  readonly reversalType: ReversalType;
+  readonly amount: {
+    readonly currency: string;
+    readonly minorUnits: number;
+    readonly exponent: 2;
+  };
+  readonly reversalPayload: {
+    readonly type: "payment/reversed";
+    readonly id: string;
+    readonly reversedPaymentReference: string;
+    readonly reversalType: ReversalType;
+    readonly reason: string;
+    readonly total: {
+      readonly currency: string;
+      readonly minorUnits: number;
+      readonly exponent: 2;
+    };
+  };
+}
+
+export function parseReversalWebhook(value: unknown, deliveryId: string): NormalizedReversalWebhook {
+  if (!isRecord(value) || !exactKeys(value, [
+    "type", "reversalReference", "reversedPaymentReference",
+    "reversalType", "amount", "reason",
+  ])) throw new TypeError("Webhook body is invalid");
+  if (value.type !== "payment.reversed") throw new UnhandledWebhookTopicError(String(value.type));
+  if (!isRecord(value.amount)) throw new TypeError("Webhook amount is invalid");
+
+  const normalizedDeliveryId = requireOpaqueRef(deliveryId, "Webhook delivery ID");
+  const reversalReference = requireOpaqueRef(value.reversalReference, "Reversal reference");
+  const reversedPaymentReference = requireOpaqueRef(
+    value.reversedPaymentReference,
+    "Reversed payment reference",
+  );
+  if (reversalReference === reversedPaymentReference) {
+    throw new TypeError("A reversal cannot reference itself");
+  }
+
+  const reversalType = value.reversalType;
+  if (typeof reversalType !== "string" || !REVERSAL_TYPES.includes(reversalType as ReversalType)) {
+    throw new TypeError("Reversal type is invalid");
+  }
+
+  if (!exactKeys(value.amount, ["currency", "minorUnits", "exponent"])) {
+    throw new TypeError("Webhook amount is invalid");
+  }
+  const currency = value.amount.currency;
+  if (typeof currency !== "string" || !ISO_CURRENCY_PATTERN.test(currency)) {
+    throw new TypeError("Webhook currency is invalid");
+  }
+  const minorUnits = requireSafeInteger(value.amount.minorUnits, "Webhook amount", 1);
+  if (value.amount.exponent !== 2) throw new TypeError("Webhook currency exponent must be 2");
+
+  const reason = value.reason;
+  if (typeof reason !== "string" || reason.trim().length < 3 || reason.length > 1000) {
+    throw new TypeError("Reversal reason is invalid");
+  }
+
+  const amount = { currency, minorUnits, exponent: 2 as const };
+  return {
+    deliveryId: normalizedDeliveryId,
+    reversalReference,
+    reversedPaymentReference,
+    reversalType: reversalType as ReversalType,
+    amount,
+    reversalPayload: {
+      type: "payment/reversed",
+      id: reversalReference,
+      reversedPaymentReference,
+      reversalType: reversalType as ReversalType,
+      reason: reason.trim(),
+      total: amount,
+    },
+  };
+}
+
+export type ParsedBillingWebhook =
+  | { readonly kind: "payment"; readonly payment: NormalizedPaymentWebhook }
+  | { readonly kind: "reversal"; readonly reversal: NormalizedReversalWebhook };
+
+/**
+ * Routes one delivery to the parser for its topic. Anything neither parser
+ * claims raises {@link UnhandledWebhookTopicError} so the caller can
+ * acknowledge it; anything a parser claims and then rejects raises a TypeError
+ * so the caller refuses it.
+ */
+export function parseBillingWebhook(value: unknown, deliveryId: string): ParsedBillingWebhook {
+  const topic = isRecord(value) && typeof value.type === "string" ? value.type : "";
+  if (topic === "payment.completed") {
+    return { kind: "payment", payment: parsePaymentWebhook(value, deliveryId) };
+  }
+  if (topic === "payment.reversed") {
+    return { kind: "reversal", reversal: parseReversalWebhook(value, deliveryId) };
+  }
+  throw new UnhandledWebhookTopicError(topic);
+}
+
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 }
