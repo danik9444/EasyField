@@ -1,0 +1,93 @@
+/* Shared by the legal documents under /privacy, /terms and /refunds.
+   Deliberately plain: these pages are read under time pressure, sometimes by a
+   payment provider's compliance reviewer, and nothing here should compete with
+   the text. */
+
+:root {
+  color-scheme: light dark;
+  --ink: #16181d;
+  --ink-2: #4a515c;
+  --ground: #ffffff;
+  --panel: #f4f6f8;
+  --rule: #d9dee4;
+  --accent: #1a6f8f;
+  --flag: #8a5a00;
+  --flag-bg: #fdf3dd;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e6e9ee;
+    --ink-2: #a6b0bc;
+    --ground: #101317;
+    --panel: #181c22;
+    --rule: #2b323b;
+    --accent: #5cb4d4;
+    --flag: #e0b055;
+    --flag-bg: #2c2413;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+
+header.doc { border-bottom: 2px solid var(--ink); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+header.doc a.home {
+  font-size: .78rem; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); text-decoration: none;
+}
+header.doc a.home:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.15; margin: .8rem 0 .4rem; letter-spacing: -.02em; }
+.dates { font-size: .85rem; color: var(--ink-2); margin: 0; }
+
+.draft {
+  background: var(--flag-bg);
+  border: 1px solid var(--flag);
+  border-radius: 5px;
+  padding: .9rem 1.1rem;
+  margin: 1.6rem 0 2.4rem;
+  font-size: .92rem;
+  color: var(--flag);
+}
+.draft strong { display: block; margin-bottom: .3rem; }
+
+h2 {
+  font-size: 1.18rem; margin: 2.4rem 0 .7rem; letter-spacing: -.01em;
+  padding-bottom: .35rem; border-bottom: 1px solid var(--rule);
+}
+h3 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, li { color: var(--ink-2); }
+p { margin: 0 0 .9rem; }
+ul, ol { margin: 0 0 1rem; padding-inline-start: 1.3rem; }
+li { margin-bottom: .4rem; }
+strong { color: var(--ink); font-weight: 650; }
+a { color: var(--accent); }
+
+.fill {
+  background: var(--panel);
+  border-bottom: 1px dashed var(--flag);
+  padding: 0 .25em;
+  color: var(--flag);
+  font-weight: 600;
+}
+
+.tablewrap { overflow-x: auto; margin: 1rem 0 1.4rem; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th {
+  text-align: left; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-2); font-weight: 600; padding: .45rem .9rem .45rem 0;
+  border-bottom: 1px solid var(--rule); white-space: nowrap;
+}
+td { padding: .6rem .9rem .6rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--ink-2); }
+tr:last-child td { border-bottom: none; }
+
+footer.doc { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--rule); font-size: .85rem; color: var(--ink-2); }

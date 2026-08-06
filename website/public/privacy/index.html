@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · EasyField</title>
+<meta name="description" content="What EasyField collects, who receives it, and how long it is kept.">
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <a class="home" href="/">← EasyField</a>
+  <h1>Privacy Policy</h1>
+  <p class="dates">Version 0.1 · Last updated <span class="fill">[DATE OF PUBLICATION]</span></p>
+</header>
+
+<div class="draft">
+  <strong>Draft — not yet in force.</strong>
+  This document was prepared to be reviewed by a qualified lawyer before publication. Every
+  <span class="fill">highlighted field</span> needs a real value, and the whole text needs review against
+  the jurisdiction the business actually operates in. Do not rely on it as a published policy and do not
+  submit it to a payment provider until it has been reviewed and the draft notice removed.
+</div>
+
+<p>
+  EasyField is a panel that runs inside DaVinci Resolve on your own Mac. It can send material you
+  select to cloud services to generate images, video, audio and transcripts. This policy explains what
+  is collected, who receives it, and what you can do about it.
+</p>
+
+<h2>1. Who is responsible</h2>
+<p>
+  The controller of your personal data is <span class="fill">[LEGAL ENTITY NAME]</span>,
+  <span class="fill">[REGISTERED ADDRESS]</span>, company number
+  <span class="fill">[COMPANY NUMBER]</span> ("EasyField", "we").
+</p>
+<p>Privacy enquiries: <span class="fill">[privacy@easyfield.ai]</span>. General support: <span class="fill">[support@easyfield.ai]</span>.</p>
+<p>
+  <span class="fill">[If a Data Protection Officer or an EU/UK representative under GDPR Article 27 is
+  required, name them here. Whether one is required depends on where the entity is established and the
+  scale of processing — this is a question for the reviewing lawyer.]</span>
+</p>
+
+<h2>2. What we collect</h2>
+
+<h3>Account data</h3>
+<p>
+  Your email address and a hashed password, created when you register. We never see your password in
+  readable form. If you sign in with a third-party identity provider, we receive the email address and
+  account identifier that provider releases to us.
+</p>
+
+<h3>Billing data</h3>
+<p>
+  A record of your plan, your credit balance and ledger, and evidence of each payment. <strong>We do not
+  receive or store your card number.</strong> Payment details are handled entirely by our payment
+  provider, named in the sub-processor table below.
+</p>
+
+<h3>Content you choose to process</h3>
+<p>
+  When you run a cloud tool, the material you selected for that run — which may include video frames,
+  images, audio, and the text of your prompt — is uploaded so it can be processed. This is the most
+  sensitive category of data EasyField handles, and it is worth being precise about it:
+</p>
+<ul>
+  <li>Nothing is uploaded until you start a run. Browsing the panel uploads nothing.</li>
+  <li>Your DaVinci Resolve project file is never uploaded. Only the media you select for a run leaves your Mac.</li>
+  <li>
+    Three tools run entirely on your own machine and send nothing at all: <strong>Animations</strong>,
+    <strong>Transcribe</strong> and <strong>Beat Detection</strong>.
+  </li>
+  <li>
+    If the material you select contains other people — their faces, voices or likenesses — you are
+    responsible for having the rights to process it. See the Terms of Service.
+  </li>
+</ul>
+
+<h3>Technical data</h3>
+<p>
+  Our servers record ordinary request logs (IP address, timestamp, endpoint) as a necessary part of
+  operating and securing the service. The installed plugin does not currently collect analytics,
+  diagnostics or crash reports. <span class="fill">[If error reporting is added before launch, this
+  section and the sub-processor table must be updated before it ships.]</span>
+</p>
+
+<h2>3. Why we may use it, and on what legal basis</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Purpose</th><th>Data</th><th>Basis (GDPR Art. 6)</th></tr></thead>
+  <tbody>
+    <tr><td>Provide the service you asked for</td><td>Account, content, billing</td><td>Contract, 6(1)(b)</td></tr>
+    <tr><td>Take payment and prevent payment fraud</td><td>Billing</td><td>Contract, 6(1)(b); legitimate interests, 6(1)(f)</td></tr>
+    <tr><td>Keep the service secure and available</td><td>Technical</td><td>Legitimate interests, 6(1)(f)</td></tr>
+    <tr><td>Meet accounting and tax obligations</td><td>Billing</td><td>Legal obligation, 6(1)(c)</td></tr>
+    <tr><td>Answer your support requests</td><td>Account, and what you send us</td><td>Contract, 6(1)(b)</td></tr>
+  </tbody>
+</table>
+</div>
+<p>We do not sell your personal data, and we do not use your content to train our own models.</p>
+
+<h2>4. Who receives your data</h2>
+<p>
+  We use the following sub-processors. GDPR Article 13(1)(e) requires that recipients be named, so they
+  are named here rather than described in the abstract.
+</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Sub-processor</th><th>What it does</th><th>What it receives</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Supabase</strong><br>(hosting, eu-central-1)</td>
+      <td>Accounts, authentication, billing records, credit ledger</td>
+      <td>Account and billing data. Not your content.</td>
+    </tr>
+    <tr>
+      <td><strong>kie.ai</strong><br>(AI generation)</td>
+      <td>Runs image, video and audio generation on our behalf</td>
+      <td>The media and prompt for each cloud run.</td>
+    </tr>
+    <tr>
+      <td><strong>Vercel</strong></td>
+      <td>Serves this website</td>
+      <td>Ordinary web request logs. No account or content data.</td>
+    </tr>
+    <tr>
+      <td><span class="fill">[PAYMENT PROVIDER]</span></td>
+      <td>Takes payment and issues receipts</td>
+      <td>Your payment details, directly. We receive only a confirmation and the last four digits.</td>
+    </tr>
+    <tr>
+      <td><span class="fill">[EMAIL PROVIDER]</span></td>
+      <td>Sends account emails such as confirmation and password reset</td>
+      <td>Your email address and the message.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<p>
+  <span class="fill">[kie.ai routes work to several upstream model providers. The lawyer should advise
+  whether those must also be named individually, and a data processing agreement should be in place with
+  each sub-processor before launch.]</span>
+</p>
+
+<h2>5. International transfers</h2>
+<p>
+  Our database is hosted in the European Union (eu-central-1). Some sub-processors process data outside
+  the EEA and the UK. Where that happens we rely on
+  <span class="fill">[TRANSFER MECHANISM — typically Standard Contractual Clauses; confirm what each
+  sub-processor's DPA actually offers]</span>.
+</p>
+
+<h2>6. How long we keep it</h2>
+<ul>
+  <li><strong>Account data</strong> — while your account exists, and for a short period afterwards so it can be restored if you deleted it by mistake.</li>
+  <li><strong>Billing records</strong> — for as long as accounting and tax law require, typically <span class="fill">[7 YEARS]</span>. These cannot be deleted on request while that obligation applies.</li>
+  <li><strong>Content you process</strong> — <span class="fill">[STATE THE ACTUAL RETENTION AT THE GENERATION PROVIDER AND IN EASYFIELD'S OWN ARTIFACT STORE. This must be verified against kie.ai's contractual terms before publication, not assumed.]</span></li>
+  <li><strong>Request logs</strong> — <span class="fill">[RETENTION PERIOD]</span>.</li>
+</ul>
+
+<h2>7. Your rights</h2>
+<p>
+  If the GDPR or UK GDPR applies to you, you have the right to access your data, to correct it, to have
+  it erased, to restrict or object to processing, and to receive it in a portable form. You may withdraw
+  consent where we relied on it, without affecting processing already carried out.
+</p>
+<p>
+  To exercise any of these, write to <span class="fill">[privacy@easyfield.ai]</span>. We will respond
+  within one month. You also have the right to complain to your local supervisory authority.
+</p>
+<p>
+  <span class="fill">[If customers in California, Brazil or other regimes are in scope, the corresponding
+  rights sections belong here.]</span>
+</p>
+
+<h2>8. Security</h2>
+<p>
+  Passwords are stored hashed. Access to the database is restricted by row-level security so one
+  customer's records are not reachable from another's session. Authentication tokens stay in the
+  plugin's main process and are not exposed to the panel's interface layer. Passwords must be at least
+  12 characters.
+</p>
+<p>
+  No system is perfectly secure. If we become aware of a breach affecting your personal data, we will
+  notify you and the relevant supervisory authority where the law requires it.
+</p>
+
+<h2>9. Children</h2>
+<p>
+  EasyField is a professional tool and is not intended for anyone under
+  <span class="fill">[16 / 18]</span>. We do not knowingly collect data from children.
+</p>
+
+<h2>10. Changes</h2>
+<p>
+  If we change this policy in a way that materially affects you, we will tell you by email before the
+  change takes effect. The version and date at the top of this page always reflect the current text.
+</p>
+
+<footer class="doc">
+  <a href="/terms/">Terms of Service</a> · <a href="/refunds/">Refund &amp; Cancellation Policy</a> · <a href="/">easyfield.ai</a>
+</footer>
+
+</div>
+</body>
+</html>
