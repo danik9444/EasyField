@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Republish the local update feed on every push, so the EasyField panel running
+# inside Resolve offers the build that was just pushed.
+#
+# The installed panel reads .easyfield-update-source.json. For a local source
+# (kind "local-release" / "local-workspace") plugin-updater.cjs decides
+# availability with candidateIsNewer() rather than a version comparison — see
+# isNewerForSource in plugin/plugin-updater.cjs — so a fresh buildId is enough.
+# Pushes that do not bump the version still surface an update in the panel.
+# A github-release source keeps requiring a real version bump.
+#
+# plugin/update-manifest.json is tracked and records a build timestamp, so every
+# assemble rewrites its "createdAt" even when nothing else moved. The published
+# feed copy keeps that timestamp; the tracked file is restored when createdAt was
+# the only difference, so pushing never leaves a dirty tree. A substantive change
+# (new buildId or file hashes) is left in place so it is not silently discarded.
+#
+# Never blocks a push: any failure reports and exits 0.
+
+set -uo pipefail
+
+PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$PROJECT_DIR" || exit 0
+[ -f package.json ] || exit 0
+
+MANIFEST=plugin/update-manifest.json
+LOG="${TMPDIR:-/tmp}/easyfield-prepush.log"
+
+# A branch behind origin/main builds an OLDER tree than what is already released,
+# and the panel accepts any fresh buildId from a local source without comparing
+# versions — so publishing from here hands the running panel a downgrade. This is
+# not hypothetical: while the Creator annual price was being corrected, pushing a
+# docs branch three commits behind main republished the feed without that fix.
+#
+# Deliberately checks the local origin/main ref rather than fetching, to keep the
+# hook offline and fast. A stale local ref only means the guard does not fire, so
+# the worst case is the behaviour that existed before it.
+if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  behind=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+  if [ "${behind:-0}" -gt 0 ]; then
+    echo "==> Skipped publishing the local plugin update"
+    echo "    HEAD is $behind commit(s) behind origin/main, so this build is older"
+    echo "    than the released one and would downgrade the panel in Resolve."
+    echo "    Merge origin/main into this branch to publish from it."
+    exit 0
+  fi
+fi
+
+echo "==> Publishing local plugin update for the panel in Resolve"
+
+if ! npm run --silent plugin:build >"$LOG" 2>&1; then
+  echo "    plugin:build failed — push continues, panel keeps its current build."
+  echo "    log: $LOG"
+  exit 0
+fi
+
+tail -n 1 "$LOG"
+
+if ! git diff --quiet -- "$MANIFEST"; then
+  substantive=$(git diff -U0 -- "$MANIFEST" \
+    | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' \
+    | grep -cv '"createdAt"' || true)
+  if [ "$substantive" -eq 0 ]; then
+    git checkout -- "$MANIFEST"
+  else
+    echo "    NOTE: $MANIFEST changed beyond its timestamp — commit it, the"
+    echo "          committed manifest is now stale relative to the code."
+  fi
+fi
+
+exit 0

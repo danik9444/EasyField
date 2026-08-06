@@ -3,8 +3,8 @@ import { Icon } from '../icons'
 import { Dropdown } from '../components/Dropdown'
 import { ChipField } from '../components/ChipField'
 import { PromptCard } from '../components/PromptCard'
-import { ReferenceImageGrid } from '../components/ReferenceImageGrid'
 import { CharacterBuilderPanel } from '../components/CharacterBuilderPanel'
+import { StoryboardReferencePicker } from '../components/StoryboardSceneReferencePicker'
 import { resolve } from '../services/resolve'
 import { sendToTimeline } from '../services/timeline'
 import { runImage, isConnected, isGenerationExit, saveUrl } from '../services/run'
@@ -18,8 +18,6 @@ import { PriceEstimate } from '../components/PriceEstimate'
 import { GenerationCancelControl, useGenerationJobControl } from '../components/GenerationCancelControl'
 import { imageRunEstimate, resolveCharged, formatCharged } from '../data/pricing'
 import { loadGenPrefs, saveGenPrefs } from '../data/prefs'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import { isDecodableReferenceImageFile, type ReferenceImage } from '../data/referenceImage'
 import type { EnhanceReference } from '../services/chat'
 import { promptCharacterCount } from '../data/promptLimits'
@@ -44,9 +42,24 @@ interface ImagePerModel {
   extraOptionValues: Record<string, string>
 }
 
+type StoredImagePerModel = Partial<ImagePerModel>
+
+function sanitizeImagePerModel(value: unknown): StoredImagePerModel | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const stored = value as Record<string, unknown>
+  const extraOptionValues = stored.extraOptionValues
+  return {
+    ...(typeof stored.aspect === 'string' ? { aspect: stored.aspect } : {}),
+    ...(typeof stored.resolution === 'string' ? { resolution: stored.resolution } : {}),
+    ...(extraOptionValues && typeof extraOptionValues === 'object' && !Array.isArray(extraOptionValues)
+      ? { extraOptionValues: Object.fromEntries(Object.entries(extraOptionValues).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) }
+      : {}),
+  }
+}
+
 // Resolve a model's settings from stored prefs, falling back to defaults and
 // dropping any value no longer valid for the model's current config.
-function resolveImageSettings(model: string, stored?: ImagePerModel): ImagePerModel {
+function resolveImageSettings(model: string, stored?: StoredImagePerModel): ImagePerModel {
   const cfg = IMAGE_MODEL_CONFIG[model]
   const def = defaultOptionsFor(model)
   const extraOptionValues: Record<string, string> = {}
@@ -55,8 +68,8 @@ function resolveImageSettings(model: string, stored?: ImagePerModel): ImagePerMo
     extraOptionValues[opt.key] = v && opt.values.includes(v) ? v : opt.values[0]
   })
   return {
-    aspect: stored && cfg.aspectRatios.includes(stored.aspect) ? stored.aspect : def.aspect,
-    resolution: stored && cfg.resolutions.includes(stored.resolution) ? stored.resolution : def.resolution,
+    aspect: stored?.aspect && cfg.aspectRatios.includes(stored.aspect) ? stored.aspect : def.aspect,
+    resolution: stored?.resolution && cfg.resolutions.includes(stored.resolution) ? stored.resolution : def.resolution,
     extraOptionValues,
   }
 }
@@ -72,7 +85,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
   const [phase, setPhase] = useState<Phase>('form')
   const [charged, setCharged] = useState<number | null>(null)
   const prefsKey = mode === 'character' ? 'create-character' : 'create-image'
-  const prefsRef = useRef(loadGenPrefs<ImagePerModel>(prefsKey))
+  const prefsRef = useRef(loadGenPrefs<StoredImagePerModel>(prefsKey, sanitizeImagePerModel))
   const initialModel = useMemo(() => {
     const saved = prefsRef.current.model
     const m = saved ? IMAGE_MODEL_ALIASES[saved] ?? saved : undefined
@@ -95,6 +108,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
   const [characterDraft, setCharacterDraft] = useState<CharacterDraft>(() => createDefaultCharacterDraft())
   const [characterDraftReady, setCharacterDraftReady] = useState(mode !== 'character')
   const [refImages, setRefImages] = useState<ReferenceImage[]>([])
+  const [referenceDialogOpen, setReferenceDialogOpen] = useState(false)
   const [results, setResults] = useState<{ id: string; url: string }[]>([])
   const [selectedResultIds, setSelectedResultIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -135,6 +149,10 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
       if (!active) return
       setCharacterDraft(normalizeCharacterDraft(saved))
       setCharacterDraftReady(true)
+    }).catch(() => {
+      if (!active) return
+      setCharacterDraftReady(true)
+      setError('Your saved character design could not be restored. You can continue with the defaults.')
     })
     return () => { active = false }
   }, [mode])
@@ -274,6 +292,7 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
     }
     setError(null)
     setSelectedResultIds([])
+    setReferenceDialogOpen(false)
     setPhase('generating')
     const controller = generation.begin()
     activeRunRef.current = true
@@ -332,8 +351,6 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
 
   const connected = isConnected()
   const estimate = imageRunEstimate(model, resolution, extraOptionValues, Number(count), { referenceCount: effectiveReferences.length })
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const selectedResults = results.filter((result) => selectedResultIds.includes(result.id))
   const toggleResult = (id: string) => {
     setSelectedResultIds((current) => current.includes(id) ? current.filter((resultId) => resultId !== id) : [...current, id])
@@ -415,8 +432,41 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
           </>
         ) : (
           <>
-            <ReferenceImageGrid images={refImages} max={maxReferenceImages} onAddFiles={addRefFiles} onRemove={removeRefAt} onGrabPlayhead={grabPlayhead} />
-            <PromptCard prompt={prompt} onPromptChange={(value) => { setPrompt(value); setError(null) }} maxLength={userPromptMax} enhancerKey="enhancer-image" targetModel={model} mediaKind="image" purpose="create" style={style} references={enhanceRefs} onSpend={onSpend} />
+            <section className="ef-workspace-intro ef-create-image-intro" aria-labelledby="create-image-intro-title">
+              <span className="ef-workspace-kicker">ONE IDEA · FINISHED IMAGE</span>
+              <h1 id="create-image-intro-title">Create the frame you have in mind.</h1>
+              <p>Describe the subject, composition, light and mood. Add references when identity or visual continuity matters.</p>
+            </section>
+            <PromptCard
+              prompt={prompt}
+              onPromptChange={(value) => { setPrompt(value); setError(null) }}
+              maxLength={userPromptMax}
+              enhancerKey="enhancer-image"
+              targetModel={model}
+              mediaKind="image"
+              purpose="create"
+              style={style}
+              references={enhanceRefs}
+              contextKey={refImages.map((reference) => reference.id).join('|')}
+              onSpend={onSpend}
+              resizeMode="vertical"
+              footerEnd={(
+                <button
+                  type="button"
+                  className={`ef-story-scene-reference-trigger${refImages.length ? ' has-references' : ''}`}
+                  onClick={() => setReferenceDialogOpen(true)}
+                  disabled={phase !== 'form' || currentReferenceLimit === 0}
+                  aria-label={`Choose references for this image. ${refImages.length} of ${currentReferenceLimit} attached.`}
+                  aria-haspopup="dialog"
+                  aria-expanded={referenceDialogOpen}
+                  title={currentReferenceLimit === 0 ? 'The selected image model does not accept references' : 'Choose image references'}
+                >
+                  <Icon glyph="img" size={13} />
+                  <span>Refs</span>
+                  <b>{refImages.length}</b>
+                </button>
+              )}
+            />
             <ChipField label="STYLE" options={STYLES} selected={style} onSelect={setStyle} chipClassName="ef-style-chip" />
             {outputSettings}
           </>
@@ -488,9 +538,9 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
           <PriceEstimate estimate={estimate} />
           <div
             id="create-image-footer-message"
-            className={`ef-create-footer-message ${error || spendBlocked || promptOverLimit ? 'is-error' : connected ? 'is-ready' : 'is-help'}`}
-            role={error || spendBlocked || promptOverLimit ? 'alert' : 'status'}
-            aria-live={error || spendBlocked || promptOverLimit ? 'assertive' : 'polite'}
+            className={`ef-create-footer-message ${error || promptOverLimit ? 'is-error' : connected ? 'is-ready' : 'is-help'}`}
+            role={error || promptOverLimit ? 'alert' : 'status'}
+            aria-live={error || promptOverLimit ? 'assertive' : 'polite'}
           >
             {error
               ? `✕ ${error}`
@@ -501,23 +551,37 @@ export function CreateImage({ mode = 'image', onBack, toast, onSpend }: CreateIm
                 : !characterDraftReady
                   ? 'Loading character design…'
                   : !characterReferenceReady
-                    ? currentReferenceLimit > 0
-                      ? 'Add a character sample to generate'
-                      : `${model} does not accept character samples`
-                : spendBlocked
-                  ? `✕ ${spendApproval.reason}`
-                  : `${count} ${mode === 'character' ? 'character' : 'image'}${count === '1' ? '' : 's'} · ${resolution || aspect}`}
+                  ? currentReferenceLimit > 0
+                    ? 'Add a character sample to generate'
+                    : `${model} does not accept character samples`
+                : `${count} ${mode === 'character' ? 'character' : 'image'}${count === '1' ? '' : 's'} · ${resolution || aspect}`}
           </div>
           <button
             type="button"
             className="ef-generate ef-create-footer-action"
             onClick={generate}
-            disabled={!connected || !spendApproval.approved || !characterDraftReady || !characterReferenceReady || promptOverLimit}
+            disabled={!connected || !characterDraftReady || !characterReferenceReady || promptOverLimit}
             aria-describedby="create-image-footer-message"
           >
             <Icon glyph="spark" color="#0E0E13" size={13} /> Generate
           </button>
         </footer>
+      )}
+
+      {mode === 'image' && (
+        <StoryboardReferencePicker
+          open={referenceDialogOpen}
+          scope="image"
+          sceneLabel="References for this image"
+          images={refImages}
+          max={currentReferenceLimit}
+          locked={phase !== 'form'}
+          lockedHint="References are locked while this generation is running."
+          onAddFiles={addRefFiles}
+          onGrabPlayhead={grabPlayhead}
+          onRemove={removeRefAt}
+          onClose={() => setReferenceDialogOpen(false)}
+        />
       )}
 
       {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}

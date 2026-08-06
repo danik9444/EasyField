@@ -38,11 +38,13 @@ the renderer and outside the packaged app.
   the desktop. It independently reports customer generation, customer
   checkout, Partner checkout, and billing-portal availability; absent or
   malformed capability data fails closed.
-- `easyfield-billing-webhook` verifies HMAC-SHA256 over the exact raw request
-  bytes, validates a strict provider-neutral event, and invokes one database
-  transaction that records and claims the event, reconciles the immutable
-  catalog amount, completes the purchase, materializes the entitlement, and
-  grants or schedules credits exactly once.
+- `easyfield-billing-webhook` verifies HMAC-SHA256 over a canonical Unix-seconds
+  timestamp, a `.` separator, and the exact raw request bytes. The signed
+  timestamp must be no more than five minutes old or 30 seconds in the future.
+  The function then validates a strict provider-neutral event and invokes one
+  database transaction that records and claims the event, reconciles the
+  immutable catalog amount, completes the purchase, materializes the
+  entitlement, and grants or schedules credits exactly once.
 - If materialization cannot be proven, its database subtransaction rolls back
   every entitlement and ledger write while retaining the signed event as
   `failed`; the webhook returns `503`, so the identical delivery can be retried
@@ -60,6 +62,8 @@ Apply the migrations in filename order, including:
 202607150006_checkout_status_recovery.sql
 20260715154941_creator_monthly_price_24.sql
 20260715170000_private_billing_rls_hardening.sql
+20260715175329_generation_gateway_control_plane.sql
+202607290001_generation_settlement_lock_order.sql
 ```
 
 The new public RPC names are callable only by `service_role`. Authenticated
@@ -113,10 +117,15 @@ EASYFIELD_BILLING_WEBHOOK_URL
 EASYFIELD_WEBHOOK_SECRET
 EASYFIELD_WEBHOOK_SIGNATURE_HEADER       # optional, default x-signature
 EASYFIELD_WEBHOOK_DELIVERY_HEADER        # optional, default x-delivery-id
+EASYFIELD_WEBHOOK_TIMESTAMP_HEADER       # optional, default x-timestamp
 
 EASYFIELD_PRIVILEGED_BALANCE_API_URL
 EASYFIELD_PRIVILEGED_BALANCE_API_TOKEN
 ```
+
+The timestamp header must contain canonical base-10 Unix seconds. The
+signature is the hexadecimal HMAC-SHA256 of
+`<timestamp>.<exact raw request bytes>`.
 
 `EASYFIELD_CHECKOUT_VARIANTS_JSON` is a JSON object. Supported keys are:
 
@@ -215,9 +224,51 @@ contain no `account-config.json`, as described in `docs/RELEASING.md`.
 Password recovery is end-to-end inside the desktop boundary: Electron Main
 creates the PKCE request, owns the temporary recovery session, consumes the
 trusted `http://127.0.0.1:18832/auth/recovery` callback, and exposes only a
-one-time attempt ID plus terminal state to the renderer. Production Supabase
-Auth must allowlist that exact redirect and the packaged Resolve build must
-complete an email-link test; sending the email alone is not sufficient.
+one-time attempt ID plus terminal state to the renderer. The packaged Resolve
+build must complete an email-link test; sending the email alone is not
+sufficient.
+
+### Redirect allowlist — verified, no change needed for loopback
+
+All three callbacks carry a per-attempt nonce that binds the browser's return
+to the Main-process attempt that started it, so the URL Supabase receives is:
+
+```
+http://127.0.0.1:18832/auth/callback?attempt=<random per attempt>
+http://127.0.0.1:18832/auth/recovery?attempt=<random per attempt>
+http://127.0.0.1:18832/auth/confirm?attempt=<random per attempt>
+```
+
+An exact-match allowlist entry could never match a value that changes every
+attempt. **Supabase does not require one for loopback.** Verified against the
+deployed project on 2026-07-29 by calling `/auth/v1/verify` directly and
+reading the `Location` header without following it:
+
+| `redirect_to` sent | Where Supabase redirected |
+|---|---|
+| `https://attacker.example.com/steal` | **refused** — fell back to `site_url` |
+| `http://127.0.0.1:18832/auth/confirm?attempt=…` | **honoured**, with the code appended |
+
+So the allowlist is enforced, there is no open redirect, and loopback works
+without a Dashboard entry. `supabase/config.toml` declares the three URLs
+anyway, so the intent survives a project restore rather than living only as
+Dashboard state.
+
+### site_url points at the live site
+
+The Site URL is `https://easyfield.ai`, set once `website/` was deployed. That
+is where every refused or fallback redirect lands — including the confirmation
+link for anyone whose plugin is not running.
+
+Re-running the probe above after the change shows both halves still hold:
+
+| `redirect_to` sent | Where Supabase redirected |
+|---|---|
+| `https://attacker.example.com/steal` | **refused** — fell back to `https://easyfield.ai` |
+| `http://127.0.0.1:18832/auth/confirm?attempt=…` | **honoured**, with the code appended |
+
+`supabase/config.toml` now declares `site_url` alongside the three callbacks, so
+none of it survives only as Dashboard state.
 
 ## Deliberate production blockers
 

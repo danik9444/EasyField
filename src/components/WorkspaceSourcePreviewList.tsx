@@ -19,7 +19,7 @@ function useLocalPreviewUrl(source: WorkspacePreviewSource): string | undefined 
 
   useEffect(() => {
     setLocalPreviewUrl(undefined)
-    if (source.blobUrl || !source.file || (source.kind !== 'video' && source.kind !== 'audio')) return
+    if (source.blobUrl || !source.file || (source.kind !== 'image' && source.kind !== 'video' && source.kind !== 'audio')) return
     if (typeof URL.createObjectURL !== 'function') return
 
     const nextUrl = URL.createObjectURL(source.file)
@@ -40,6 +40,11 @@ function WorkspaceSourcePreview({ source, index, onRemove }: {
 
   return (
     <article className="ef-workspace-source-card" aria-label={`${source.kind} source: ${source.name}`}>
+      {source.kind === 'image' && previewUrl && (
+        <div className="ef-workspace-source-preview ef-workspace-source-preview--image">
+          <img src={previewUrl} alt={label} />
+        </div>
+      )}
       {source.kind === 'video' && previewUrl && (
         <div className="ef-workspace-source-preview ef-workspace-source-preview--video">
           <video src={previewUrl} controls playsInline preload="metadata" aria-label={label} />

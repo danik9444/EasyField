@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { verifyRuntimeExecutable } = require('./runtime-pack.cjs');
 
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -158,7 +159,16 @@ async function probeBeatRuntime(options) {
         || defaultPythonCandidates(scriptPath, options && options.allowEnvironmentOverrides);
     let lastPayload = null;
     for (const python of candidates) {
-        if (python.includes(path.sep) && !fs.existsSync(python)) continue;
+        // Presence and probe output are not identity evidence. Refuse to spawn
+        // until the shared runtime-pack verifier authenticates the exact file.
+        if (!verifyRuntimeExecutable({
+            candidate: python,
+            componentId: 'librosa-python',
+            executableName: 'python3',
+            pluginRoot: options && options.runtimePackRoot,
+            catalogPath: options && options.runtimePackCatalogPath,
+            architecture: options && options.architecture,
+        })) continue;
         const result = await runProcess(python, [scriptPath, '--probe'], { timeoutMs: 15000 });
         const payload = parseProcessJSON(result.stdout);
         if (result.code === 0 && payload && payload.ok === true) {
@@ -265,6 +275,9 @@ function createBeatDetectionService(options) {
         ffmpegPath: options && options.ffmpegPath,
         timeoutMs: options && options.timeoutMs,
         allowEnvironmentOverrides: options && options.allowEnvironmentOverrides === true,
+        runtimePackRoot: options && options.runtimePackRoot,
+        runtimePackCatalogPath: options && options.runtimePackCatalogPath,
+        architecture: options && options.architecture,
     };
     let statusCache = null;
     let statusCacheAt = 0;

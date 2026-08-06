@@ -39,7 +39,7 @@ test('approved visible taxonomy has four types, six ages, six bodies, and six hu
   assert.deepEqual(visibleOptions('hair'), ['Bald', 'Short hair', 'Long hair', 'Afro', 'Curly', 'Pixie cut'])
   assert.deepEqual(visibleOptions('tattoos'), ['Add tattoos'])
   assert.deepEqual(CHARACTER_TATTOO_REGIONS.map((entry) => entry.id), ['face', 'neck', 'torso', 'back', 'arms', 'legs'])
-  assert.equal(CHARACTER_TRAIT_GROUPS.some((group) => group.id === 'skinDetails'), false)
+  assert.equal(CHARACTER_TRAIT_GROUPS.map((group) => String(group.id)).includes('skinDetails'), false)
 })
 
 test('repeat-click selection helper clears an active ordinary choice', () => {

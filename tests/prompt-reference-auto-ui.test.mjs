@@ -17,10 +17,12 @@ test('shared prompt control enables reference-led Auto and labels the mode', () 
 })
 
 test('Storyboard custom enhancers accept blank fields when a story reference exists', () => {
-  assert.match(storyboard, /canEnhancePrompt\(briefSnapshot, promptReferences, SCENE_PROMPT_MIN_LENGTH\)/)
-  assert.match(storyboard, /canEnhancePrompt\(scene\.prompt, promptReferences, SCENE_PROMPT_MIN_LENGTH\)/)
+  assert.match(storyboard, /canEnhancePrompt\(storySnapshot, promptingReferences, SCENE_PROMPT_MIN_LENGTH\)/)
+  assert.match(storyboard, /canEnhancePrompt\(scene\.prompt, promptingReferences, SCENE_PROMPT_MIN_LENGTH\)/)
   assert.match(storyboard, /canEnhanceFromReferences=\{referenceImages\.length > 0\}/)
-  assert.match(sceneCard, /prompt\.trim\(\)\.length < 3 && !canEnhanceFromReferences/)
+  // The scene card widens the same rule: a blank prompt still enhances from
+  // scene references, read-only continuity references or project references.
+  assert.match(sceneCard, /const canImproveFromScene = prompt\.trim\(\)\.length >= 3 \|\| referenceCount \+ contextReferenceCount > 0 \|\| canEnhanceFromReferences/)
 })
 
 test('generic and Animation workspaces expose every attached source as enhancement context', () => {

@@ -28,10 +28,12 @@ interface DropdownProps {
   selected: string
   onSelect: (value: string) => void
   label: string
+  disabled?: boolean
   align?: 'left' | 'right'
   variant?: 'badge' | 'field'
   optionMeta?: Record<string, DropdownOptionMeta>
   searchable?: boolean
+  popoverClassName?: string
 }
 
 interface MenuPosition {
@@ -57,10 +59,12 @@ export function Dropdown({
   selected,
   onSelect,
   label,
+  disabled = false,
   align = 'right',
   variant = 'badge',
   optionMeta: optionMetaProp,
   searchable,
+  popoverClassName,
 }: DropdownProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -136,7 +140,7 @@ export function Dropdown({
   }
 
   const openMenu = (index = selectedVisibleIndex) => {
-    if (!options.length) return
+    if (disabled || !options.length) return
     updateMenuPosition()
     setQuery('')
     setActiveIndex(index)
@@ -147,6 +151,28 @@ export function Dropdown({
     setOpen(false)
     if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus())
   }
+
+  const moveFocusPastMenu = (backward: boolean) => {
+    const menu = menuRef.current
+    const focusable = Array.from(document.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), audio[controls], video[controls], [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => !menu?.contains(element) && element.offsetParent !== null)
+    if (!focusable.length) {
+      closeMenu()
+      return
+    }
+    const triggerIndex = triggerRef.current ? focusable.indexOf(triggerRef.current) : -1
+    const targetIndex = triggerIndex >= 0
+      ? (triggerIndex + (backward ? -1 : 1) + focusable.length) % focusable.length
+      : backward ? focusable.length - 1 : 0
+    const target = focusable[targetIndex]
+    closeMenu(false)
+    requestAnimationFrame(() => (target ?? triggerRef.current)?.focus())
+  }
+
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
 
   useEffect(() => {
     if (!open) return
@@ -160,7 +186,8 @@ export function Dropdown({
         event.preventDefault()
         closeMenu()
       } else if (event.key === 'Tab') {
-        setOpen(false)
+        event.preventDefault()
+        moveFocusPastMenu(event.shiftKey)
       }
     }
     const onDocumentPointerDown = (event: PointerEvent) => {
@@ -193,6 +220,7 @@ export function Dropdown({
   }
 
   const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (disabled) return
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
       event.preventDefault()
       openMenu(event.key === 'End' || event.key === 'ArrowUp' ? options.length - 1 : Math.max(0, options.indexOf(selected)))
@@ -236,6 +264,7 @@ export function Dropdown({
         ref={triggerRef}
         type="button"
         className={'ef-dropdown-trigger' + (variant === 'field' ? ' field' : '')}
+        disabled={disabled}
         aria-label={`${label}: ${selected}`}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -256,7 +285,7 @@ export function Dropdown({
       {open && createPortal(
         <div
           ref={menuRef}
-          className={'ef-dropdown-popover' + (menuPosition.opensAbove ? ' opens-above' : '') + (hasDetails ? ' has-details' : '') + (isModelMenu ? ' is-model-menu' : '')}
+          className={'ef-dropdown-popover' + (menuPosition.opensAbove ? ' opens-above' : '') + (hasDetails ? ' has-details' : '') + (isModelMenu ? ' is-model-menu' : '') + (popoverClassName ? ` ${popoverClassName}` : '')}
           style={popoverStyle}
         >
           {showMenuHeader && (

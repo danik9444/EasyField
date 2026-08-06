@@ -241,6 +241,33 @@ void (async () => {
   try { await handlers.get('ef:state:list')(trusted, 'artifacts') }
   catch { artifactNamespaceRejected = true }
 
+  const largeDraft = {
+    id: 'legal-storyboard',
+    promptSnapshot: 'x'.repeat(2 * 1024 * 1024 + 128),
+    approvals: ['scene-1', 'scene-2'],
+  }
+  await handlers.get('ef:state:set')(trusted, 'drafts', 'large-storyboard', largeDraft)
+  const largeDraftRoundTrip = await handlers.get('ef:state:get')(trusted, 'drafts', 'large-storyboard')
+  const largeDraftList = await handlers.get('ef:state:list')(trusted, 'drafts')
+  const { DatabaseSync } = require('node:sqlite')
+  const inspection = new DatabaseSync(path.join(process.env.EF_TEST_USER_DATA, 'easyfield.sqlite3'))
+  const pointerRow = inspection.prepare(
+    'SELECT value_json FROM app_state WHERE namespace = ? AND key = ?',
+  ).get('drafts', 'large-storyboard')
+  inspection.close()
+  const pointer = JSON.parse(pointerRow.value_json)
+  const documentDirectory = path.join(process.env.EF_TEST_USER_DATA, 'state-documents')
+  const documentFiles = fs.readdirSync(documentDirectory)
+  const documentPath = path.join(documentDirectory, documentFiles[0])
+  const largeStateReferenceIsOpaque = pointer.type === 'easyfield-state-document-v1'
+    && typeof pointer.id === 'string'
+    && typeof pointer.checksum === 'string'
+    && !pointerRow.value_json.includes(largeDraft.id)
+  const largeStateFilePrivate = (fs.statSync(documentDirectory).mode & 0o777) === 0o700
+    && (fs.statSync(documentPath).mode & 0o777) === 0o600
+  await handlers.get('ef:state:set')(trusted, 'drafts', 'large-storyboard', { id: 'small-replacement' })
+  const staleDocumentRemoved = fs.readdirSync(documentDirectory).length === 0
+
   let navigationPrevented = false
   win.webContents.emit('will-navigate', { preventDefault: () => { navigationPrevented = true } }, 'https://attacker.invalid/phish')
   let webviewPrevented = false
@@ -305,6 +332,11 @@ void (async () => {
     billingOpenedFixedUrl,
     rendererBillingUrlIgnored: !openedExternalUrls.includes('https://attacker.invalid/checkout'),
     artifactNamespaceRejected,
+    largeStateRoundTrip: largeDraftRoundTrip?.promptSnapshot === largeDraft.promptSnapshot,
+    largeStateListRoundTrip: largeDraftList.some((item) => item.key === 'large-storyboard' && item.value?.promptSnapshot === largeDraft.promptSnapshot),
+    largeStateReferenceIsOpaque,
+    largeStateFilePrivate,
+    staleDocumentRemoved,
     navigationPrevented,
     webviewPrevented,
     credentialWindowDenied,
@@ -401,6 +433,11 @@ test('Electron Main keeps credentials and artifact paths behind trusted IPC', as
     billingOpenedFixedUrl: true,
     rendererBillingUrlIgnored: true,
     artifactNamespaceRejected: true,
+    largeStateRoundTrip: true,
+    largeStateListRoundTrip: true,
+    largeStateReferenceIsOpaque: true,
+    largeStateFilePrivate: true,
+    staleDocumentRemoved: true,
     navigationPrevented: true,
     webviewPrevented: true,
     credentialWindowDenied: true,

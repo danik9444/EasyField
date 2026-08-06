@@ -4,7 +4,46 @@ project_id = "xtnaqwvayenfcqzqelmh"
 verify_jwt = true
 
 # Keep this function undeployed until a merchant webhook secret is configured.
-# When it is enabled, the function verifies the raw-body HMAC itself because
-# payment providers cannot supply a Supabase user JWT.
+# When it is enabled, the function verifies the timestamp-bound raw-body HMAC
+# itself because payment providers cannot supply a Supabase user JWT.
 [functions.easyfield-billing-webhook]
 verify_jwt = false
+
+# Deployed with verify_jwt disabled because the function performs its own
+# authentication — it verifies the caller's session against /auth/v1/user and
+# then re-checks billing_private.is_active_admin inside the database. The
+# gateway check would also reject the CORS preflight, which carries no
+# credential.
+[functions.easyfield-admin]
+verify_jwt = false
+
+# Auth redirect targets, declared rather than left as Dashboard state that a
+# future project restore would silently lose.
+#
+# Loopback is already permitted by Supabase's own defaults — verified against
+# the live project: a foreign redirect_to falls back to site_url while
+# http://127.0.0.1:18832/auth/confirm is honoured. These entries make the
+# intent explicit and survive `supabase config push`.
+#
+[auth]
+# Where every refused or redirect-less auth link lands — including a
+# confirmation click made while the plugin is closed.
+#
+# This was http://localhost:3000, the development default, for as long as there
+# was no site to name. website/ is now deployed to Vercel and serves on this
+# origin, so the fallback reaches a real product page instead of a dead port.
+#
+# Changed on the deployed project on 2026-07-29 and verified against GoTrue
+# rather than the Dashboard: /auth/v1/verify with a foreign redirect_to answers
+#
+#   303  location: https://easyfield.ai#error=access_denied&…
+#
+# which shows both that the fallback moved and that the allowlist still refuses
+# the foreign target. www.easyfield.ai 308-redirects here, so the apex is the
+# single canonical origin.
+site_url = "https://easyfield.ai"
+additional_redirect_urls = [
+  "http://127.0.0.1:18832/auth/callback",
+  "http://127.0.0.1:18832/auth/recovery",
+  "http://127.0.0.1:18832/auth/confirm",
+]

@@ -11,6 +11,7 @@ const accountCss = readFileSync(new URL('../src/account.css', import.meta.url), 
 const homeSource = readFileSync(new URL('../src/screens/Home.tsx', import.meta.url), 'utf8')
 const settingsSource = readFileSync(new URL('../src/screens/SettingsScreen.tsx', import.meta.url), 'utf8')
 const preloadTypes = readFileSync(new URL('../src/vite-env.d.ts', import.meta.url), 'utf8')
+const accountBridgeSource = readFileSync(new URL('../src/core/accountBridge.ts', import.meta.url), 'utf8')
 
 test('an unconfigured renderer bridge fails closed instead of creating a local account session', async () => {
   const snapshot = createUnavailableAccountSnapshot()
@@ -30,6 +31,22 @@ test('an unconfigured renderer bridge fails closed instead of creating a local a
   const restored = await host.account.restore()
   assert.equal(restored.ok, false)
   if (!restored.ok) assert.equal(restored.error.code, 'service-unavailable')
+})
+
+test('account configuration, runtime health and last successful refresh remain distinct', () => {
+  assert.match(accountBridgeSource, /export type AccountServiceHealth = 'checking' \| 'available' \| 'unavailable' \| 'unconfigured'/)
+  assert.match(appSource, /useState<AccountServiceHealth>\('checking'\)/)
+  assert.match(appSource, /setAccountServiceHealth\('available'\)/)
+  assert.match(appSource, /setAccountServiceHealth\(unconfigured \? 'unconfigured' : 'unavailable'\)/)
+  assert.match(appSource, /lastSuccessfulAccountRefreshAtMs/)
+  assert.match(appSource, /markAccountServiceFailure\(result\.error, true\)/)
+  assert.match(accountSource, /Configured service is offline/)
+  assert.match(accountSource, /Last successful refresh/)
+  assert.match(settingsSource, /accountServiceHealth === 'unavailable'[\s\S]*Account service offline/)
+  assert.match(settingsSource, /Promise\.resolve\(onRefreshAccount\(\)\)/)
+  assert.doesNotMatch(accountSource, /capabilities\.accountConfigured/)
+  assert.doesNotMatch(homeSource, /accountConfigured/)
+  assert.doesNotMatch(settingsSource, /accountConfigured/)
 })
 
 test('Account is a real application route backed by the narrow account host wrapper', () => {
@@ -138,8 +155,15 @@ test('Account keeps privileged admin billing separate from customer purchases', 
 })
 
 test('Account checkout recovery is explicit and sign-up requires a useful password length', () => {
-  assert.match(accountSource, /minLength=\{signUp \? 8 : undefined\}/)
-  assert.match(accountSource, /Use at least 8 characters\./)
+  // Pinned to the shared constant rather than a literal: the minimum tracks the
+  // deployed Supabase policy, and a number written here would silently disagree
+  // with it the next time that policy moves.
+  assert.match(accountSource, /import \{\n\s*MIN_PASSWORD_LENGTH,/)
+  assert.match(accountSource, /minLength=\{signUp \? MIN_PASSWORD_LENGTH : undefined\}/)
+  assert.match(accountSource, /Use at least \{MIN_PASSWORD_LENGTH\} characters\./)
+  // Scoped to password inputs — other fields legitimately carry a literal
+  // minLength, and sweeping them in would make this assertion mean nothing.
+  assert.doesNotMatch(accountSource, /type="password"[^>]*minLength=\{\s*\d/, 'password inputs must size from the shared constant')
   assert.match(accountSource, /Forgot password\?/)
   assert.match(accountSource, /SECURE PASSWORD RECOVERY/)
   assert.match(accountSource, /onCompletePasswordRecovery/)
@@ -168,6 +192,8 @@ test('purchase controls expose clear selection, loading and validation states at
   assert.match(accountSource, /label htmlFor=\{inputId\}/)
   assert.match(accountSource, /aria-invalid=\{Boolean\(validation\) \|\| undefined\}/)
   assert.match(accountSource, /ef-account-quote" role="status" aria-live="polite"/)
+  assert.match(accountSource, /const automaticCharge = policy\.enabled[\s\S]*quoteTopUp\(props\.pricingPlanId, policy\.topUpAmountCreditMicros\)/)
+  assert.match(accountSource, /Saving authorizes this charge for each automatic reload\./)
   assert.match(accountSource, /aria-busy=\{props\.topUpPending \|\| undefined\}/)
   assert.match(accountCss, /\.ef-account-plan-grid\s*\{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(accountCss, /@media \(max-width: 460px\)[\s\S]*?\.ef-account-plan-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/)
@@ -182,6 +208,17 @@ test('purchase controls expose clear selection, loading and validation states at
   assert.match(accountCss, /\.ef-account-refresh > button \{[\s\S]*?min-width: 44px;[\s\S]*?min-height: 44px;/)
   assert.match(accountCss, /@media \(max-width: 460px\)[\s\S]*?\.ef-account-identity > button \{ min-width: 44px; min-height: 44px;/)
   assert.match(accountCss, /@media \(max-width: 380px\)[\s\S]*?\.ef-account-back \{ width: 44px; height: 44px; \}/)
+})
+
+test('missing, loading, stale and zero-capable balance states stay distinguishable and refreshable', () => {
+  assert.match(accountSource, /if \(serviceHealth === 'checking'\) return 'Checking…'/)
+  assert.match(accountSource, /if \(serviceHealth === 'available'\) return 'Not reported'/)
+  assert.match(accountSource, /The latest account refresh returned no balance data\./)
+  assert.match(accountSource, /Balance data is unavailable while the account service is offline\./)
+  assert.match(accountSource, /balances \? formatCreditMicros\(balances\.subscriptionCreditMicros\) : unavailableValue/)
+  assert.match(accountSource, /balances \? formatCreditMicros\(balances\.purchasedCreditMicros\) : unavailableValue/)
+  assert.match(accountSource, /Refresh balance/)
+  assert.match(accountSource, /Balance measured \$\{formatAccountDate\(balances\.measuredAtMs\)\}/)
 })
 
 test('account actions show accurate browser handoff states and resume pending checkout monitoring', () => {

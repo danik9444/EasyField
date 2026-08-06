@@ -70,6 +70,8 @@ test('Beat analysis sidecars preserve the complete result and reviewed marker se
   })
   const parsed = parseBeatAnalysisCompanion(companion)
   assert.ok(parsed)
+  assert.equal(companion.kind, 'beat-analysis')
+  if (companion.kind !== 'beat-analysis') throw new Error('Expected a Beat analysis companion')
   assert.equal(companion.fileName, 'Track.easyfield-beats.json')
   assert.equal(companion.summary.markerCount, 3)
   assert.equal(parsed.analysis.bpm, 120)

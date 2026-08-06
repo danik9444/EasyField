@@ -29,12 +29,16 @@ SamplePlugin copy in place.
 
 1. Keep [`danik9444/EasyField`](https://github.com/danik9444/EasyField) public and protect `main`. Require strict `verify` plus CodeQL analysis for Actions, JavaScript/TypeScript and Python before merge.
    The installed updater intentionally has no GitHub credential and accepts only unauthenticated HTTPS downloads from this pinned owner/repository. The protected Release workflow refuses to sign or publish from any other repository.
+   Release tags must use the GitHub-verified signer identity
+   `166756911+danik9444@users.noreply.github.com`; changing the approved signer
+   requires a reviewed workflow change on protected `main`.
 2. Enable GitHub immutable releases in repository settings. Never replace assets for a released version.
 3. Create a protected GitHub Actions environment named `release` with required
    reviewers. Add an environment variable named `EASYFIELD_RELEASE_ENABLED`
    and leave it `false` by default. Set it to exactly `true` only after the
    readiness checklist, legal review and release approval are complete. The
-   workflow fails before checkout/signing when the gate is not enabled.
+   publishing job fails before its checkout or signing when the gate is not
+   enabled.
 4. Add these environment secrets:
 
    - `EASYFIELD_ACCOUNT_CONFIG_BASE64`: base64 of the complete production
@@ -67,9 +71,9 @@ base64 < plugin/account-config.json | tr -d '\n'
 
 Store the one-line result directly in the protected environment secret. The
 Release workflow decodes it with restrictive permissions before the plugin
-manifest is assembled, validates it without printing the key, and removes it
-in the final cleanup step. Pull-request CI never receives or reconstructs this
-production config.
+manifest is assembled, validates it without printing the key, and removes each
+temporary copy in the job cleanup steps. Pull-request CI never receives or
+reconstructs this production config.
 
 5. Review [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) and record
    release approval. In particular, confirm EasyField's eligibility under the
@@ -165,17 +169,21 @@ git push origin v1.2.0
 ```
 
 The tag starts the protected Release workflow. Before any dependency install or
-signing, the workflow requires an annotated tag whose signature GitHub reports
-as verified. It then rebuilds and tests the panel, creates the deterministic
-plugin archive, signs `easyfield-update.json` with Ed25519, builds and signs the
-PKG, submits it to Apple notarization, staples the ticket, verifies Gatekeeper,
-creates checksums and provenance attestations, and finally publishes a GitHub
-Release.
+signing, the workflow requires an annotated tag whose GitHub-verified signer is
+allowlisted and whose commit is an ancestor of protected `main`. A read-only
+job rebuilds and tests the panel, then uploads one immutable handoff whose
+SHA-256 is checked against both the build output and GitHub's artifact digest.
+A separate credentialed job reverifies the tag and handoff before it imports
+signing material, signs `easyfield-update.json` with Ed25519, builds and signs
+the PKG, submits it to Apple notarization, staples the ticket, verifies
+Gatekeeper, creates checksums and provenance attestations, and finally publishes
+a GitHub Release.
 
-The workflow does nothing unless the protected `release` environment variable
-`EASYFIELD_RELEASE_ENABLED` is exactly `true`. Return it to `false` after the
-authorized release window. This operational gate supplements—rather than
-replaces—required reviewers and immutable release assets.
+The signing and publishing job does nothing unless the protected `release`
+environment variable `EASYFIELD_RELEASE_ENABLED` is exactly `true`. Return it
+to `false` after the authorized release window. This operational gate
+supplements—rather than replaces—required reviewers and immutable release
+assets.
 
 The feed is always:
 

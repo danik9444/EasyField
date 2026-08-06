@@ -84,6 +84,7 @@ interface TranscribeSource {
 }
 
 type Phase = 'idle' | 'installing' | 'downloading' | 'transcribing' | 'complete' | 'error'
+type TranscriptSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const DEFAULT_SETTINGS: TranscribeSettings = {
   model: 'turbo',
@@ -476,6 +477,8 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
   const [sourceCreationId, setSourceCreationId] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState('')
+  const [transcriptSaveState, setTranscriptSaveState] = useState<TranscriptSaveState>('idle')
+  const [transcriptSaveError, setTranscriptSaveError] = useState('')
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const [search, setSearch] = useState('')
@@ -483,6 +486,39 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
   const sourceRef = useRef<TranscribeSource | null>(null)
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const transcriptSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const lastPersistedTranscriptRef = useRef('')
+  const latestTranscriptSaveRef = useRef('')
+
+  const persistTranscript = useCallback((
+    document: EasyFieldTranscriptDocument,
+    creationId: string,
+  ): Promise<boolean> => {
+    const signature = `${document.id}:${document.revision}:${document.updatedAt}`
+    if (lastPersistedTranscriptRef.current === signature) return Promise.resolve(true)
+    latestTranscriptSaveRef.current = signature
+    setTranscriptSaveState('saving')
+    setTranscriptSaveError('')
+    transcriptSaveQueueRef.current = transcriptSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        await host.setState('transcripts', document.id, document)
+        if (!attachCreationCompanion(creationId, createTranscriptCompanion(document))) {
+          throw new Error('The transcript could not be linked to its Library media.')
+        }
+        lastPersistedTranscriptRef.current = signature
+      })
+    return transcriptSaveQueueRef.current.then(() => {
+      if (latestTranscriptSaveRef.current === signature) setTranscriptSaveState('saved')
+      return true
+    }).catch(() => {
+      if (latestTranscriptSaveRef.current === signature) {
+        setTranscriptSaveState('error')
+        setTranscriptSaveError('This transcript is complete and available to export, but it is not saved yet. Keep this screen open and retry the save.')
+      }
+      return false
+    })
+  }, [])
 
   useEffect(() => {
     sourceRef.current = source
@@ -533,11 +569,10 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
   useEffect(() => {
     if (!transcript || !sourceCreationId) return
     const timer = window.setTimeout(() => {
-      void host.setState('transcripts', transcript.id, transcript)
-      attachCreationCompanion(sourceCreationId, createTranscriptCompanion(transcript))
+      void persistTranscript(transcript, sourceCreationId)
     }, 260)
     return () => window.clearTimeout(timer)
-  }, [sourceCreationId, transcript])
+  }, [persistTranscript, sourceCreationId, transcript])
 
   const model = WHISPER_MODELS.find((item) => item.id === settings.model) ?? WHISPER_MODELS[1]
   const modelStatus = runtime?.models.find((item) => item.id === settings.model)
@@ -558,6 +593,10 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
   ])), [])
 
   const replaceSource = (next: TranscribeSource | null) => {
+    if (transcript && transcriptSaveState === 'error') {
+      toast('Retry the transcript save or export a copy before replacing its source.')
+      return
+    }
     const previous = sourceRef.current
     if (previous?.url && previous.url !== next?.url) URL.revokeObjectURL(previous.url)
     sourceRef.current = next
@@ -566,6 +605,10 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
     setSourceCreationId(null)
     setSearch('')
     setError('')
+    setTranscriptSaveState('idle')
+    setTranscriptSaveError('')
+    lastPersistedTranscriptRef.current = ''
+    latestTranscriptSaveRef.current = ''
     setPhase('idle')
   }
 
@@ -685,6 +728,10 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
 
   const transcribe = async () => {
     if (!source || !runtimeReady || !modelReady || busy) return
+    if (transcript && transcriptSaveState === 'error') {
+      toast('Retry the transcript save or export a copy before transcribing again.')
+      return
+    }
     const controller = new AbortController()
     abortRef.current = controller
     await prepareJobLedger()
@@ -708,14 +755,17 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
         task: settings.task,
         wordTimestamps: settings.wordTimestamps,
       })
-      await host.setState('transcripts', document.id, document)
-      if (!attachCreationCompanion(librarySource.id, createTranscriptCompanion(document))) throw new Error('The transcript could not be linked to its Library media.')
+      // Make completed local compute immediately reviewable and exportable.
+      // Persistence happens afterwards and cannot erase the in-memory result.
       setTranscript(document)
       setSourceCreationId(librarySource.id)
       setSource((current) => current ? { ...current, libraryCreationId: librarySource.id } : current)
       setPhase('complete')
-      job.succeed(0, `${document.segments.length} timed segments · saved to Library`)
-      toast('Transcript saved and linked to its Library media')
+      const saved = await persistTranscript(document, librarySource.id)
+      job.succeed(0, saved
+        ? `${document.segments.length} timed segments · saved to Library`
+        : `${document.segments.length} timed segments · export ready · save needs retry`)
+      toast(saved ? 'Transcript saved and linked to its Library media' : 'Transcript complete · export it now or retry the save')
     } catch (reason) {
       if (controller.signal.aborted) {
         job.cancel()
@@ -735,6 +785,17 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
   }
 
   const cancel = () => abortRef.current?.abort()
+
+  const handleBack = () => {
+    if (!transcript || !sourceCreationId || transcriptSaveState === 'saved') {
+      onBack()
+      return
+    }
+    void persistTranscript(transcript, sourceCreationId).then((saved) => {
+      if (saved) onBack()
+      else toast('Transcript was not saved. This screen will stay open so you can retry or export it.')
+    })
+  }
 
   const downloadFormat = (format: 'srt' | 'vtt' | 'txt' | 'json') => {
     if (!transcript) return
@@ -776,11 +837,11 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
   return (
     <div className="ef-screen ef-transcribe-screen" style={{ '--ef-tool-accent': '#3ED598' } as CSSProperties}>
       <header className="ef-workspace-header">
-        <button type="button" className="ef-back-btn" onClick={onBack} aria-label="Back to tools">←</button>
+        <button type="button" className="ef-back-btn" onClick={handleBack} aria-label="Back to tools">←</button>
         <span className="ef-workspace-icon" aria-hidden="true"><Icon glyph="transcribe" color="#3ED598" size={16} /></span>
         <span className="ef-workspace-heading"><small>ANALYZE · AUDIO & VIDEO</small><strong>Transcribe</strong></span>
         <span className="ef-spacer" />
-        <span className="ef-draft-state" role="status"><i aria-hidden="true" /> Draft autosaves</span>
+        <span className={`ef-draft-state${transcriptSaveState === 'error' ? ' is-error' : ''}`} role="status"><i aria-hidden="true" /> {transcriptSaveState === 'saving' ? 'Saving transcript…' : transcriptSaveState === 'saved' ? 'Transcript saved' : transcriptSaveState === 'error' ? 'Transcript not saved' : 'Draft autosaves'}</span>
         <button type="button" className="ef-density-toggle" onClick={onToggleWindowMode} aria-label={`Switch to ${windowMode === 'compact' ? 'expanded' : 'compact'} view`}>{windowMode === 'compact' ? '↗' : '↙'}</button>
       </header>
 
@@ -883,9 +944,10 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
         {!runtimeReady && runtime && <section className="ef-transcribe-runtime-card" role="status"><ProviderLogo brand="openai" size={20} /><div><strong>Local Whisper runtime required</strong><p>{runtime.error || 'Install the verified EasyField runtime pack to transcribe privately on this Mac.'}</p><small>No administrator password is needed for local models or runtime packs.</small></div>{runtime.runtimeInstallSupported && <button type="button" disabled={busy} onClick={() => void installRuntime()}>Install engine</button>}</section>}
         {runtimeReady && !modelReady && <section className="ef-transcribe-runtime-card is-model" role="status"><ProviderLogo brand="openai" size={20} /><div><strong>{model.name} is not downloaded</strong><p>{formatBytes(model.approximateBytes)} approximate download · stored locally · reusable offline.</p><small>Downloads start only when you approve them.</small></div><button type="button" disabled={busy} onClick={() => void downloadModel()}>{phase === 'downloading' ? 'Downloading…' : 'Download model'}</button></section>}
         {error && <p className="ef-inline-warning ef-transcribe-error" role="alert">{error}</p>}
+        {transcriptSaveError && <div className="ef-inline-warning ef-transcribe-error" role="alert"><span>{transcriptSaveError}</span>{transcript && sourceCreationId && <button type="button" onClick={() => void persistTranscript(transcript, sourceCreationId)}>Retry save</button>}</div>}
 
         {transcript && <section className="ef-transcribe-result" aria-labelledby="transcript-result-title">
-          <header><div><span>EDITABLE TRANSCRIPT</span><h2 id="transcript-result-title">Review every timed segment.</h2><p>{transcript.segments.length} segments · {transcript.words.length || 'No'} timed words · revision {transcript.revision}</p></div><span className="is-saved"><i /> LINKED IN LIBRARY</span></header>
+          <header><div><span>EDITABLE TRANSCRIPT</span><h2 id="transcript-result-title">Review every timed segment.</h2><p>{transcript.segments.length} segments · {transcript.words.length || 'No'} timed words · revision {transcript.revision}</p></div><span className={transcriptSaveState === 'error' ? 'is-error' : transcriptSaveState === 'saving' ? 'is-saving' : 'is-saved'}><i /> {transcriptSaveState === 'error' ? 'NOT SAVED · EXPORT NOW' : transcriptSaveState === 'saving' ? 'SAVING…' : 'LINKED IN LIBRARY'}</span></header>
           <div className="ef-transcribe-result-tools"><label><Icon glyph="mask" size={12} /><input aria-label="Search transcript" placeholder="Search transcript…" value={search} onChange={(event) => setSearch(event.target.value)} /></label><span>{visibleSegments.length} / {transcript.segments.length}</span></div>
           <div className="ef-transcript-editor">
             {visibleSegments.map((segment, index) => {
@@ -898,7 +960,7 @@ export function Transcribe({ onBack, toast, onToggleWindowMode, windowMode, onOp
               </article>
             })}
           </div>
-          <div className="ef-transcribe-export-row"><div><span>EXPORT & CONTINUE</span><small>Edits are included in every export and autosaved as a linked transcript.</small></div><div><button type="button" onClick={() => downloadFormat('srt')}>SRT</button><button type="button" onClick={() => downloadFormat('vtt')}>VTT</button><button type="button" onClick={() => downloadFormat('txt')}>TXT</button><button type="button" onClick={() => downloadFormat('json')}>JSON</button><button type="button" className="is-primary" onClick={() => sourceCreationId && onOpenCaptions(transcript.id, sourceCreationId)}>Open in Captions →</button></div></div>
+          <div className="ef-transcribe-export-row"><div><span>EXPORT & CONTINUE</span><small>Edits are included in every export and autosaved as a linked transcript.</small></div><div><button type="button" onClick={() => downloadFormat('srt')}>SRT</button><button type="button" onClick={() => downloadFormat('vtt')}>VTT</button><button type="button" onClick={() => downloadFormat('txt')}>TXT</button><button type="button" onClick={() => downloadFormat('json')}>JSON</button><button type="button" className="is-primary" disabled={transcriptSaveState !== 'saved'} onClick={() => sourceCreationId && onOpenCaptions(transcript.id, sourceCreationId)}>Open in Captions →</button></div></div>
         </section>}
       </div>
 

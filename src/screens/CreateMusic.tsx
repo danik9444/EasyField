@@ -11,8 +11,6 @@ import { addCreations } from '../data/creations'
 import { musicRunEstimate, resolveCharged, formatCharged } from '../data/pricing'
 import { loadValue, saveValue } from '../data/prefs'
 import { MUSIC_MODEL_META } from '../data/modelPresentation'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import { promptCharacterCount } from '../data/promptLimits'
 
 // Suno cloud generation contract. Verified 2026-07-06.
@@ -162,8 +160,6 @@ export function CreateMusic({ onBack, toast, onSpend }: CreateMusicProps) {
   const versionOptions = SUNO_VERSIONS.map((v) => v.label)
   const connected = isConnected()
   const estimate = musicRunEstimate(version)
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
 
   return (
     <div className="ef-screen ef-legacy-workspace ef-create-music-screen">
@@ -354,18 +350,16 @@ export function CreateMusic({ onBack, toast, onSpend }: CreateMusicProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Music generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${error || spendBlocked || fieldsOverLimit ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || spendBlocked || fieldsOverLimit ? 'alert' : 'status'} aria-live="polite">
+          <div id="create-music-footer-message" className={`ef-create-footer-message ${error || fieldsOverLimit ? 'is-error' : connected ? 'is-ready' : 'is-help'}`} role={error || fieldsOverLimit ? 'alert' : 'status'} aria-live="polite">
             {error
               ? `✕ ${error}`
               : fieldsOverLimit
                 ? `✕ Suno ${versionLabel(version)} field limit exceeded · shorten the highlighted text`
               : !connected
                 ? 'Connect EasyField Cloud to compose'
-                : spendBlocked
-                  ? `✕ ${spendApproval.reason}`
-                  : 'Creates two full-length takes · no automatic retiming'}
+                : 'Creates two full-length takes · no automatic retiming'}
           </div>
-          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || !spendApproval.approved || fieldsOverLimit}>
+          <button type="button" className="ef-generate ef-create-footer-action" onClick={generate} disabled={!connected || fieldsOverLimit} aria-describedby="create-music-footer-message">
             <Icon glyph="spark" color="#0E0E13" size={13} /> Compose 2 takes
           </button>
         </footer>

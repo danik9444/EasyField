@@ -24,11 +24,9 @@ import {
 } from '../data/soundEffects'
 import { formatCharged, resolveCharged, soundEffectsRunEstimate } from '../data/pricing'
 import type { MediaFile } from '../data/referenceImage'
-import { loadSettings } from '../settings'
 import { planFoleyEvents, type EnhanceReference } from '../services/chat'
 import { isConnected, isGenerationExit, runSoundEffect, runSoundEffectBatch } from '../services/run'
 import { resolve, type Grab } from '../services/resolve'
-import { getSpendApproval } from '../services/spendGuard'
 import {
   sendTimedAudioToTimeline,
   sendToTimeline,
@@ -262,8 +260,6 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
   const pendingFoley = foleyEvents.filter((event) => event.approved && !event.urls.length && event.prompt.trim())
   const approvedFoley = foleyEvents.filter((event) => event.approved && event.prompt.trim())
   const estimate = soundEffectsRunEstimate(mode === 'foley' ? Math.max(1, pendingFoley.length) : 1)
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const busy = phase === 'generating' || foleyAnalyzing || foleyGenerating
 
   const changeFoleyGuidance = (next: FoleyGuidanceMode) => {
@@ -517,9 +513,9 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
         ? `Keep the Foley direction under ${FOLEY_DIRECTION_MAX} characters`
         : null
     : null
-  const canGenerateStandard = mode === 'single' && !standardValidation && connected && spendApproval.approved && !busy
+  const canGenerateStandard = mode === 'single' && !standardValidation && connected && !busy
   const canAnalyze = mode === 'foley' && sourceReady && connected && !busy && !foleyGuidanceValidation
-  const canGenerateFoley = mode === 'foley' && pendingFoley.length > 0 && connected && spendApproval.approved && !busy
+  const canGenerateFoley = mode === 'foley' && pendingFoley.length > 0 && connected && !busy
 
   return (
     <div className={`ef-screen ef-legacy-workspace ef-sound-effects-screen ef-sfx-mode-${mode}`}>
@@ -727,7 +723,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
             : mode === 'foley' && pendingFoley.length === 0
               ? <span className="ef-price"><span className="ef-price-label">REVIEW</span><span className="ef-spacer" /><span className="ef-price-value">{approvedFoley.length ? 'GENERATED' : 'NO EVENTS SELECTED'}</span></span>
               : <PriceEstimate estimate={estimate} />}
-          <div className={`ef-create-footer-message ${error || spendBlocked || (mode === 'single' && !bpmValid) ? 'is-error' : !connected || (mode === 'single' && standardValidation) || (mode === 'foley' && (!sourceReady || foleyGuidanceValidation)) ? 'is-help' : 'is-ready'}`} role={error || spendBlocked || (mode === 'single' && !bpmValid) ? 'alert' : 'status'} aria-live="polite">
+          <div id="sound-effects-footer-message" className={`ef-create-footer-message ${error || (mode === 'single' && !bpmValid) ? 'is-error' : !connected || (mode === 'single' && standardValidation) || (mode === 'foley' && (!sourceReady || foleyGuidanceValidation)) ? 'is-help' : 'is-ready'}`} role={error || (mode === 'single' && !bpmValid) ? 'alert' : 'status'} aria-live="polite">
             {error
               ? `✕ ${error}`
               : !connected
@@ -746,9 +742,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
                         : 'Review complete · generated events remain available above'
                   : standardValidation
                     ? standardValidation
-                    : spendBlocked
-                      ? spendApproval.reason
-                      : 'One Suno Sounds request · provider-managed output length'}
+                    : 'One Suno Sounds request · provider-managed output length'}
           </div>
           <button
             type="button"
@@ -762,6 +756,7 @@ export function SoundEffects({ onBack, toast, onSpend }: SoundEffectsProps) {
               }
             }}
             disabled={mode === 'foley' ? foleySummary ? !canGenerateFoley : !canAnalyze : !canGenerateStandard}
+            aria-describedby="sound-effects-footer-message"
           >
             <Icon glyph="spark" color="#0E0E13" size={13} /> {mode === 'foley'
               ? !foleySummary

@@ -64,6 +64,48 @@ test('inline micro-jobs persist their opt-out while normal jobs default to Activ
   removeJob(normal.id)
 })
 
+test('workflow recovery metadata is retained locally and oversized payloads are rejected', () => {
+  const recoveryMetadata = {
+    namespace: 'easyfield.storyboard.complete-board.v1',
+    key: 'default:storyboard-v1',
+    payload: JSON.stringify({ version: 1, inputFingerprint: 'board-a' }),
+  }
+  const associated = startJob({ title: 'Associated board', kind: 'image', recoveryMetadata })
+  const oversized = startJob({
+    title: 'Oversized association',
+    kind: 'image',
+    recoveryMetadata: { ...recoveryMetadata, payload: 'x'.repeat(65 * 1024) },
+  })
+
+  assert.deepEqual(getJobs().find((job) => job.id === associated.id)?.recoveryMetadata, recoveryMetadata)
+  assert.equal(getJobs().find((job) => job.id === oversized.id)?.recoveryMetadata, undefined)
+  removeJob(associated.id)
+  removeJob(oversized.id)
+})
+
+test('a wrong-shaped persisted ledger hydrates as empty instead of blocking future preparation', async (t) => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { easyfield: undefined } })
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => key === 'ef-state:jobs:ledger' ? '{}' : null,
+    },
+  })
+  t.after(() => {
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else delete (globalThis as { window?: unknown }).window
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else delete (globalThis as { localStorage?: unknown }).localStorage
+  })
+
+  const isolated = await import(new URL('../src/services/jobCenter.ts?wrong-shaped-ledger', import.meta.url).href) as typeof import('../src/services/jobCenter.ts')
+  await isolated.prepareJobLedger()
+  await isolated.prepareJobLedger()
+  assert.deepEqual(isolated.getJobs(), [])
+})
+
 test('restart recovery resumes every persisted provider family without submitting paid work again', async (t) => {
   const originalFetch = globalThis.fetch
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')

@@ -1,7 +1,8 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react'
 import { Icon } from '../icons'
 import { Lightbox } from '../components/Lightbox'
 import { Dropdown } from '../components/Dropdown'
+import { LibraryAudio, LibraryImage, LibraryVideo } from '../components/LibraryMedia'
 import { resolve } from '../services/resolve'
 import { sendToTimeline } from '../services/timeline'
 import { importAudioWithBeatMarkers } from '../services/timeline'
@@ -32,6 +33,7 @@ import {
   type CreationKind,
   type Folder,
 } from '../data/creations'
+import { LIBRARY_PAGE_SIZE } from '../data/libraryLimits'
 
 interface LibraryProps {
   onBack: () => void
@@ -69,6 +71,14 @@ function latestTranscriptCompanion(creation: Creation): TranscriptCreationCompan
   return creation.companions?.find((companion): companion is TranscriptCreationCompanion => companion.kind === 'transcript') ?? null
 }
 
+function creationTitle(creation: Creation): string {
+  return creation.prompt || creation.model || (creation.fromTimeline ? 'Timeline capture' : 'Untitled')
+}
+
+function creationDurabilityLabel(creation: Creation): string {
+  return creation.durability === 'link-only' ? 'Temporary provider link' : ''
+}
+
 export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCaptions, initialQuery = '' }: LibraryProps) {
   const all = useCreations()
   const folders = useFolders()
@@ -89,10 +99,12 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameVal, setRenameVal] = useState('')
   const [menu, setMenu] = useState<MenuState | null>(null)
+  const [page, setPage] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuTriggerRef = useRef<HTMLElement | null>(null)
   const inspectorRef = useRef<HTMLElement>(null)
   const inspectorReturnFocusRef = useRef<HTMLElement | null>(null)
+  const libraryScrollRef = useRef<HTMLDivElement>(null)
   const menuId = useId()
 
   useEffect(() => {
@@ -154,8 +166,33 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
     return s
   }, [all, collection, folderId, kind, query, sort])
 
-  const visual = items.filter((c) => c.kind !== 'audio')
-  const audio = items.filter((c) => c.kind === 'audio')
+  const { visual, audio } = useMemo(() => ({
+    visual: items.filter((creation) => creation.kind !== 'audio'),
+    audio: items.filter((creation) => creation.kind === 'audio'),
+  }), [items])
+  const orderedItems = useMemo(() => [...visual, ...audio], [audio, visual])
+  const pageCount = Math.max(1, Math.ceil(orderedItems.length / LIBRARY_PAGE_SIZE))
+  const pageItems = useMemo(
+    () => orderedItems.slice(page * LIBRARY_PAGE_SIZE, (page + 1) * LIBRARY_PAGE_SIZE),
+    [orderedItems, page],
+  )
+  const { pageVisual, pageAudio } = useMemo(() => ({
+    pageVisual: pageItems.filter((creation) => creation.kind !== 'audio'),
+    pageAudio: pageItems.filter((creation) => creation.kind === 'audio'),
+  }), [pageItems])
+
+  useEffect(() => {
+    setPage(0)
+  }, [collection, folderId, kind, query, sort])
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1))
+  }, [pageCount])
+
+  const goToPage = useCallback((nextPage: number) => {
+    setPage(Math.max(0, Math.min(nextPage, pageCount - 1)))
+    requestAnimationFrame(() => libraryScrollRef.current?.scrollTo({ top: 0 }))
+  }, [pageCount])
 
   // ---- timeline grabs ----
   // A Library item is created only after Resolve returns actual bytes. Recording
@@ -191,12 +228,12 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
   }
 
   // ---- selection ----
-  const toggleSel = (id: string) =>
+  const toggleSel = useCallback((id: string) =>
     setSelected((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
       return next
-    })
+    }), [])
   const clearSel = () => {
     setSelected(new Set())
     setSelectMode(false)
@@ -276,11 +313,11 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
     toast('Folder deleted — items kept')
   }
 
-  const open = (c: Creation) => {
-    if (selectMode) return toggleSel(c.id)
+  const open = useCallback((creation: Creation) => {
+    if (selectMode) return toggleSel(creation.id)
     inspectorReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setInspected(c)
-  }
+    setInspected(creation)
+  }, [selectMode, toggleSel])
 
   const closeInspector = () => {
     setInspected(null)
@@ -288,30 +325,30 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
   }
 
   // Right-click / menu openers.
-  const openItemMenu = (e: MouseEvent<HTMLElement>, item: Creation) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const rect = e.currentTarget.getBoundingClientRect()
+  const openItemMenu = useCallback((event: MouseEvent<HTMLElement>, item: Creation) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
     const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    menuTriggerRef.current = active && e.currentTarget.contains(active)
+    menuTriggerRef.current = active && event.currentTarget.contains(active)
       ? active
-      : e.currentTarget.matches('button, [href], [tabindex]')
-        ? e.currentTarget
-        : e.currentTarget.querySelector<HTMLElement>('button, [href], [tabindex]')
+      : event.currentTarget.matches('button, [href], [tabindex]')
+        ? event.currentTarget
+        : event.currentTarget.querySelector<HTMLElement>('button, [href], [tabindex]')
     setMenu({
-      x: e.clientX || rect.left,
-      y: e.clientY || rect.bottom + 4,
+      x: event.clientX || rect.left,
+      y: event.clientY || rect.bottom + 4,
       kind: 'item',
       item,
     })
-  }
-  const openItemActions = (e: MouseEvent<HTMLButtonElement>, item: Creation) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const rect = e.currentTarget.getBoundingClientRect()
-    menuTriggerRef.current = e.currentTarget
+  }, [])
+  const openItemActions = useCallback((event: MouseEvent<HTMLButtonElement>, item: Creation) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    menuTriggerRef.current = event.currentTarget
     setMenu({ x: rect.right, y: rect.bottom + 4, kind: 'item', item })
-  }
+  }, [])
   const openFolderMenu = (e: MouseEvent<HTMLElement>, folder: Folder) => {
     e.preventDefault()
     e.stopPropagation()
@@ -420,7 +457,7 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
     }
     await importAudioWithBeatMarkers({
       url: creation.url,
-      name: title(creation),
+      name: creationTitle(creation),
       target,
       analysisId: document.analysisId,
       color: document.settings.markerColor,
@@ -428,151 +465,134 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
     }, toast)
   }
 
-  const title = (c: Creation) => c.prompt || c.model || (c.fromTimeline ? 'Timeline capture' : 'Untitled')
-  const durabilityLabel = (c: Creation) => (c.durability === 'link-only' ? 'Temporary provider link' : '')
-
   const moveOptions = [...folders.map((f) => f.name), 'Remove from folder', '＋ New folder']
 
   // ---- renderers ----
-  const tileInner = (c: Creation) => (
+  const tileInner = useCallback((creation: Creation) => (
     <>
-      {c.kind === 'image' && c.url && <span className="ef-cr-thumb" style={{ backgroundImage: `url("${c.url}")` }} />}
-      {c.kind === 'video' && c.url && (
-        <video
-          className="ef-cr-video"
-          src={c.url}
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          onMouseEnter={(e) => (e.currentTarget as HTMLVideoElement).play().catch(() => {})}
-          onMouseLeave={(e) => {
-            const v = e.currentTarget as HTMLVideoElement
-            v.pause()
-            v.currentTime = 0
-          }}
-        />
-      )}
-      {!c.url && (
+      {creation.kind === 'image' && creation.url && <LibraryImage className="ef-cr-media" src={creation.url} />}
+      {creation.kind === 'video' && creation.url && <LibraryVideo className="ef-cr-media" src={creation.url} hoverPlayback />}
+      {!creation.url && (
         <span className="ef-cr-placeholder-inner">
-          <Icon glyph={c.kind === 'video' ? 'vid' : 'img'} size={16} />
-          <span>{c.meta || 'timeline'}</span>
+          <Icon glyph={creation.kind === 'video' ? 'vid' : 'img'} size={16} />
+          <span>{creation.meta || 'timeline'}</span>
         </span>
       )}
-      <span className="ef-cr-kind-dot" style={{ background: KIND_COLOR[c.kind] }} />
-      {c.durability === 'link-only' && (
+      <span className="ef-cr-kind-dot" style={{ background: KIND_COLOR[creation.kind] }} />
+      {creation.durability === 'link-only' && (
         <span className="ef-cr-link-badge" title="This provider link may expire. Send it to the Resolve timeline or save it locally.">
           Link only
         </span>
       )}
-      {c.kind === 'video' && c.url && <span className="ef-cr-play">▶</span>}
-      {latestTranscriptCompanion(c) && <span className="ef-cr-transcript-mark" title="Linked editable transcript"><Icon glyph="transcribe" size={10} /> Transcript</span>}
-      <span className="ef-cr-tile-overlay">{c.url ? title(c) : `⌖ ${c.meta || 'Timeline'}`}</span>
-      {selectMode && <span className={'ef-cr-check' + (selected.has(c.id) ? ' on' : '')}>{selected.has(c.id) ? '✓' : ''}</span>}
+      {creation.kind === 'video' && creation.url && <span className="ef-cr-play">▶</span>}
+      {latestTranscriptCompanion(creation) && <span className="ef-cr-transcript-mark" title="Linked editable transcript"><Icon glyph="transcribe" size={10} /> Transcript</span>}
+      <span className="ef-cr-tile-overlay">{creation.url ? creationTitle(creation) : `⌖ ${creation.meta || 'Timeline'}`}</span>
+      {selectMode && <span className={'ef-cr-check' + (selected.has(creation.id) ? ' on' : '')}>{selected.has(creation.id) ? '✓' : ''}</span>}
     </>
-  )
+  ), [selectMode, selected])
 
-  const gridTile = (c: Creation) => (
-    <div className={'ef-cr-tilewrap' + (inspected?.id === c.id ? ' is-inspected' : '')} key={c.id}>
+  const gridTile = useCallback((creation: Creation) => (
+    <div className={'ef-cr-tilewrap' + (inspected?.id === creation.id ? ' is-inspected' : '')} key={creation.id}>
       <button
         type="button"
-        className={'ef-cr-tile' + (c.url ? '' : ' placeholder') + (selectMode && selected.has(c.id) ? ' selected' : '')}
-        aria-label={`${selectMode ? (selected.has(c.id) ? 'Deselect' : 'Select') : c.kind === 'audio' ? 'Play' : 'Open'} ${title(c)}${durabilityLabel(c) ? `. ${durabilityLabel(c)}` : ''}`}
-        aria-pressed={selectMode ? selected.has(c.id) : undefined}
-        onClick={() => open(c)}
-        onContextMenu={(e) => openItemMenu(e, c)}
+        className={'ef-cr-tile' + (creation.url ? '' : ' placeholder') + (selectMode && selected.has(creation.id) ? ' selected' : '')}
+        aria-label={`${selectMode ? (selected.has(creation.id) ? 'Deselect' : 'Select') : creation.kind === 'audio' ? 'Play' : 'Open'} ${creationTitle(creation)}${creationDurabilityLabel(creation) ? `. ${creationDurabilityLabel(creation)}` : ''}`}
+        aria-pressed={selectMode ? selected.has(creation.id) : undefined}
+        onClick={() => open(creation)}
+        onContextMenu={(event) => openItemMenu(event, creation)}
       >
-        {tileInner(c)}
+        {tileInner(creation)}
       </button>
       {!selectMode && (
         <button
           type="button"
           className="ef-cr-remove ef-cr-more"
-          aria-label={`More actions for ${title(c)}`}
+          aria-label={`More actions for ${creationTitle(creation)}`}
           aria-haspopup="menu"
-          aria-expanded={menu?.kind === 'item' && menu.item.id === c.id}
-          aria-controls={menu?.kind === 'item' && menu.item.id === c.id ? menuId : undefined}
-          onClick={(event) => openItemActions(event, c)}
+          aria-expanded={menu?.kind === 'item' && menu.item.id === creation.id}
+          aria-controls={menu?.kind === 'item' && menu.item.id === creation.id ? menuId : undefined}
+          onClick={(event) => openItemActions(event, creation)}
         >⋯</button>
       )}
     </div>
-  )
+  ), [inspected?.id, menu, menuId, open, openItemActions, openItemMenu, selectMode, selected, tileInner])
 
-  const listRow = (c: Creation) => (
+  const listRow = useCallback((creation: Creation) => (
     <div
-      key={c.id}
-      className={'ef-cr-row' + (selectMode && selected.has(c.id) ? ' selected' : '') + (inspected?.id === c.id ? ' is-inspected' : '')}
-      onContextMenu={(e) => openItemMenu(e, c)}
+      key={creation.id}
+      className={'ef-cr-row' + (selectMode && selected.has(creation.id) ? ' selected' : '') + (inspected?.id === creation.id ? ' is-inspected' : '')}
+      onContextMenu={(event) => openItemMenu(event, creation)}
     >
       <button
         type="button"
-        aria-label={`${selectMode ? (selected.has(c.id) ? 'Deselect' : 'Select') : c.kind === 'audio' ? 'Play' : 'Open'} ${title(c)}${durabilityLabel(c) ? `. ${durabilityLabel(c)}` : ''}`}
-        aria-pressed={selectMode ? selected.has(c.id) : undefined}
-        onClick={() => open(c)}
+        aria-label={`${selectMode ? (selected.has(creation.id) ? 'Deselect' : 'Select') : creation.kind === 'audio' ? 'Play' : 'Open'} ${creationTitle(creation)}${creationDurabilityLabel(creation) ? `. ${creationDurabilityLabel(creation)}` : ''}`}
+        aria-pressed={selectMode ? selected.has(creation.id) : undefined}
+        onClick={() => open(creation)}
         style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, padding: 0, border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer' }}
       >
-        <span className={'ef-cr-row-thumb ef-cr-row-thumb--' + c.kind} style={c.kind === 'image' && c.url ? { backgroundImage: `url("${c.url}")` } : undefined}>
-          {c.kind === 'video' && <span className="ef-cr-play sm">▶</span>}
-          {c.kind === 'audio' && <Icon glyph="music" size={13} />}
+        <span className={'ef-cr-row-thumb ef-cr-row-thumb--' + creation.kind}>
+          {creation.kind === 'image' && creation.url && <LibraryImage className="ef-cr-row-image" src={creation.url} />}
+          {creation.kind === 'video' && <span className="ef-cr-play sm">▶</span>}
+          {creation.kind === 'audio' && <Icon glyph="music" size={13} />}
         </span>
         <span className="ef-cr-row-text">
-          <span className="ef-cr-row-title">{title(c)}</span>
-          <span className="ef-cr-row-sub">{[c.model, c.meta, latestTranscriptCompanion(c) ? 'Linked transcript' : '', durabilityLabel(c)].filter(Boolean).join(' · ')}</span>
+          <span className="ef-cr-row-title">{creationTitle(creation)}</span>
+          <span className="ef-cr-row-sub">{[creation.model, creation.meta, latestTranscriptCompanion(creation) ? 'Linked transcript' : '', creationDurabilityLabel(creation)].filter(Boolean).join(' · ')}</span>
         </span>
-        {selectMode && <span className={'ef-cr-check' + (selected.has(c.id) ? ' on' : '')} style={{ position: 'static' }}>{selected.has(c.id) ? '✓' : ''}</span>}
+        {selectMode && <span className={'ef-cr-check' + (selected.has(creation.id) ? ' on' : '')} style={{ position: 'static' }}>{selected.has(creation.id) ? '✓' : ''}</span>}
       </button>
       {!selectMode && (
         <button
           type="button"
           className="ef-cr-row-x ef-cr-more"
           style={{ border: 0, background: 'transparent', cursor: 'pointer' }}
-          aria-label={`More actions for ${title(c)}`}
+          aria-label={`More actions for ${creationTitle(creation)}`}
           aria-haspopup="menu"
-          aria-expanded={menu?.kind === 'item' && menu.item.id === c.id}
-          aria-controls={menu?.kind === 'item' && menu.item.id === c.id ? menuId : undefined}
-          onClick={(event) => openItemActions(event, c)}
+          aria-expanded={menu?.kind === 'item' && menu.item.id === creation.id}
+          aria-controls={menu?.kind === 'item' && menu.item.id === creation.id ? menuId : undefined}
+          onClick={(event) => openItemActions(event, creation)}
         >⋯</button>
       )}
     </div>
-  )
+  ), [inspected?.id, menu, menuId, open, openItemActions, openItemMenu, selectMode, selected])
 
-  const audioRow = (c: Creation) => (
-    <div className={'ef-cr-audio' + (inspected?.id === c.id ? ' is-inspected' : '')} key={c.id} onContextMenu={(e) => openItemMenu(e, c)}>
+  const audioRow = useCallback((creation: Creation) => (
+    <div className={'ef-cr-audio' + (inspected?.id === creation.id ? ' is-inspected' : '')} key={creation.id} onContextMenu={(event) => openItemMenu(event, creation)}>
       <div className="ef-cr-audio-head">
-        <span className="ef-cr-audio-name">{title(c)}</span>
+        <span className="ef-cr-audio-name">{creationTitle(creation)}</span>
         {selectMode ? (
-          <button type="button" className={'ef-cr-check inline' + (selected.has(c.id) ? ' on' : '')} aria-label={`${selected.has(c.id) ? 'Deselect' : 'Select'} ${title(c)}`} aria-pressed={selected.has(c.id)} onClick={() => toggleSel(c.id)}>{selected.has(c.id) ? '✓' : ''}</button>
+          <button type="button" className={'ef-cr-check inline' + (selected.has(creation.id) ? ' on' : '')} aria-label={`${selected.has(creation.id) ? 'Deselect' : 'Select'} ${creationTitle(creation)}`} aria-pressed={selected.has(creation.id)} onClick={() => toggleSel(creation.id)}>{selected.has(creation.id) ? '✓' : ''}</button>
         ) : (
           <button
             type="button"
             className="ef-cr-remove-inline ef-cr-more"
-            aria-label={`More actions for ${title(c)}`}
+            aria-label={`More actions for ${creationTitle(creation)}`}
             aria-haspopup="menu"
-            aria-expanded={menu?.kind === 'item' && menu.item.id === c.id}
-            aria-controls={menu?.kind === 'item' && menu.item.id === c.id ? menuId : undefined}
-            onClick={(event) => openItemActions(event, c)}
+            aria-expanded={menu?.kind === 'item' && menu.item.id === creation.id}
+            aria-controls={menu?.kind === 'item' && menu.item.id === creation.id ? menuId : undefined}
+            onClick={(event) => openItemActions(event, creation)}
           >⋯</button>
         )}
       </div>
-      {c.url ? (
-        <audio className="ef-audio-player" src={c.url} controls aria-label={title(c)} style={{ width: '100%' }} />
+      {creation.url ? (
+        <LibraryAudio className="ef-cr-audio-player-shell" audioClassName="ef-audio-player" src={creation.url} ariaLabel={creationTitle(creation)} />
       ) : (
-        <div className="ef-cr-placeholder-audio"><Icon glyph="music" size={14} /> Timeline audio · {c.meta}</div>
+        <div className="ef-cr-placeholder-audio"><Icon glyph="music" size={14} /> Timeline audio · {creation.meta}</div>
       )}
-      {c.model && c.model !== title(c) && <span className="ef-cr-sub">{c.model}</span>}
-      {latestBeatCompanion(c) && (
+      {creation.model && creation.model !== creationTitle(creation) && <span className="ef-cr-sub">{creation.model}</span>}
+      {latestBeatCompanion(creation) && (
         <span className="ef-library-beat-badge">
-          <Icon glyph="beat" size={11} /> Beat map · {latestBeatCompanion(c)!.summary.bpm || '—'} BPM · {latestBeatCompanion(c)!.summary.markerCount} markers
+          <Icon glyph="beat" size={11} /> Beat map · {latestBeatCompanion(creation)!.summary.bpm || '—'} BPM · {latestBeatCompanion(creation)!.summary.markerCount} markers
         </span>
       )}
-      {latestTranscriptCompanion(c) && (
+      {latestTranscriptCompanion(creation) && (
         <span className="ef-library-transcript-badge">
-          <Icon glyph="transcribe" size={11} /> Transcript · {latestTranscriptCompanion(c)!.summary.language.toUpperCase()} · {latestTranscriptCompanion(c)!.summary.segmentCount} segments
+          <Icon glyph="transcribe" size={11} /> Transcript · {latestTranscriptCompanion(creation)!.summary.language.toUpperCase()} · {latestTranscriptCompanion(creation)!.summary.segmentCount} segments
         </span>
       )}
-      {c.durability === 'link-only' && <span className="ef-cr-sub">Temporary provider link · save locally to keep it</span>}
+      {creation.durability === 'link-only' && <span className="ef-cr-sub">Temporary provider link · save locally to keep it</span>}
     </div>
-  )
+  ), [inspected?.id, menu, menuId, openItemActions, openItemMenu, selectMode, selected, toggleSel])
 
   return (
     <div className="ef-screen ef-library-screen">
@@ -685,7 +705,7 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
             </div>
           )}
 
-          <div className="ef-scroll ef-library-scroll" onContextMenu={(e) => { e.preventDefault(); openAddMenu(e.clientX, e.clientY) }}>
+          <div ref={libraryScrollRef} className="ef-scroll ef-library-scroll" onContextMenu={(e) => { e.preventDefault(); openAddMenu(e.clientX, e.clientY) }}>
             {all.length === 0 ? (
               <div className="ef-library-empty ef-library-empty--hero">
                 <span className="ef-library-empty-icon" aria-hidden="true"><Icon glyph="board" size={24} /></span>
@@ -702,14 +722,24 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
               <div className="ef-library-empty ef-library-empty--hero"><h2>Nothing in this view</h2><p>Change the collection, media type, or search query.</p></div>
             ) : (
               <>
-                {visual.length > 0 &&
+                {pageVisual.length > 0 &&
                   (view === 'grid' ? (
-                    <div className="ef-cr-grid">{visual.map(gridTile)}</div>
+                    <div className="ef-cr-grid">{pageVisual.map(gridTile)}</div>
                   ) : (
-                    <div className="ef-cr-rows">{visual.map(listRow)}</div>
+                    <div className="ef-cr-rows">{pageVisual.map(listRow)}</div>
                   ))}
-                {audio.length > 0 && (
-                  <div className="ef-cr-audio-list" style={{ marginTop: visual.length ? 12 : 0 }}>{audio.map(audioRow)}</div>
+                {pageAudio.length > 0 && (
+                  <div className="ef-cr-audio-list" style={{ marginTop: pageVisual.length ? 12 : 0 }}>{pageAudio.map(audioRow)}</div>
+                )}
+                {pageCount > 1 && (
+                  <nav className="ef-library-pagination" aria-label="Library pages">
+                    <button type="button" disabled={page === 0} onClick={() => goToPage(page - 1)}>‹ Previous</button>
+                    <span>
+                      Page {page + 1} of {pageCount}
+                      <small>{page * LIBRARY_PAGE_SIZE + 1}–{Math.min((page + 1) * LIBRARY_PAGE_SIZE, orderedItems.length)} of {orderedItems.length}</small>
+                    </span>
+                    <button type="button" disabled={page + 1 >= pageCount} onClick={() => goToPage(page + 1)}>Next ›</button>
+                  </nav>
                 )}
               </>
             )}
@@ -719,15 +749,15 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
         {inspected && (
           <>
             <button type="button" className="ef-library-inspector-backdrop" aria-label="Close asset inspector" onClick={closeInspector} />
-            <aside ref={inspectorRef} className="ef-library-inspector" aria-label={`Asset details: ${title(inspected)}`} tabIndex={-1}>
+            <aside ref={inspectorRef} className="ef-library-inspector" aria-label={`Asset details: ${creationTitle(inspected)}`} tabIndex={-1}>
               <header className="ef-library-inspector-head">
-                <div><span>ASSET INSPECTOR</span><strong>{title(inspected)}</strong></div>
+                <div><span>ASSET INSPECTOR</span><strong>{creationTitle(inspected)}</strong></div>
                 <button type="button" className="ef-icon-btn" aria-label="Close asset inspector" onClick={closeInspector}>×</button>
               </header>
 
               <div className="ef-library-inspector-scroll ef-scroll">
                 <div className={`ef-library-inspector-preview is-${inspected.kind}`}>
-                  {inspected.kind === 'image' && inspected.url && <span style={{ backgroundImage: `url("${inspected.url}")` }} />}
+                  {inspected.kind === 'image' && inspected.url && <img src={inspected.url} alt="" decoding="async" />}
                   {inspected.kind === 'video' && inspected.url && <video src={inspected.url} controls playsInline />}
                   {inspected.kind === 'audio' && inspected.url && <><div className="ef-inspector-wave" aria-hidden="true">{Array.from({ length: 28 }, (_, index) => <i key={index} style={{ height: `${20 + ((index * 19) % 68)}%` }} />)}</div><audio src={inspected.url} controls /></>}
                   {!inspected.url && <div className="ef-library-inspector-placeholder"><Icon glyph={inspected.kind === 'video' ? 'vid' : inspected.kind === 'audio' ? 'music' : 'img'} size={24} /><span>Timeline placeholder</span></div>}
@@ -792,7 +822,7 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
                 <div className="ef-library-inspector-actions">
                   {inspected.url && inspected.kind !== 'audio' && <button type="button" className="is-primary" onClick={() => setLightbox(inspected)}>Open preview</button>}
                   {inspected.url && (inspected.kind === 'image' || inspected.kind === 'video') && <button type="button" onClick={() => onSendToEdit({ kind: inspected.kind === 'image' ? 'image' : 'video', url: inspected.url!, name: inspected.model })}>Use in Edit</button>}
-                  {inspected.url && <button type="button" onClick={() => void sendToTimeline([{ url: inspected.url!, name: title(inspected) }], inspected.kind, toast)}>Place on timeline</button>}
+                  {inspected.url && <button type="button" onClick={() => void sendToTimeline([{ url: inspected.url!, name: creationTitle(inspected) }], inspected.kind, toast)}>Place on timeline</button>}
                   {inspected.url && <button type="button" onClick={() => saveUrl(inspected.url!, `easyfield-${inspected.id}.${ext(inspected)}`)}>Save a copy</button>}
                 </div>
 
@@ -826,7 +856,7 @@ export function Library({ onBack, onOpenCreate, toast, onSendToEdit, onOpenCapti
             id={menuId}
             className="ef-ctx-menu"
             role="menu"
-            aria-label={menu.kind === 'item' ? `Actions for ${title(menu.item)}` : menu.kind === 'folder' ? `Actions for folder ${menu.folder.name}` : 'Add to library'}
+            aria-label={menu.kind === 'item' ? `Actions for ${creationTitle(menu.item)}` : menu.kind === 'folder' ? `Actions for folder ${menu.folder.name}` : 'Add to library'}
             onKeyDown={onMenuKeyDown}
             style={{ left: Math.min(menu.x, window.innerWidth - 210), top: Math.min(menu.y, window.innerHeight - 300) }}
           >

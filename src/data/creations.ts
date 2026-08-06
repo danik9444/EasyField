@@ -5,6 +5,7 @@
 // captures are never persisted as pixel-less placeholders.
 import { useSyncExternalStore } from 'react'
 import { host } from '../services/host.ts'
+import { MAX_LIBRARY_CREATIONS } from './libraryLimits.ts'
 
 export type CreationKind = 'image' | 'video' | 'audio'
 export type CreationDurability = 'local' | 'link-only'
@@ -78,18 +79,153 @@ let counter = 0
 let persistenceState: PersistenceState = 'loading'
 
 const DB_NAME = 'easyfield-library'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const CREATION_STORE = 'creations'
 const FOLDER_STORE = 'folders'
+const CREATION_CREATED_AT_INDEX = 'createdAt'
 const removedCreationIds = new Set<string>()
 const removedFolderIds = new Set<string>()
 
 interface StoredCreation extends Omit<Creation, 'url'> {
+  schemaVersion?: 1
   url: string
   blob?: Blob
 }
 
 let dbPromise: Promise<IDBDatabase | null> | null = null
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasStrings(value: Record<string, unknown>, keys: string[]): boolean {
+  return keys.every((key) => typeof value[key] === 'string')
+}
+
+function hasFiniteNumbers(value: Record<string, unknown>, keys: string[]): boolean {
+  return keys.every((key) => typeof value[key] === 'number' && Number.isFinite(value[key]))
+}
+
+function sanitizeCreationCompanion(value: unknown): CreationCompanion | null {
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== 1
+    || !hasStrings(value, ['id', 'fileName', 'mimeType', 'data'])
+    || typeof value.createdAt !== 'number'
+    || !Number.isFinite(value.createdAt)
+    || !isRecord(value.summary)
+  ) return null
+
+  const summary = value.summary
+  if (
+    value.kind === 'beat-analysis'
+    && value.mimeType === 'application/vnd.easyfield.beats+json'
+    && hasFiniteNumbers(summary, ['bpm', 'detectedBeats', 'markerCount', 'confidence', 'durationSeconds'])
+    && summary.engine === 'librosa'
+    && hasStrings(summary, ['engineVersion', 'markerColor'])
+  ) {
+    return {
+      id: value.id as string,
+      kind: value.kind,
+      schemaVersion: 1,
+      fileName: value.fileName as string,
+      mimeType: value.mimeType,
+      data: value.data as string,
+      createdAt: value.createdAt,
+      summary: {
+        bpm: summary.bpm as number,
+        detectedBeats: summary.detectedBeats as number,
+        markerCount: summary.markerCount as number,
+        confidence: summary.confidence as number,
+        durationSeconds: summary.durationSeconds as number,
+        engine: summary.engine,
+        engineVersion: summary.engineVersion as string,
+        markerColor: summary.markerColor as string,
+      },
+    }
+  }
+
+  if (
+    value.kind === 'transcript'
+    && value.mimeType === 'application/vnd.easyfield.transcript+json'
+    && hasStrings(summary, ['language', 'model', 'sourceKind'])
+    && hasFiniteNumbers(summary, ['durationSeconds', 'segmentCount', 'wordCount'])
+    && typeof summary.wordTimestamps === 'boolean'
+    && (summary.sourceKind === 'audio' || summary.sourceKind === 'video')
+  ) {
+    return {
+      id: value.id as string,
+      kind: value.kind,
+      schemaVersion: 1,
+      fileName: value.fileName as string,
+      mimeType: value.mimeType,
+      data: value.data as string,
+      createdAt: value.createdAt,
+      summary: {
+        language: summary.language as string,
+        model: summary.model as string,
+        durationSeconds: summary.durationSeconds as number,
+        segmentCount: summary.segmentCount as number,
+        wordCount: summary.wordCount as number,
+        wordTimestamps: summary.wordTimestamps,
+        sourceKind: summary.sourceKind,
+      },
+    }
+  }
+
+  return null
+}
+
+function sanitizeStoredCreation(value: unknown): StoredCreation | null {
+  if (
+    !isRecord(value)
+    || (value.schemaVersion !== undefined && value.schemaVersion !== 1)
+    || typeof value.id !== 'string'
+    || !value.id
+    || (value.kind !== 'image' && value.kind !== 'video' && value.kind !== 'audio')
+    || typeof value.createdAt !== 'number'
+    || !Number.isFinite(value.createdAt)
+  ) return null
+
+  const blob = typeof Blob !== 'undefined' && value.blob instanceof Blob ? value.blob : undefined
+  const url = typeof value.url === 'string' && value.url.trim() ? value.url : ''
+  if (!blob && !url) return null
+
+  const companions = Array.isArray(value.companions)
+    ? value.companions.map(sanitizeCreationCompanion).filter((item): item is CreationCompanion => item !== null).slice(0, 8)
+    : []
+  const durability: CreationDurability = value.durability === 'local' || value.durability === 'link-only'
+    ? value.durability
+    : blob || !/^https?:\/\//i.test(url) ? 'local' : 'link-only'
+
+  return {
+    schemaVersion: 1,
+    id: value.id,
+    kind: value.kind,
+    url,
+    ...(typeof value.model === 'string' ? { model: value.model } : {}),
+    ...(typeof value.prompt === 'string' ? { prompt: value.prompt } : {}),
+    ...(typeof value.meta === 'string' ? { meta: value.meta } : {}),
+    createdAt: value.createdAt,
+    ...(typeof value.fromTimeline === 'boolean' ? { fromTimeline: value.fromTimeline } : {}),
+    folderId: typeof value.folderId === 'string' || value.folderId === null ? value.folderId : null,
+    durability,
+    ...(companions.length ? { companions } : {}),
+    ...(blob ? { blob } : {}),
+  }
+}
+
+function sanitizeFolder(value: unknown): Folder | null {
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || !value.id
+    || typeof value.name !== 'string'
+    || typeof value.createdAt !== 'number'
+    || !Number.isFinite(value.createdAt)
+  ) return null
+  return { id: value.id, name: value.name, createdAt: value.createdAt }
+}
 
 function setPersistenceState(next: PersistenceState) {
   if (persistenceState === next) return
@@ -107,7 +243,12 @@ function openDatabase(): Promise<IDBDatabase | null> {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const db = request.result
-      if (!db.objectStoreNames.contains(CREATION_STORE)) db.createObjectStore(CREATION_STORE, { keyPath: 'id' })
+      const creationStore = db.objectStoreNames.contains(CREATION_STORE)
+        ? request.transaction!.objectStore(CREATION_STORE)
+        : db.createObjectStore(CREATION_STORE, { keyPath: 'id' })
+      if (!creationStore.indexNames.contains(CREATION_CREATED_AT_INDEX)) {
+        creationStore.createIndex(CREATION_CREATED_AT_INDEX, 'createdAt')
+      }
       if (!db.objectStoreNames.contains(FOLDER_STORE)) db.createObjectStore(FOLDER_STORE, { keyPath: 'id' })
     }
     request.onsuccess = () => {
@@ -131,7 +272,7 @@ function openDatabase(): Promise<IDBDatabase | null> {
   return dbPromise
 }
 
-async function readStore<T>(name: string): Promise<T[]> {
+async function readStore(name: string): Promise<unknown[]> {
   const db = await openDatabase()
   if (!db) return []
   return new Promise((resolve) => {
@@ -145,8 +286,50 @@ async function readStore<T>(name: string): Promise<T[]> {
       return
     }
     const request = tx.objectStore(name).getAll()
-    request.onsuccess = () => resolve((request.result ?? []) as T[])
+    request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : [])
     request.onerror = () => {
+      setPersistenceState('error')
+      resolve([])
+    }
+    tx.onabort = () => {
+      setPersistenceState('error')
+      resolve([])
+    }
+  })
+}
+
+async function readStoredCreations(): Promise<StoredCreation[]> {
+  const db = await openDatabase()
+  if (!db) return []
+  return new Promise((resolve) => {
+    let tx: IDBTransaction
+    try {
+      tx = db.transaction(CREATION_STORE, 'readwrite')
+    } catch {
+      dbPromise = null
+      setPersistenceState('error')
+      resolve([])
+      return
+    }
+
+    const retained: StoredCreation[] = []
+    const request = tx.objectStore(CREATION_STORE).index(CREATION_CREATED_AT_INDEX).openCursor(null, 'prev')
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      const creation = cursor.value as StoredCreation
+      if ((!creation.blob && !creation.url) || retained.length >= MAX_LIBRARY_CREATIONS) {
+        cursor.delete()
+      } else {
+        retained.push(creation)
+      }
+      cursor.continue()
+    }
+    request.onerror = () => {
+      setPersistenceState('error')
+    }
+    tx.oncomplete = () => resolve(retained)
+    tx.onerror = () => {
       setPersistenceState('error')
       resolve([])
     }
@@ -211,7 +394,9 @@ async function putCreationPreservingBlob(current: Creation, newBlob?: Blob, requ
     request.onsuccess = () => {
       const existing = request.result as StoredCreation | undefined
       const blob = newBlob ?? existing?.blob
-      const stored: StoredCreation = blob ? { ...current, blob } : { ...current }
+      const stored: StoredCreation = blob
+        ? { schemaVersion: 1, ...current, blob }
+        : { schemaVersion: 1, ...current }
       store.put(stored)
     }
     request.onerror = () => {
@@ -252,6 +437,18 @@ async function persistCreation(id: string, required = false): Promise<void> {
 
 function deleteStoredCreations(ids: string[]): void {
   void writeStore(CREATION_STORE, (store) => ids.forEach((id) => store.delete(id)))
+}
+
+function pruneCreationRecords(): void {
+  if (creations.length <= MAX_LIBRARY_CREATIONS) return
+  const pruned = creations.slice(MAX_LIBRARY_CREATIONS)
+  creations = creations.slice(0, MAX_LIBRARY_CREATIONS)
+  const ids = pruned.map((creation) => creation.id)
+  ids.forEach((id) => removedCreationIds.add(id))
+  pruned.forEach((creation) => {
+    if (creation.url.startsWith('blob:')) URL.revokeObjectURL(creation.url)
+  })
+  deleteStoredCreations(ids)
 }
 
 function persistFolder(folder: Folder): void {
@@ -353,8 +550,10 @@ function addOrMergeCreations(items: NewCreation[]): Creation[] {
   // a screen can enrich the minimal record committed by the paid-job path
   // without duplicating the same managed artifact in Library.
   creations = [...newlyAdded].reverse().concat(creations)
+  pruneCreationRecords()
   emit()
-  return added
+  const retainedIds = new Set(creations.map((creation) => creation.id))
+  return added.filter((creation) => retainedIds.has(creation.id))
 }
 
 export function addCreations(items: NewCreation[]): Creation[] {
@@ -536,32 +735,45 @@ export function usePersistenceState(): PersistenceState {
 async function hydrateFromStorage(): Promise<void> {
   try {
     const [storedCreations, storedFolders] = await Promise.all([
-      readStore<StoredCreation>(CREATION_STORE),
-      readStore<Folder>(FOLDER_STORE),
+      readStoredCreations(),
+      readStore(FOLDER_STORE),
     ])
 
+    // Keep the pruning reader from the storage work AND the record validation
+    // from the resilience work: the reader decides what comes back, the
+    // sanitiser decides what is safe to hydrate, and anything it rejects is
+    // deleted so a corrupt record cannot crash Library on every reopen.
     const knownCreations = new Set(creations.map((creation) => creation.id))
-    const legacyPlaceholders = storedCreations.filter((creation) => !creation.blob && !creation.url)
-    if (legacyPlaceholders.length) deleteStoredCreations(legacyPlaceholders.map((creation) => creation.id))
-    const hydratedCreations: Creation[] = storedCreations
+    const creationRecords = storedCreations.map((value) => ({ value, creation: sanitizeStoredCreation(value) }))
+    const discardedCreationIds = creationRecords.flatMap(({ value, creation }) =>
+      !creation && isRecord(value) && typeof value.id === 'string' ? [value.id] : [])
+    if (discardedCreationIds.length) deleteStoredCreations(discardedCreationIds)
+    const hydratedCreations: Creation[] = creationRecords
+      .flatMap(({ creation }) => creation ? [creation] : [])
       .filter((creation) => (creation.blob || creation.url) && !knownCreations.has(creation.id) && !removedCreationIds.has(creation.id))
-      .map(({ blob, ...creation }) => ({
+      .map(({ blob, schemaVersion: _schemaVersion, ...creation }) => ({
         ...creation,
         url: blob ? URL.createObjectURL(blob) : creation.url,
         durability: blob ? 'local' : creation.durability ?? (/^https?:\/\//i.test(creation.url) ? 'link-only' : 'local'),
       }))
     const knownFolders = new Set(folders.map((folder) => folder.id))
-    const hydratedFolders = storedFolders.filter((folder) => !knownFolders.has(folder.id) && !removedFolderIds.has(folder.id))
+    const hydratedFolders = storedFolders
+      .map(sanitizeFolder)
+      .filter((folder): folder is Folder => folder !== null)
+      .filter((folder) => !knownFolders.has(folder.id) && !removedFolderIds.has(folder.id))
 
     if (hydratedCreations.length || hydratedFolders.length) {
       creations = [...creations, ...hydratedCreations].sort((a, b) => b.createdAt - a.createdAt)
+      pruneCreationRecords()
       folders = [...folders, ...hydratedFolders].sort((a, b) => a.createdAt - b.createdAt)
       emit()
       // Older versions could retain temporary remote links. Resolve them into
       // Main-owned artifacts after hydration so successful migrations rewrite
       // both the Library index and future preview traffic to local URLs.
       if (host.isPlugin()) {
+        const retainedIds = new Set(creations.map((creation) => creation.id))
         hydratedCreations
+          .filter((creation) => retainedIds.has(creation.id))
           .filter((creation) => creation.durability === 'link-only' && /^https:\/\//i.test(creation.url))
           .forEach((creation) => void materializeCreation(creation.id))
       }

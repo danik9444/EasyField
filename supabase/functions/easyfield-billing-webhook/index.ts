@@ -103,8 +103,13 @@ Deno.serve(async (request) => {
       Deno.env.get("EASYFIELD_WEBHOOK_DELIVERY_HEADER"),
       "x-delivery-id",
     );
+    const timestampHeader = safeHeaderName(
+      Deno.env.get("EASYFIELD_WEBHOOK_TIMESTAMP_HEADER"),
+      "x-timestamp",
+    );
     const verified = await verifyWebhookHmac(
       requiredEnv("EASYFIELD_WEBHOOK_SECRET"),
+      request.headers.get(timestampHeader),
       rawBody,
       request.headers.get(signatureHeader),
     );

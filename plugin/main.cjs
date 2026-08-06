@@ -6,7 +6,7 @@
 //   2. Embedded HTTP server: static UI + streaming cloud-provider proxies + /bridge.
 //   3. BrowserWindow that loads the UI from the embedded server.
 
-const { app, BrowserWindow, ipcMain, safeStorage, screen, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -22,6 +22,7 @@ const { createBeatDetectionService } = require('./beat-detection.cjs');
 const { createTranscriptionService } = require('./whisper-transcription.cjs');
 const { createUrlContextService } = require('./url-context.cjs');
 const { createStateStore } = require('./state-store.cjs');
+const { createStateDocumentStore, isDocumentReference } = require('./state-document-store.cjs');
 const { createAccountService } = require('./account-service.cjs');
 const { createPluginUpdater } = require('./plugin-updater.cjs');
 const { resolveRuntimePack } = require('./runtime-pack.cjs');
@@ -34,6 +35,7 @@ const { loadWorkflowIntegration } = require('./workflow-integration.cjs');
 const { timecodeToFrames, timelineFrameToTimecode, timelinePlayheadToSourceFrame } = require('./timecode.cjs');
 const {
     applyWindowMode,
+    assertWindowHeightMode,
     clampWindowToWorkArea,
     createResolveAwareFloatingController,
     windowBoundsForMode,
@@ -54,7 +56,9 @@ function isTrustedDevelopmentMode() {
 const PLUGIN_ID = 'com.easyfield.panel';
 const PORT = (environmentOverridesAllowed() ? parseInt(process.env.EF_PORT, 10) : 0) || 18832;
 const SERVER_ONLY = environmentOverridesAllowed() && process.env.EF_SERVER_ONLY === '1';
-const UI_DIR = path.join(__dirname, 'ui');
+const UI_DIR = (environmentOverridesAllowed() && process.env.EF_TEST_UI_DIR)
+    ? path.resolve(process.env.EF_TEST_UI_DIR)
+    : path.join(__dirname, 'ui');
 const MEDIA_DIR = path.join(os.homedir(), 'Movies', 'EasyField Media');
 const ARTIFACT_DIR = path.join(os.homedir(), 'Movies', 'EasyField', '_Artifacts');
 // Every bridge request must prove that it came from this EasyField process.
@@ -64,6 +68,8 @@ const ARTIFACT_DIR = path.join(os.homedir(), 'Movies', 'EasyField', '_Artifacts'
 const BRIDGE_TOKEN = (environmentOverridesAllowed() && process.env.EF_BRIDGE_TOKEN)
     || crypto.randomBytes(32).toString('hex');
 const JSON_BODY_LIMIT = 64 * 1024;
+const STATE_VALUE_LIMIT = 2 * 1024 * 1024;
+const DOCUMENT_STATE_VALUE_LIMIT = 512 * 1024 * 1024;
 const parsedMediaLimit = environmentOverridesAllowed() ? Number(process.env.EF_MAX_MEDIA_BYTES) : NaN;
 const MAX_MEDIA_BYTES = Number.isFinite(parsedMediaLimit) && parsedMediaLimit > 0
     ? parsedMediaLimit
@@ -143,8 +149,7 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // --- Resolve bridge state -------------------------------------------------
 
-// A bundled module is accepted only for legacy local installs. Release builds
-// use the module installed by Resolve's official SamplePlugin. Standalone
+// Load only the module installed by Resolve's official SamplePlugin. Standalone
 // Electron or an ABI mismatch leaves this null; UI and proxies remain usable.
 const WorkflowIntegration = loadWorkflowIntegration();
 
@@ -725,7 +730,7 @@ const MIME = {
 const STATIC_SECURITY_HEADERS = Object.freeze({
     'Content-Security-Policy': [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",
+        "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
         "font-src 'self' data:",
         "img-src 'self' data: blob: https:",
@@ -1764,6 +1769,20 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    if (pathname === '/auth/confirm') {
+        if (!accountService) {
+            sendJSON(res, 503, { ok: false, error: 'account service unavailable', code: 'SERVICE_UNAVAILABLE' });
+            return;
+        }
+        void accountService.handleEmailConfirmationCallback(req, res).then((handled) => {
+            if (!handled && !res.headersSent) sendJSON(res, 400, { ok: false, error: 'invalid confirmation callback', code: 'BAD_REQUEST' });
+        }).catch(() => {
+            if (!res.headersSent) sendJSON(res, 400, { ok: false, error: 'confirmation callback failed', code: 'BAD_REQUEST' });
+            else res.destroy();
+        });
+        return;
+    }
+
     if (pathname === '/auth/recovery') {
         if (!accountService) {
             sendJSON(res, 503, { ok: false, error: 'account service unavailable', code: 'SERVICE_UNAVAILABLE' });
@@ -1809,20 +1828,22 @@ const server = http.createServer((req, res) => {
     // response and never crashes the server.
     if (pathname.startsWith('/bridge/')) {
         if (!authorizeBridge(req, res)) return;
-        const run = (fn, timeoutMs, expectedCodes) => promiseWithTimeout(
-            Promise.resolve().then(() => fn(req, res)),
-            timeoutMs,
-            'bridge operation timed out',
-        ).catch((err) => {
-            // "Nothing under the playhead" is an expected capture outcome, not
-            // a broken HTTP request. Return a typed 200 response so Chromium
-            // does not emit a console-level failed-resource error; callers must
-            // still check `ok` before creating an artifact.
-            if (!res.headersSent && err instanceof EFError && expectedCodes && expectedCodes.has(err.code)) {
-                sendJSON(res, 200, { ok: false, error: err.message, code: err.code });
-            } else if (!res.headersSent) sendError(res, err);
-            else res.destroy();
-        });
+        const run = (fn, timeoutMs, expectedCodes) => {
+            const operation = Promise.resolve().then(() => fn(req, res));
+            const guarded = timeoutMs == null
+                ? operation
+                : promiseWithTimeout(operation, timeoutMs, 'bridge operation timed out');
+            return guarded.catch((err) => {
+                // "Nothing under the playhead" is an expected capture outcome,
+                // not a broken HTTP request. Return a typed 200 response so
+                // Chromium does not emit a console-level failed-resource error;
+                // callers must still check `ok` before creating an artifact.
+                if (!res.headersSent && err instanceof EFError && expectedCodes && expectedCodes.has(err.code)) {
+                    sendJSON(res, 200, { ok: false, error: err.message, code: err.code });
+                } else if (!res.headersSent) sendError(res, err);
+                else res.destroy();
+            });
+        };
         if (pathname === '/bridge/status' && req.method === 'GET') return void run(bridgeStatus, 3000);
         const expectedGrabCodes = new Set(['NO_ITEM', 'NO_TIMELINE']);
         const expectedBoundaryCodes = new Set(['NO_ITEM', 'NO_TIMELINE', 'RESOLVE_CLOSED', 'TIMELINE_CHANGED', 'PLAYHEAD_CHANGED', 'CAPTURE_CANCELLED', 'FRAME_EXPORT_FAILED']);
@@ -1835,7 +1856,9 @@ const server = http.createServer((req, res) => {
         if (pathname === '/bridge/grab/shot-end-frame' && req.method === 'GET') return void run(grabShotEndFrame, 20000, expectedBoundaryCodes);
         if (pathname === '/bridge/grab/clip' && req.method === 'GET') return void run((request, response) => withTimelineOperationLock(() => grabClip(request, response)), 15 * 60 * 1000, expectedGrabCodes);
         if (pathname === '/bridge/grab/audio' && req.method === 'GET') return void run(grabAudio, 30000, expectedEditVideoCodes);
-        if (pathname === '/bridge/place' && req.method === 'POST') return void run(place, 115000);
+        // Once placement starts, Resolve offers no safe cancellation primitive.
+        // Keep the response pending until the mutation has a truthful outcome.
+        if (pathname === '/bridge/place' && req.method === 'POST') return void run(place);
         if (pathname === '/bridge/beat/apply-markers' && req.method === 'POST') return void run(applyBeatMarkers, 30000);
         if (pathname === '/bridge/beat/undo-markers' && req.method === 'POST') return void run(undoBeatMarkers, 30000);
         sendJSON(res, 404, { ok: false, error: 'unknown bridge endpoint', code: 'BAD_REQUEST' });
@@ -1866,10 +1889,143 @@ function startServer() {
 
 let mainWindow = null;
 let stateStore = null;
+let stateDocumentStore = null;
+let stateStoreDegradation = null;
 let accountService = null;
 let currentWindowMode = 'compact';
+let currentWindowHeightMode = 'standard';
 let floatingController = null;
 let displayChangeHandler = null;
+
+function createInMemoryStateStore() {
+    const namespaces = new Map();
+
+    function recordsFor(namespace) {
+        let records = namespaces.get(namespace);
+        if (!records) {
+            records = new Map();
+            namespaces.set(namespace, records);
+        }
+        return records;
+    }
+
+    return Object.freeze({
+        databasePath: null,
+        get(namespace, key) {
+            const record = namespaces.get(namespace)?.get(key);
+            return record ? JSON.parse(record.valueJson) : null;
+        },
+        list(namespace) {
+            return [...(namespaces.get(namespace)?.entries() || [])]
+                .map(([key, record]) => ({
+                    key,
+                    value: JSON.parse(record.valueJson),
+                    updatedAt: record.updatedAt,
+                }))
+                .sort((a, b) => b.updatedAt - a.updatedAt);
+        },
+        set(namespace, key, value) {
+            const valueJson = JSON.stringify(value);
+            if (valueJson === undefined) throw new TypeError('State value is not JSON serializable');
+            recordsFor(namespace).set(key, { valueJson, updatedAt: Date.now() });
+            return true;
+        },
+        delete(namespace, key) {
+            const records = namespaces.get(namespace);
+            records?.delete(key);
+            if (records && records.size === 0) namespaces.delete(namespace);
+            return true;
+        },
+        close() {
+            namespaces.clear();
+        },
+    });
+}
+
+function quarantineStateDatabase(userDataPath) {
+    const userDataInfo = fs.lstatSync(userDataPath);
+    if (!userDataInfo.isDirectory() || userDataInfo.isSymbolicLink()) {
+        throw new Error('EasyField state directory must be a local directory');
+    }
+    const databasePath = path.join(userDataPath, 'easyfield.sqlite3');
+    const quarantineBase = `${databasePath}.corrupt-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const quarantinedPaths = [];
+    for (const suffix of ['', '-wal', '-shm']) {
+        const sourcePath = databasePath + suffix;
+        try {
+            const quarantinePath = quarantineBase + suffix;
+            fs.renameSync(sourcePath, quarantinePath);
+            quarantinedPaths.push(quarantinePath);
+        } catch (error) {
+            if (!error || error.code !== 'ENOENT') throw error;
+        }
+    }
+    return quarantinedPaths;
+}
+
+function openStateStoreWithRecovery(userDataPath) {
+    try {
+        return createStateStore(userDataPath);
+    } catch (error) {
+        console.error('[EasyField] State database failed to open:', error && error.message);
+    }
+
+    let quarantinedPaths = [];
+    try {
+        quarantinedPaths = quarantineStateDatabase(userDataPath);
+        if (quarantinedPaths.length) {
+            console.warn('[EasyField] Quarantined unreadable state database:', quarantinedPaths[0]);
+        }
+    } catch (error) {
+        console.error('[EasyField] State database quarantine failed:', error && error.message);
+    }
+
+    try {
+        const store = createStateStore(userDataPath);
+        stateStoreDegradation = Object.freeze({
+            mode: 'recovered',
+            quarantinedPaths: Object.freeze(quarantinedPaths),
+        });
+        console.warn('[EasyField] State database recovered after one retry.');
+        return store;
+    } catch (error) {
+        console.error('[EasyField] State database retry failed:', error && error.message);
+        stateStoreDegradation = Object.freeze({
+            mode: 'memory',
+            quarantinedPaths: Object.freeze(quarantinedPaths),
+        });
+        console.warn('[EasyField] Using temporary in-memory state for this session.');
+        return createInMemoryStateStore();
+    }
+}
+
+function surfaceStateStoreDegradation() {
+    if (!stateStoreDegradation || !dialog || typeof dialog.showMessageBox !== 'function') return;
+    const quarantinedName = stateStoreDegradation.quarantinedPaths.length
+        ? path.basename(stateStoreDegradation.quarantinedPaths[0])
+        : '';
+    const recovered = stateStoreDegradation.mode === 'recovered';
+    const detail = recovered
+        ? quarantinedName
+            ? `The unreadable state database was moved to ${quarantinedName}, and a fresh database was created. Previous drafts and job history may need to be recovered from the quarantined file.`
+            : 'Local storage failed to open once but recovered on retry. New changes will be saved normally.'
+        : `EasyField could not open its local state database after a recovery attempt. The panel is available, but changes made this session will be lost when EasyField closes.${quarantinedName ? ` The unreadable database was moved to ${quarantinedName}.` : ''}`;
+    try {
+        const notice = dialog.showMessageBox(mainWindow, {
+            type: 'warning',
+            title: 'EasyField storage recovery',
+            message: recovered
+                ? 'EasyField recovered local storage.'
+                : 'EasyField opened with temporary storage.',
+            detail,
+        });
+        if (notice && typeof notice.catch === 'function') {
+            notice.catch((error) => console.error('[EasyField] Storage recovery notice failed:', error && error.message));
+        }
+    } catch (error) {
+        console.error('[EasyField] Storage recovery notice failed:', error && error.message);
+    }
+}
 
 // Artifact rows contain absolute paths and are Main-owned. They deliberately do
 // not participate in the renderer's generic state IPC surface.
@@ -1884,6 +2040,64 @@ const PRIVATE_CREDENTIALS = new Set([
 function assertStateKey(namespace, key) {
     if (!VALID_RENDERER_STATE_NAMESPACES.has(namespace)) throw new Error('Invalid state namespace');
     if (typeof key !== 'string' || !key || key.length > 240) throw new Error('Invalid state key');
+}
+
+function readRendererState(namespace, key) {
+    const stored = stateStore.get(namespace, key);
+    if (!isDocumentReference(stored)) return stored;
+    if (!stateDocumentStore) throw new Error('Large document storage is unavailable');
+    return stateDocumentStore.read(stored);
+}
+
+function listRendererState(namespace) {
+    return stateStore.list(namespace).map((item) => ({
+        ...item,
+        value: isDocumentReference(item.value) ? readDocumentState(item.value) : item.value,
+    }));
+}
+
+function readDocumentState(reference) {
+    if (!stateDocumentStore) throw new Error('Large document storage is unavailable');
+    return stateDocumentStore.read(reference);
+}
+
+function removeDocumentReference(reference) {
+    if (!isDocumentReference(reference) || !stateDocumentStore) return;
+    if (!stateDocumentStore.deleteReference(reference)) {
+        console.warn('[EasyField] Obsolete document state could not be removed.');
+    }
+}
+
+function writeRendererState(namespace, key, value, valueJson) {
+    const previous = stateStore.get(namespace, key);
+    const bytes = Buffer.byteLength(valueJson);
+    if (bytes <= STATE_VALUE_LIMIT) {
+        stateStore.set(namespace, key, value);
+        removeDocumentReference(previous);
+        return true;
+    }
+    if (bytes > DOCUMENT_STATE_VALUE_LIMIT) throw new Error('State document is too large');
+    if (!stateDocumentStore) throw new Error('Large document storage is unavailable');
+
+    // The document is complete on disk before its opaque SQLite reference is
+    // committed. A failed reference write leaves the previous value readable
+    // and removes the unreferenced replacement.
+    const reference = stateDocumentStore.write(valueJson);
+    try {
+        stateStore.set(namespace, key, reference);
+    } catch (error) {
+        stateDocumentStore.deleteReference(reference);
+        throw error;
+    }
+    removeDocumentReference(previous);
+    return true;
+}
+
+function deleteRendererState(namespace, key) {
+    const previous = stateStore.get(namespace, key);
+    stateStore.delete(namespace, key);
+    removeDocumentReference(previous);
+    return true;
 }
 
 function credentialPath(name) {
@@ -2439,7 +2653,13 @@ function artifactBytesFromIpc(value) {
 
 function registerHostIpc() {
     if (!ipcMain || typeof ipcMain.handle !== 'function') return;
-    stateStore = createStateStore(app.getPath('userData'));
+    const userDataPath = app.getPath('userData');
+    stateStore = openStateStoreWithRecovery(userDataPath);
+    try {
+        stateDocumentStore = createStateDocumentStore(userDataPath);
+    } catch (error) {
+        console.error('[EasyField] Large document storage failed to open:', error && error.message);
+    }
 
     const accountConfig = loadAccountPublicConfig();
     accountService = createAccountService({
@@ -2451,6 +2671,7 @@ function registerHostIpc() {
             && process.env.EF_ALLOW_LEGACY_DIRECT_PROVIDER === '1',
         callbackUrl: `http://127.0.0.1:${PORT}/auth/callback`,
         recoveryCallbackUrl: `http://127.0.0.1:${PORT}/auth/recovery`,
+        confirmCallbackUrl: `http://127.0.0.1:${PORT}/auth/confirm`,
         readSession: () => readStoredCredential(ACCOUNT_SESSION_CREDENTIAL),
         writeSession: (value) => writeStoredCredential(ACCOUNT_SESSION_CREDENTIAL, value),
         clearSession: () => deleteStoredCredential(ACCOUNT_SESSION_CREDENTIAL),
@@ -2479,6 +2700,11 @@ function registerHostIpc() {
         onPasswordRecoveryCompleted: (completion) => {
             if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.webContents.send === 'function') {
                 mainWindow.webContents.send('ef:account:password-recovery-completed', completion);
+            }
+        },
+        onEmailConfirmed: (completion) => {
+            if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.webContents.send === 'function') {
+                mainWindow.webContents.send('ef:account:email-confirmed', completion);
             }
         },
     });
@@ -2551,28 +2777,35 @@ function registerHostIpc() {
     registerTrustedHandler('ef:account:save-auto-reload', (input) => accountService.saveAutoReload(input));
     registerTrustedHandler('ef:state:get', (namespace, key) => {
         assertStateKey(namespace, key);
-        return stateStore.get(namespace, key);
+        return readRendererState(namespace, key);
     });
     registerTrustedHandler('ef:state:list', (namespace) => {
         if (!VALID_RENDERER_STATE_NAMESPACES.has(namespace)) throw new Error('Invalid state namespace');
-        return stateStore.list(namespace);
+        return listRendererState(namespace);
     });
     registerTrustedHandler('ef:state:set', (namespace, key, value) => {
         assertStateKey(namespace, key);
         const json = JSON.stringify(value);
         if (json === undefined) throw new Error('State value is not JSON serializable');
-        if (Buffer.byteLength(json) > 2 * 1024 * 1024) throw new Error('State value is too large');
-        return stateStore.set(namespace, key, value);
+        return writeRendererState(namespace, key, value, json);
     });
     registerTrustedHandler('ef:state:delete', (namespace, key) => {
         assertStateKey(namespace, key);
-        return stateStore.delete(namespace, key);
+        return deleteRendererState(namespace, key);
     });
     registerTrustedHandler('ef:window:set-mode', (mode) => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
         currentWindowMode = mode;
-        applyWindowMode(mainWindow, screen, mode, { animate: true });
+        applyWindowMode(mainWindow, screen, mode, { animate: true, heightMode: currentWindowHeightMode });
+    });
+    registerTrustedHandler('ef:window:set-layout', (mode, heightMode) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (mode !== 'compact' && mode !== 'expanded') throw new Error('Invalid window mode');
+        assertWindowHeightMode(heightMode);
+        currentWindowMode = mode;
+        currentWindowHeightMode = heightMode;
+        applyWindowMode(mainWindow, screen, mode, { animate: true, heightMode });
     });
     registerTrustedHandler('ef:billing:open-credit-purchase', async () => {
         const context = await accountService?.getFreshDirectProviderContext?.();
@@ -2643,7 +2876,7 @@ function createWindow() {
         },
     });
     mainWindow.setMenu(null);
-    applyWindowMode(mainWindow, screen, currentWindowMode, { initial: true });
+    applyWindowMode(mainWindow, screen, currentWindowMode, { initial: true, heightMode: currentWindowHeightMode });
     floatingController = createResolveAwareFloatingController(mainWindow);
 
     // Re-clamp on resolution, work-area, scale-factor and monitor changes. The
@@ -2651,7 +2884,7 @@ function createWindow() {
     // another monitor stays there rather than jumping back to the primary one.
     displayChangeHandler = () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        clampWindowToWorkArea(mainWindow, screen, currentWindowMode);
+        clampWindowToWorkArea(mainWindow, screen, currentWindowMode, currentWindowHeightMode);
     };
     screen.on('display-metrics-changed', displayChangeHandler);
     screen.on('display-removed', displayChangeHandler);
@@ -2729,6 +2962,7 @@ function createWindow() {
     });
     mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
     mainWindow.loadURL(url);
+    surfaceStateStoreDegradation();
 
     mainWindow.on('close', () => {
         floatingController?.dispose();

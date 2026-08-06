@@ -6,6 +6,8 @@
 
 export const MAX_ACCOUNT_REQUEST_BYTES = 64 * 1024;
 export const MAX_WEBHOOK_BYTES = 256 * 1024;
+export const WEBHOOK_MAX_AGE_SECONDS = 5 * 60;
+export const WEBHOOK_MAX_FUTURE_SKEW_SECONDS = 30;
 
 const PLAN_IDS = new Set(["starter", "creator", "pro", "studio"]);
 const BILLING_INTERVALS = new Set(["monthly", "annual"]);
@@ -419,7 +421,26 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
 }
 
-export async function computeWebhookHmacHex(secret: string, bytes: Uint8Array): Promise<string> {
+function parseWebhookTimestamp(value: string | null): number | null {
+  if (!value || !/^[1-9][0-9]{0,10}$/.test(value)) return null;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) ? seconds : null;
+}
+
+function timestampedWebhookBytes(timestamp: string, bytes: Uint8Array): Uint8Array {
+  if (parseWebhookTimestamp(timestamp) === null) throw new TypeError("Webhook timestamp is invalid");
+  const prefix = new TextEncoder().encode(`${timestamp}.`);
+  const signedBytes = new Uint8Array(prefix.byteLength + bytes.byteLength);
+  signedBytes.set(prefix);
+  signedBytes.set(bytes, prefix.byteLength);
+  return signedBytes;
+}
+
+export async function computeWebhookHmacHex(
+  secret: string,
+  timestamp: string,
+  bytes: Uint8Array,
+): Promise<string> {
   if (secret.length < 32 || secret.length > 8192) throw new TypeError("Webhook secret is not configured");
   const key = await crypto.subtle.importKey(
     "raw",
@@ -428,12 +449,27 @@ export async function computeWebhookHmacHex(secret: string, bytes: Uint8Array): 
     false,
     ["sign"],
   );
-  return bytesToHex(new Uint8Array(await crypto.subtle.sign("HMAC", key, bytes)));
+  return bytesToHex(new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, timestampedWebhookBytes(timestamp, bytes)),
+  ));
 }
 
-export async function verifyWebhookHmac(secret: string, bytes: Uint8Array, signature: string | null): Promise<boolean> {
+export async function verifyWebhookHmac(
+  secret: string,
+  timestamp: string | null,
+  bytes: Uint8Array,
+  signature: string | null,
+  nowMilliseconds = Date.now(),
+): Promise<boolean> {
   if (!signature || !/^[0-9a-f]{64}$/i.test(signature)) return false;
-  const expected = await computeWebhookHmacHex(secret, bytes);
+  const timestampSeconds = parseWebhookTimestamp(timestamp);
+  if (timestampSeconds === null || !Number.isFinite(nowMilliseconds)) return false;
+  const ageMilliseconds = nowMilliseconds - timestampSeconds * 1000;
+  if (
+    ageMilliseconds > WEBHOOK_MAX_AGE_SECONDS * 1000
+    || ageMilliseconds < -WEBHOOK_MAX_FUTURE_SKEW_SECONDS * 1000
+  ) return false;
+  const expected = await computeWebhookHmacHex(secret, timestamp!, bytes);
   const received = signature.toLowerCase();
   let mismatch = expected.length ^ received.length;
   for (let index = 0; index < expected.length; index += 1) {

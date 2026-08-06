@@ -30,8 +30,6 @@ import { host } from '../services/host'
 import { resolve } from '../services/resolve'
 import { sendToTimeline } from '../services/timeline'
 import { isConnected, isGenerationExit, runAnglesBatch, saveUrl } from '../services/run'
-import { getSpendApproval } from '../services/spendGuard'
-import { loadSettings } from '../settings'
 import type { EnhanceReference } from '../services/chat'
 import { promptCharacterCount } from '../data/promptLimits'
 
@@ -102,6 +100,10 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
       setResolution(options.resolution)
       setExtras(options.extraOptionValues)
       setDraftReady(true)
+    }).catch(() => {
+      if (!active) return
+      setDraftReady(true)
+      setError('Your saved Angles draft could not be restored. You can continue with the defaults.')
     })
     return () => { active = false }
   }, [])
@@ -225,11 +227,9 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
   const outputCount = mode === 'random' ? randomCount : 1
   const estimate = imageRunEstimate(model, resolution, extras, outputCount, { referenceCount: 1 })
   const connected = isConnected()
-  const spendApproval = getSpendApproval(estimate, loadSettings().spendLimit)
-  const spendBlocked = connected && !spendApproval.approved
   const promptMissing = mode === 'custom' && !customEntry
   const promptOverLimit = mode === 'custom' && !!customEntry && promptCharacterCount(customEntry.prompt) > providerPromptMax
-  const canGenerate = draftReady && sourceReady && !promptMissing && !promptOverLimit && connected && spendApproval.approved && !sourceGrabPending
+  const canGenerate = draftReady && sourceReady && !promptMissing && !promptOverLimit && connected && !sourceGrabPending
 
   const enhanceReferences: EnhanceReference[] = source?.kind === 'upload'
     ? [{ role: 'primary source — preserve subject and scene; change camera viewpoint only', label: source.name, imageUrl: source.url }]
@@ -326,7 +326,7 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
     }
   }
 
-  const footerHasError = !!error || spendBlocked || promptMissing || promptOverLimit
+  const footerHasError = !!error || promptMissing || promptOverLimit
   const footerMessage = error
     ? `✕ ${error}`
     : !draftReady
@@ -339,13 +339,9 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
             ? `${model} allows ${providerPromptMax.toLocaleString()} prompt characters including the camera-preservation instructions · shorten the direction.`
           : !connected
             ? 'Connect EasyField Cloud to generate camera angles'
-            : spendBlocked
-              ? spendApproval.reason
-              : mode === 'random'
-                ? `${randomCount} distinct camera positions · identity preservation requested`
-                : 'One precise custom viewpoint · identity preservation requested'
-
-  const registerUnusedClear = useCallback((_clear: () => void) => {}, [])
+            : mode === 'random'
+              ? `${randomCount} distinct camera positions · identity preservation requested`
+              : 'One precise custom viewpoint · identity preservation requested'
 
   return (
     <div className="ef-screen ef-legacy-workspace ef-angles-screen">
@@ -378,13 +374,10 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
               <MaskCanvas
                 source={source}
                 maskable={false}
-                brushSize={24}
-                color="#E26BD2"
                 onPick={(file) => { void pickSource(file) }}
                 onGrab={() => { void grabPrimarySource() }}
                 grabPending={sourceGrabPending}
                 disabled={phase === 'generating'}
-                onClearRef={registerUnusedClear}
                 emptyTitle="Choose the view to orbit"
                 emptyDescription="Upload a still, or grab a still or the displayed video frame under the Resolve playhead."
                 sourceLabel="Choose the primary source for camera angles"
@@ -505,12 +498,13 @@ export function Angles({ onBack, toast, onSpend }: AnglesProps) {
       {phase === 'form' && (
         <footer className="ef-create-footer" aria-label="Camera-angle generation summary">
           <PriceEstimate estimate={estimate} />
-          <div className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected || !draftReady ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
+          <div id="angles-footer-message" className={`ef-create-footer-message ${footerHasError ? 'is-error' : !sourceReady || !connected || !draftReady ? 'is-help' : 'is-ready'}`} role={footerHasError ? 'alert' : 'status'} aria-live="polite">{footerMessage}</div>
           <button
             type="button"
             className="ef-generate ef-create-footer-action"
             disabled={!canGenerate}
             aria-label={mode === 'random' ? `Generate ${randomCount} random camera angle${randomCount === 1 ? '' : 's'}` : 'Generate custom camera angle'}
+            aria-describedby="angles-footer-message"
             onClick={() => { void generate() }}
           >
             <Icon glyph="angles" color="#0E0E13" size={13} /> {mode === 'random' ? `Generate ×${randomCount}` : 'Generate angle'}

@@ -8,6 +8,7 @@ import { resolve } from '../services/resolve'
 import { host } from '../services/host'
 import { SECURE_API_KEY_TOKEN, type Settings } from '../settings'
 import type { ToolId } from '../core/contracts'
+import type { AccountServiceHealth } from '../core/accountBridge'
 
 const MEDIA_CATEGORY_COPY: Record<string, { eyebrow: string; description: string }> = {
   footage: { eyebrow: 'ORGANIZE & ENHANCE MEDIA', description: 'Review selects, find coverage and improve source quality.' },
@@ -15,6 +16,33 @@ const MEDIA_CATEGORY_COPY: Record<string, { eyebrow: string; description: string
   video: { eyebrow: 'GENERATE & EDIT SHOTS', description: 'Create, transform, extend and bridge moving shots.' },
   motion: { eyebrow: 'TITLES & GRAPHICS', description: 'Build motion graphics, animation and editable captions.' },
   audio: { eyebrow: 'SOUND & TIMING', description: 'Generate sound, narration, transcripts and editorial timing.' },
+}
+
+// Home cards deliberately use the short editorial copy from the original
+// compact panel. The full definitions stay detailed everywhere else (search,
+// workspace introductions and accessibility), while this directory remains
+// fast to scan at Resolve-panel width.
+const HOME_TOOL_DESCRIPTIONS: Partial<Record<ToolId, string>> = {
+  culling: 'Sort raw footage',
+  broll: 'Auto-match b-roll',
+  upscale: 'Enhance up to 4K',
+  'create-image': 'Text to still frame',
+  storyboard: 'Script to frames',
+  character: 'Consistent identity',
+  'edit-image': 'Inpaint & retouch',
+  angles: 'New camera angles',
+  'create-video': 'Text/image to clip',
+  avatar: 'Talking presenter',
+  'edit-video': 'Prompt-based edits',
+  extend: 'Continue any shot',
+  transition: 'Generative morphs',
+  animations: 'AI motion graphics',
+  captions: 'Styled subtitles',
+  music: 'Score to your cut',
+  sfx: 'Foley on demand',
+  vo: 'Line-based narration',
+  transcribe: 'Speech to text',
+  beat: 'Cut markers on beat',
 }
 
 const HOME_WORKSPACES = CATALOG.map((category) => ({
@@ -25,6 +53,7 @@ const HOME_WORKSPACES = CATALOG.map((category) => ({
   color: category.color,
   tools: category.tools.map((tool) => ({
     ...tool,
+    homeDesc: HOME_TOOL_DESCRIPTIONS[tool.id] ?? tool.desc,
     media: category.label,
     mediaColor: category.color,
     mediaTint: category.tint,
@@ -49,7 +78,7 @@ interface HomeProps {
   settings: Settings
   credits: number
   creditsLive: boolean
-  accountConfigured: boolean
+  accountServiceHealth: AccountServiceHealth
   accountReady: boolean
   accountSignedIn: boolean
   directProviderAllowed: boolean
@@ -73,7 +102,9 @@ interface HomeProps {
   onOpenSettings: () => void
   onOpenTool: (toolId: ToolId) => void
   onToggleWindowMode: () => void
+  onToggleWindowHeight: () => void
   windowMode: 'compact' | 'expanded'
+  windowHeightMode: 'standard' | 'full'
   toast: (msg: string) => void
   searchFocusSignal: number
 }
@@ -83,7 +114,7 @@ export function Home({
   settings,
   credits,
   creditsLive,
-  accountConfigured,
+  accountServiceHealth,
   accountReady,
   accountSignedIn,
   directProviderAllowed,
@@ -107,7 +138,9 @@ export function Home({
   onOpenSettings,
   onOpenTool,
   onToggleWindowMode,
+  onToggleWindowHeight,
   windowMode,
+  windowHeightMode,
   toast,
   searchFocusSignal,
 }: HomeProps) {
@@ -178,14 +211,14 @@ export function Home({
   const onCategoryKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const tablist = event.currentTarget.parentElement
+    const toolbar = event.currentTarget.parentElement
     const nextIndex = event.key === 'Home'
       ? 0
       : event.key === 'End'
         ? HOME_CATEGORY_IDS.length - 1
         : (index + (event.key === 'ArrowRight' ? 1 : -1) + HOME_CATEGORY_IDS.length) % HOME_CATEGORY_IDS.length
     setActiveCategory(HOME_CATEGORY_IDS[nextIndex])
-    requestAnimationFrame(() => tablist?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus())
+    requestAnimationFrame(() => toolbar?.querySelectorAll<HTMLButtonElement>('button')[nextIndex]?.focus())
   }
 
   useEffect(() => {
@@ -273,7 +306,7 @@ export function Home({
     })).filter((group) => group.tools.length > 0)
   }, [activeCategory, query])
   const visibleToolCount = visibleGroups.reduce((count, group) => count + group.tools.length, 0)
-  const cloudReady = accountReady || (directProviderAllowed && creditsLive && apiStatus === 'connected')
+  const cloudReady = accountReady
   const setupNeeded = !cloudReady || !bridge.connected
   const storedSecureKey = settings.apiKey === SECURE_API_KEY_TOKEN
   const keyToValidate = keyDraft.trim() || (storedSecureKey ? SECURE_API_KEY_TOKEN : '')
@@ -348,6 +381,15 @@ export function Home({
           title={windowMode === 'compact' ? 'Expand workspace' : 'Compact workspace'}
         >
           {windowMode === 'compact' ? '↗' : '↙'}
+        </button>
+        <button
+          type="button"
+          className="ef-density-toggle"
+          onClick={onToggleWindowHeight}
+          aria-label={windowHeightMode === 'standard' ? 'Fill the available screen height' : 'Restore the standard window height'}
+          title={windowHeightMode === 'standard' ? 'Full height' : 'Standard height'}
+        >
+          {windowHeightMode === 'standard' ? '↕' : '↥'}
         </button>
         <button type="button" className="ef-density-toggle" onClick={onOpenAccount} aria-label="Open account" title="Account">◎</button>
         <button type="button" className="ef-density-toggle" onClick={onOpenSettings} aria-label="Open settings" title="Settings">⚙</button>
@@ -436,6 +478,7 @@ export function Home({
                 className="ef-apikey-btn"
                 disabled={!canValidateKey}
                 title={!keyToValidate ? 'Enter a credential first' : undefined}
+                aria-describedby="ef-home-api-status"
               >
                 {apiStatus === 'connecting' ? '…' : creditsLive ? 'Refresh' : 'Connect'}
               </button>
@@ -567,15 +610,23 @@ export function Home({
                   <span className="ef-setup-step-title">{directProviderAllowed ? 'Direct provider access' : 'EasyField Account'}</span>
                   <span className="ef-setup-step-desc">
                     {directProviderAllowed
-                      ? apiStatus === 'connecting'
-                        ? 'Checking your saved direct credential…'
-                        : apiStatus === 'error'
-                          ? 'Connection failed. Review your direct credential.'
-                          : settings.apiKey
-                            ? 'Your saved credential is not connected. Review it and try again.'
-                            : 'Add a direct credential to use live generation models.'
-                      : !accountConfigured
-                        ? 'Account service is unavailable in this build.'
+                      ? accountServiceHealth === 'checking'
+                        ? 'Checking account authorization…'
+                        : accountServiceHealth === 'unavailable'
+                          ? 'Account service is offline. Open Account to try again.'
+                          : apiStatus === 'connecting'
+                            ? 'Checking your saved direct credential…'
+                            : apiStatus === 'error'
+                              ? 'Connection failed. Review your direct credential.'
+                              : settings.apiKey
+                                ? 'Your saved credential is not connected. Review it and try again.'
+                                : 'Add a direct credential to use live generation models.'
+                      : accountServiceHealth === 'checking'
+                        ? 'Checking the account service…'
+                        : accountServiceHealth === 'unconfigured'
+                          ? 'Account service is not configured in this build.'
+                          : accountServiceHealth === 'unavailable'
+                            ? 'Account service is offline. Open Account to try again.'
                         : accountSignedIn
                           ? 'Review your plan, balance or verification status to enable generation.'
                           : 'Sign in or create an account to activate a plan.'}
@@ -643,13 +694,12 @@ export function Home({
           </div>
           <span className="ef-home-directory-total">{HOME_TOOL_COUNT} TOOLS</span>
         </header>
-        <div className="ef-category-tabs" role="tablist" aria-label="Filter tools by media type">
-          <button type="button" role="tab" aria-selected={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All tools <span>{HOME_TOOL_COUNT}</span></button>
+        <div className="ef-category-tabs" role="toolbar" aria-label="Filter tools by media type">
+          <button type="button" aria-pressed={activeCategory === 'all'} tabIndex={activeCategory === 'all' ? 0 : -1} className={activeCategory === 'all' ? 'is-active' : ''} onKeyDown={(event) => onCategoryKeyDown(event, 0)} onClick={() => setActiveCategory('all')}>All tools <span>{HOME_TOOL_COUNT}</span></button>
           {HOME_WORKSPACES.map((group, index) => (
             <button
               type="button"
-              role="tab"
-              aria-selected={activeCategory === group.id}
+              aria-pressed={activeCategory === group.id}
               tabIndex={activeCategory === group.id ? 0 : -1}
               className={activeCategory === group.id ? 'is-active' : ''}
               style={{ '--ef-category-color': group.color } as CSSProperties}
@@ -704,7 +754,7 @@ export function Home({
                     key={tool.id}
                     data-home-scroll-anchor={tool.id}
                     style={{ '--ef-category-color': group.color, '--ef-media-color': tool.mediaColor, '--ef-tool-order': index } as CSSProperties}
-                    aria-label={`${tool.name}. ${tool.desc}. ${tool.media} tool. ${tool.availability === 'review-only' ? 'Review workflow only; execution adapter not connected.' : 'Execution available.'}`}
+                    aria-label={`${tool.name}. ${tool.homeDesc}. ${tool.media} tool. ${tool.availability === 'review-only' ? 'Review workflow only; execution adapter not connected.' : 'Execution available.'}`}
                     onClick={() => openTool(tool.id)}
                   >
                     <span className="ef-tool-tile" style={{ background: tool.mediaTint }} aria-hidden="true">
@@ -718,7 +768,7 @@ export function Home({
                         {tool.availability === 'review-only' && <><span aria-hidden="true">·</span><span>Review-only</span></>}
                       </span>
                       <span className="ef-tool-name">{tool.name}</span>
-                      <span className="ef-tool-desc">{tool.desc}</span>
+                      <span className="ef-tool-desc">{tool.homeDesc}</span>
                     </span>
                     <span className="ef-tool-arrow" aria-hidden="true">↗</span>
                   </button>
