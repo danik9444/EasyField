@@ -1,5 +1,33 @@
 # Account, pricing and credits — readiness assessment
 
+> ## SUPERSEDED — and wrong in its headline. See `LAUNCH_READINESS.md`.
+>
+> Kept for its reasoning, which is still good. Do not use it to decide anything.
+> Verified against the deployed system on 2026-08-06:
+>
+> - **Section 1 is false.** It opens by asserting the Supabase project does not
+>   resolve (`NXDOMAIN`, `HTTP 000`). The project is `ACTIVE_HEALTHY` and has
+>   been continuously; `nslookup` resolves and SQL runs. Acting on this section
+>   would send you to create a second project while the free-tier active-project
+>   ceiling already constrains you.
+> - **The validator error it quotes does not exist.** There is no
+>   `"oauthProviders must enable both google and apple"` string anywhere in the
+>   repository. The validator accepts an empty array deliberately and explains
+>   why in its own comments. The same applies to `checkoutHosts`: an empty list
+>   passes, and that is the fail-closed state.
+> - **Item 6 (Creator annual) is resolved** — $240 on both the client constant
+>   and the server catalog, now also pinned on the website by
+>   `tests/website-pricing-parity.test.ts`.
+> - **Item 5 (pricing behind the sign-in wall) is still true** and still open.
+> - **Item 1 (deploy the backend) is done.** 22 migrations, both edge functions
+>   deployed, 7 cron jobs active.
+>
+> What it got right and is worth reading: the observation that a green test
+> suite proves nothing about infrastructure, since no test reaches the account
+> service over the network. That is exactly how a non-existent backend went
+> unnoticed, and it is why `LAUNCH_READINESS.md` now cites only figures checked
+> against the live system.
+
 Assessed at `cbb6c2e` on `main`, version 1.3.0.
 
 This document answers three questions raised while running the installed plugin:
