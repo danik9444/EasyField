@@ -8,6 +8,14 @@ import type { AccountServiceHealth } from '../core/accountBridge'
 
 type SettingsSection = 'general' | 'ai' | 'resolve' | 'storage' | 'privacy' | 'shortcuts' | 'diagnostics'
 
+/**
+ * The sub-processors that receive customer media are named in the published
+ * policy rather than in this panel. Naming recipients is a GDPR Article 13
+ * obligation and the policy is the document that discharges it; a name shown
+ * only inside an installed plugin reaches nobody deciding whether to install.
+ */
+const PRIVACY_POLICY_URL = 'https://easyfield.ai/privacy'
+
 interface SettingsScreenProps {
   settings: Settings
   apiStatus: 'idle' | 'connecting' | 'connected' | 'error'
@@ -383,10 +391,12 @@ export function SettingsScreen({ settings, apiStatus, apiError, credits, account
           )}
 
           {section === 'privacy' && (
-            <SettingsGroup title="Privacy and cost" description="Every cloud run shows its price and upload manifest without imposing an EasyField generation cap.">
-              <SettingRow label="Cloud consent" hint="Consent is remembered separately for image, video, audio and transcript."><span className="ef-setting-value">First use + manifest every run</span></SettingRow>
+            <SettingsGroup title="Privacy and cost" description="Every cloud run shows its price before it starts, without imposing an EasyField generation cap.">
+              <SettingRow label="Cloud processing" hint="Applies to every cloud tool. Local tools — Animations, Transcribe and Beat Detection — do not send anything."><span className="ef-setting-value">Selected media and prompts leave this Mac</span></SettingRow>
+              <SettingRow label="Sub-processors" hint="Named in the privacy policy, with what each one receives."><a className="ef-setting-value" href={PRIVACY_POLICY_URL} target="_blank" rel="noreferrer noopener">{PRIVACY_POLICY_URL.replace('https://', '')}</a></SettingRow>
+              <SettingRow label="Per-run upload manifest" hint="Planned. Until it ships, this screen names what leaves rather than itemising it per run."><span className="ef-setting-value">Not in this build</span></SettingRow>
               <SettingRow label="Generation limit" hint="EasyField shows live pricing but never blocks a run because of a local credit ceiling."><span className="ef-setting-value">Unlimited</span></SettingRow>
-              <SettingRow label="Technical telemetry" hint="Never includes prompts, media, project content or credentials."><Toggle label="Technical telemetry" checked={settings.telemetry} onChange={(telemetry) => onChange({ telemetry })} /></SettingRow>
+              <SettingRow label="Technical telemetry" hint="No diagnostics are collected or transmitted in this build. EasyField will not offer a switch that changes nothing."><span className="ef-setting-value">Not collected</span></SettingRow>
             </SettingsGroup>
           )}
 
